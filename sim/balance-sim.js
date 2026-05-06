@@ -34,22 +34,22 @@ const BUFF_POOL = [
   { id: 'compost',  name: 'Compost Tea',    rarity: 'common',   yieldMult: 1.08, timeMult: 0.92 },
   { id: 'sprout',   name: 'Eager Sprout',   rarity: 'common',   timeMult: 0.85 },
   { id: 'sturdy',   name: 'Sturdy Stems',   rarity: 'common',   yieldMult: 1.15 },
-  { id: 'patient',  name: 'Slow & Steady',  rarity: 'common',   yieldMult: 1.30, timeMult: 1.20 },
+  { id: 'patient',  name: 'Slow & Steady',  rarity: 'common',   yieldMult: 1.25, timeMult: 1.20 },
   { id: 'common_synergy', name: 'Folk Wisdom', rarity: 'common', custom: 'common_synergy' },
   // uncommon
-  { id: 'bee',      name: 'Bee Visitation', rarity: 'uncommon', yieldMult: 1.25 },
-  { id: 'mulch',    name: 'Living Mulch',   rarity: 'uncommon', yieldMult: 1.22, timeMult: 0.90 },
+  { id: 'bee',      name: 'Bee Visitation', rarity: 'uncommon', yieldMult: 1.22 },
+  { id: 'mulch',    name: 'Living Mulch',   rarity: 'uncommon', yieldMult: 1.18, timeMult: 0.90 },
   { id: 'symbiosis', name: 'Symbiosis',     rarity: 'uncommon', custom: 'symbiosis' },
   { id: 'gamble',   name: 'Coin Flip',      rarity: 'uncommon', custom: 'coin_flip_17' },
-  { id: 'tradeoff_a', name: 'Long Patience', rarity: 'uncommon', yieldMult: 1.50, timeMult: 1.25 },
+  { id: 'tradeoff_a', name: 'Long Patience', rarity: 'uncommon', yieldMult: 1.40, timeMult: 1.25 },
   { id: 'echo',     name: 'Echo',           rarity: 'uncommon', yieldMult: 1.12, custom: 'echo' },
   { id: 'twofold',  name: 'Twofold Path',   rarity: 'uncommon', yieldMult: 1.15, custom: 'twofold' },
   { id: 'cross_a',  name: 'Wild Pollen',    rarity: 'uncommon', custom: 'cross_yield_15' },
-  { id: 'lock_time', name: 'Steady Hand',   rarity: 'uncommon', yieldMult: 1.30, custom: 'lock_time' },
+  { id: 'lock_time', name: 'Steady Hand',   rarity: 'uncommon', yieldMult: 1.25, custom: 'lock_time' },
   { id: 'skill_a',  name: 'Peak Ripeness',  rarity: 'uncommon', custom: 'skill_window_10' },
-  { id: 'devour',   name: 'Eat the Roots',  rarity: 'uncommon', yieldMult: 1.45, custom: 'next_penalty_20' },
+  { id: 'devour',   name: 'Eat the Roots',  rarity: 'uncommon', yieldMult: 1.35, custom: 'next_penalty_20' },
   // rare
-  { id: 'storm',    name: 'After the Storm', rarity: 'rare', yieldMult: 1.55 },
+  { id: 'storm',    name: 'After the Storm', rarity: 'rare', yieldMult: 1.45 },
   { id: 'oldway',   name: 'The Old Way',    rarity: 'rare', yieldMult: 1.20, timeMult: 0.75 },
   { id: 'common_amp', name: 'Rare Earth',   rarity: 'rare', custom: 'common_amp' },
   { id: 'cornucopia', name: 'Cornucopia',   rarity: 'rare', yieldMult: 1.20, custom: 'cornucopia' },
@@ -60,8 +60,8 @@ const BUFF_POOL = [
   { id: 'pickback', name: 'Reroll the Day', rarity: 'rare', custom: 'reroll_last' },
   { id: 'rare_doubler', name: 'Garden Sage', rarity: 'rare', custom: 'double_actives' },
   // legendary
-  { id: 'plenty',   name: 'Year of Plenty', rarity: 'legendary', yieldMult: 1.90 },
-  { id: 'long_wait', name: 'The Long Wait', rarity: 'legendary', yieldMult: 2.50, timeMult: 1.60 },
+  { id: 'plenty',   name: 'Year of Plenty', rarity: 'legendary', yieldMult: 1.70 },
+  { id: 'long_wait', name: 'The Long Wait', rarity: 'legendary', yieldMult: 2.00, timeMult: 1.60 },
   { id: 'cascade_gold', name: 'Cascade of Gold', rarity: 'legendary', custom: 'cascade_gold' },
   { id: 'cross_leg', name: "Garden's Blessing", rarity: 'legendary', custom: 'cross_yield_50' },
   { id: 'all_in',   name: 'All In', rarity: 'legendary', custom: 'all_in' },
@@ -163,7 +163,7 @@ function handleCustom(plot, buff, echo) {
     }
     case 'symbiosis': {
       const others = plot.activeBuffs.length;
-      plot.yieldMult *= Math.pow(1 + 0.08 * others, e);
+      plot.yieldMult *= Math.pow(1 + 0.06 * others, e);
       break;
     }
     case 'coin_flip_17':
@@ -228,10 +228,10 @@ function handleCustom(plot, buff, echo) {
       plot.flags.picksAtCommit = plot.picksTaken + 1;
       break;
     case 'all_in': {
-      const others = plot.activeBuffs.filter(b => b.id !== 'all_in');
-      others.forEach(b => { if (b.yieldMult) plot.yieldMult /= b.yieldMult; });
+      const carryover = plot.flags.nextPenaltyMult || 1.0;
+      plot.yieldMult = carryover;
       plot.activeBuffs = [];
-      plot.yieldMult *= Math.pow(2.5, e);
+      plot.yieldMult *= Math.pow(2.1, e);
       break;
     }
     case 'wishflower':
@@ -239,15 +239,15 @@ function handleCustom(plot, buff, echo) {
       plot.totalPicks += 2;
       break;
     case 'world_tree':
-      plot.yieldMult *= Math.pow(3.5, e);
+      plot.yieldMult *= Math.pow(2.9, e);
       plot.flags.noMorePicks = true;
       break;
     case 'solstice':
-      plot.yieldMult *= Math.pow(2.5, e);
+      plot.yieldMult *= Math.pow(2.0, e);
       break;
     case 'common_amp': {
       const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length;
-      plot.yieldMult *= Math.pow(1 + 0.25 * commons, e);
+      plot.yieldMult *= Math.pow(1 + 0.20 * commons, e);
       break;
     }
   }
@@ -263,15 +263,15 @@ function strategyRandom(picks) {
 // ignoring time. Simple but realistic.
 function expectedYieldMult(buff) {
   if (buff.yieldMult) return buff.yieldMult;
-  if (buff.custom === 'world_tree') return 3.5;
-  if (buff.custom === 'all_in') return 2.5;
-  if (buff.custom === 'solstice') return 2.5;
-  if (buff.custom === 'cascade_gold') return 1.55 * 1.55; // 2 random rares (rough avg)
+  if (buff.custom === 'world_tree') return 2.9;
+  if (buff.custom === 'all_in') return 2.1;
+  if (buff.custom === 'solstice') return 2.0;
+  if (buff.custom === 'cascade_gold') return 1.45 * 1.45; // 2 random rares (rough avg)
   if (buff.custom === 'frost_gamble') return 0.7 * 2.2 + 0.3 * 0.5; // 1.69
   if (buff.custom === 'coin_flip_17') return 0.5 * 1.7 + 0.5 * 1.0; // 1.35
-  if (buff.custom === 'no_more_picks_80') return 1.80;
-  if (buff.custom === 'symbiosis') return 1.4; // assumes mid-game
-  if (buff.custom === 'common_amp') return 1.5;
+  if (buff.custom === 'no_more_picks_80') return 1.60;
+  if (buff.custom === 'symbiosis') return 1.3; // assumes mid-game
+  if (buff.custom === 'common_amp') return 1.4;
   if (buff.custom === 'common_synergy') return 1.2;
   if (buff.custom === 'double_actives') return 1.5; // depends on state
   if (buff.custom === 'wishflower') return 2.2;
@@ -295,7 +295,7 @@ function simulateRun(crop, strategy) {
   }
   // committedNoMore final-multiplier check
   if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
-    plot.yieldMult *= 1.60;
+    plot.yieldMult *= 1.60; // Devoted Tending bonus (already 1.60 after earlier change)
   }
   const baseYield = CROPS[crop].baseYield;
   const yieldAmount = Math.floor(baseYield * plot.yieldMult);

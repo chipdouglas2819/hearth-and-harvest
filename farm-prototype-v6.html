@@ -475,6 +475,7 @@ main {
   border-left: 3px solid var(--sage);
 }
 .buff-chip .ferment-bonus { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--terracotta); }
+.buff-chip .buff-outcome { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--terracotta); font-style: normal; }
 .buff-chip.uncommon { border-left-color: var(--moss); background: rgba(74, 107, 79, 0.10); }
 .buff-chip.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.10); color: var(--rust); }
 .buff-chip.legendary { border-left-color: var(--gold); background: rgba(212, 160, 44, 0.14); color: var(--rust); font-weight: 600; }
@@ -1367,26 +1368,26 @@ const BUFF_POOL = [
   { id: 'compost',  name: 'Compost Tea',    desc: '+8% yield, −8% time',                       rarity: 'common',   archetype: 'stat',     yieldMult: 1.08, timeMult: 0.92, flavor: 'an old farmer\'s trick.' },
   { id: 'sprout',   name: 'Eager Sprout',   desc: '−15% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.85,  flavor: 'this one wants to grow.' },
   { id: 'sturdy',   name: 'Sturdy Stems',   desc: '+15% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.15, flavor: 'bend in wind, never break.' },
-  { id: 'patient',  name: 'Slow & Steady',  desc: '+30% yield, +20% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.30, timeMult: 1.20, flavor: 'haste makes waste.' },
+  { id: 'patient',  name: 'Slow & Steady',  desc: '+25% yield, +20% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.25, timeMult: 1.20, flavor: 'haste makes waste.' },
   { id: 'common_synergy', name: 'Folk Wisdom', desc: '+5% yield per common buff (incl. this)', rarity: 'common',   archetype: 'synergy',  custom: 'common_synergy', flavor: 'small things, well done.' },
 
   // ============ UNCOMMON ============
-  { id: 'bee',      name: 'Bee Visitation',  desc: '+25% yield',                               rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.25, flavor: 'they know which flowers to find.' },
-  { id: 'mulch',    name: 'Living Mulch',    desc: '+22% yield, −10% time',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.22, timeMult: 0.90, flavor: 'clover keeping the roots cool.' },
-  { id: 'symbiosis', name: 'Symbiosis',      desc: '+8% yield per OTHER active buff',          rarity: 'uncommon', archetype: 'synergy',  custom: 'symbiosis', flavor: 'each gift makes the next greater.' },
+  { id: 'bee',      name: 'Bee Visitation',  desc: '+22% yield',                               rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.22, flavor: 'they know which flowers to find.' },
+  { id: 'mulch',    name: 'Living Mulch',    desc: '+18% yield, −10% time',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.18, timeMult: 0.90, flavor: 'clover keeping the roots cool.' },
+  { id: 'symbiosis', name: 'Symbiosis',      desc: '+6% yield per OTHER active buff',          rarity: 'uncommon', archetype: 'synergy',  custom: 'symbiosis', flavor: 'each gift makes the next greater.' },
   { id: 'gamble',   name: 'Coin Flip',       desc: '50% chance: ×1.7 yield. else: nothing.',   rarity: 'uncommon', archetype: 'gamble',   custom: 'coin_flip_17', flavor: 'fortune favors the planted.' },
-  { id: 'tradeoff_a', name: 'Long Patience', desc: '+50% yield, +25% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.50, timeMult: 1.25, flavor: 'wait, and the field will pay.' },
+  { id: 'tradeoff_a', name: 'Long Patience', desc: '+40% yield, +25% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.40, timeMult: 1.25, flavor: 'wait, and the field will pay.' },
   { id: 'echo',     name: 'Echo',            desc: '+12% yield. your NEXT boon\'s effects apply twice.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.12, custom: 'echo', flavor: 'the field remembers.' },
   { id: 'twofold',  name: 'Twofold Path',    desc: '+15% yield. then apply a random uncommon-or-lower boon.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.15, custom: 'twofold', flavor: 'the soil decides what else.' },
   { id: 'cross_a',  name: 'Wild Pollen',     desc: '+15% yield to ALL other active plots',     rarity: 'uncommon', archetype: 'cross',    custom: 'cross_yield_15', flavor: 'the wind carries gifts.' },
-  { id: 'lock_time', name: 'Steady Hand',    desc: '+30% yield. no time buffs after this.',    rarity: 'uncommon', archetype: 'commit',   yieldMult: 1.30, custom: 'lock_time', flavor: 'a craftsman\'s tempo.' },
+  { id: 'lock_time', name: 'Steady Hand',    desc: '+25% yield. no time buffs after this.',    rarity: 'uncommon', archetype: 'commit',   yieldMult: 1.25, custom: 'lock_time', flavor: 'a craftsman\'s tempo.' },
   { id: 'skill_a',  name: 'Peak Ripeness',   desc: 'harvest within 10s of ripe = ×1.6 yield', rarity: 'uncommon', archetype: 'skill',    custom: 'skill_window_10', flavor: 'timing is taste.' },
-  { id: 'devour',   name: 'Eat the Roots',   desc: '+45% yield, −20% from next planting',     rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.45, custom: 'next_penalty_20', flavor: 'today\'s feast, tomorrow\'s hunger.' },
+  { id: 'devour',   name: 'Eat the Roots',   desc: '+35% yield, −20% from next planting',     rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.35, custom: 'next_penalty_20', flavor: 'today\'s feast, tomorrow\'s hunger.' },
 
   // ============ RARE ============
-  { id: 'storm',    name: 'After the Storm', desc: '+55% yield',                               rarity: 'rare',     archetype: 'stat',     yieldMult: 1.55, flavor: 'rinsed clean, charged with rain.' },
-  { id: 'oldway',   name: 'The Old Way',     desc: '−25% time, +20% yield',                    rarity: 'rare',     archetype: 'stat',     yieldMult: 1.20, timeMult: 0.75, flavor: 'as grandmother did it.' },
-  { id: 'common_amp', name: 'Rare Earth',    desc: '+25% yield per common buff this run',      rarity: 'rare',     archetype: 'synergy',  custom: 'common_amp', flavor: 'simple things multiplied.' },
+  { id: 'storm',    name: 'After the Storm', desc: '+45% yield',                               rarity: 'rare',     archetype: 'stat',     yieldMult: 1.45, flavor: 'rinsed clean, charged with rain.' },
+  { id: 'oldway',   name: 'The Old Way',     desc: '+20% yield, −25% time',                    rarity: 'rare',     archetype: 'stat',     yieldMult: 1.20, timeMult: 0.75, flavor: 'as grandmother did it.' },
+  { id: 'common_amp', name: 'Rare Earth',    desc: '+20% yield per common buff this run',      rarity: 'rare',     archetype: 'synergy',  custom: 'common_amp', flavor: 'simple things multiplied.' },
   { id: 'cornucopia', name: 'Cornucopia',    desc: '+20% yield. your NEXT draft shows 5 boons.', rarity: 'rare',   archetype: 'cascade',  yieldMult: 1.20, custom: 'cornucopia', flavor: 'the basket overflows.' },
   { id: 'commit',   name: 'Devoted Tending', desc: '+60% yield IF you take no more boons.',    rarity: 'rare',     archetype: 'commit',   custom: 'no_more_picks_80', flavor: 'a vow kept.' },
   { id: 'cross_b',  name: 'Hive Mind',       desc: '+1 boon to every other plot growing now',  rarity: 'rare',     archetype: 'cross',    custom: 'cross_pick_1', flavor: 'gifts shared, freely given.' },
@@ -1396,35 +1397,35 @@ const BUFF_POOL = [
   { id: 'rare_doubler', name: 'Garden Sage', desc: 'doubles your highest active yield boon',   rarity: 'rare',     archetype: 'meta',     custom: 'double_actives', flavor: 'the elder\'s touch.' },
 
   // ============ LEGENDARY ============
-  { id: 'plenty',   name: 'Year of Plenty',  desc: '×1.9 yield',                               rarity: 'legendary', archetype: 'stat',     yieldMult: 1.90, flavor: 'the harvest of a lifetime.' },
-  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.5 yield, +60% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.50, timeMult: 1.60, flavor: 'years pass. the field remembers.' },
+  { id: 'plenty',   name: 'Year of Plenty',  desc: '×1.7 yield',                               rarity: 'legendary', archetype: 'stat',     yieldMult: 1.70, flavor: 'the harvest of a lifetime.' },
+  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.0 yield, +60% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.00, timeMult: 1.60, flavor: 'years pass. the field remembers.' },
   { id: 'cascade_gold', name: 'Cascade of Gold', desc: 'apply 2 random rare boons immediately.', rarity: 'legendary', archetype: 'cascade', custom: 'cascade_gold', flavor: 'the sky opens.' },
   { id: 'cross_leg', name: 'Garden\'s Blessing', desc: 'all OTHER plots: +50% yield this run', rarity: 'legendary', archetype: 'cross',    custom: 'cross_yield_50', flavor: 'every patch sings.' },
-  { id: 'all_in',   name: 'All In',          desc: '×2.5 yield. lose all other current buffs.', rarity: 'legendary', archetype: 'commit', custom: 'all_in', flavor: 'one true thing, no more.' },
+  { id: 'all_in',   name: 'All In',          desc: '×2.1 yield. lose all other current buffs.', rarity: 'legendary', archetype: 'commit', custom: 'all_in', flavor: 'one true thing, no more.' },
 
   // ============ MYTHIC ============
   { id: 'wishflower', name: 'Wishflower',    desc: 'next 2 boons: guaranteed legendary+',      rarity: 'mythic',    archetype: 'meta',     custom: 'wishflower', flavor: 'a single bloom in a thousand fields.' },
-  { id: 'world_tree', name: 'Roots of the World', desc: '×3.5 yield. no more boons this run.', rarity: 'mythic',    archetype: 'commit',   custom: 'world_tree', flavor: 'older than the soil itself.' },
+  { id: 'world_tree', name: 'Roots of the World', desc: '×2.9 yield. no more boons this run.', rarity: 'mythic',    archetype: 'commit',   custom: 'world_tree', flavor: 'older than the soil itself.' },
   { id: 'eternal',  name: 'Eternal Crop',    desc: 'after harvest, plot replants identical with all boons preserved. once.', rarity: 'mythic', archetype: 'meta', custom: 'eternal', flavor: 'the field that keeps giving.' },
-  { id: 'sun_god',  name: 'Solstice',        desc: '×2.5 yield. ALL other plots: ×1.8 yield.', rarity: 'mythic',    archetype: 'cross',    custom: 'solstice', flavor: 'the day the sun stood still.' },
+  { id: 'sun_god',  name: 'Solstice',        desc: '×2.0 yield. ALL other plots: ×1.6 yield.', rarity: 'mythic',    archetype: 'cross',    custom: 'solstice', flavor: 'the day the sun stood still.' },
 
   // ============ CROP-SPECIFIC IN-RUN ============
-  { id: 'crunch',   name: 'Extra Crunch',    desc: '+30% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.30, cropOnly: 'radish', flavor: 'snap heard from the fence.' },
-  { id: 'french',   name: 'French Breakfast', desc: '×2.4 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.85, cropOnly: 'radish', flavor: 'served with butter and salt.' },
-  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+50% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
-  { id: 'sugarsnap', name: 'Sugarsnap',     desc: '×2.5 carrot yield, −10% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.50, timeMult: 0.90, cropOnly: 'carrot', flavor: 'as sweet as candy from the ground.' },
-  { id: 'heirloom', name: 'Heirloom Strain', desc: '+40% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.40, cropOnly: 'tomato', flavor: 'seeds saved for generations.' },
-  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.6 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, cropOnly: 'tomato', flavor: 'one fruit fills both hands.' },
-  { id: 'golden',   name: 'Golden Field',    desc: '+45% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'wheat', flavor: 'the field hums in the breeze.' },
-  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.8 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, timeMult: 0.80, cropOnly: 'wheat', flavor: 'sung at the close of summer.' },
-  { id: 'corn_silk', name: 'Silken Husk',    desc: '+50% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'corn', flavor: 'long fields, bowed by wind.' },
-  { id: 'sweet_corn', name: 'Sweet Corn',    desc: '×2.7 corn yield, −10% time',               rarity: 'legendary', archetype: 'stat',    yieldMult: 2.70, timeMult: 0.90, cropOnly: 'corn', flavor: 'butter melts on contact.' },
-  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+60% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.60, cropOnly: 'pumpkin', flavor: 'big enough to hollow a kingdom.' },
-  { id: 'field_giant', name: 'Field Giant',  desc: '×2.8 pumpkin yield',                        rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, cropOnly: 'pumpkin', flavor: 'a county-fair winner.' },
-  { id: 'berry_burst', name: 'Berry Burst',   desc: '+45% strawberry yield',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'strawberry', flavor: 'red enough to stain a thumb.' },
-  { id: 'wild_jam',  name: 'Wild Jam',         desc: '×2.6 strawberry yield, −15% time',         rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, timeMult: 0.85, cropOnly: 'strawberry', flavor: 'simmered until the spoon stands up.' },
-  { id: 'sunseed',  name: 'Sunseed',          desc: '+55% sunflower yield',                     rarity: 'rare',     archetype: 'stat',     yieldMult: 1.55, cropOnly: 'sunflower', flavor: 'each shell, a small star.' },
-  { id: 'sunblaze', name: 'Sunblaze',         desc: '×2.9 sunflower yield, −10% time',          rarity: 'legendary', archetype: 'stat',    yieldMult: 2.90, timeMult: 0.90, cropOnly: 'sunflower', flavor: 'turning even with the night.' },
+  { id: 'crunch',   name: 'Extra Crunch',    desc: '+25% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.25, cropOnly: 'radish', flavor: 'snap heard from the fence.' },
+  { id: 'french',   name: 'French Breakfast', desc: '×2.0 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.00, timeMult: 0.85, cropOnly: 'radish', flavor: 'served with butter and salt.' },
+  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+40% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.40, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
+  { id: 'sugarsnap', name: 'Sugarsnap',     desc: '×2.1 carrot yield, −10% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.10, timeMult: 0.90, cropOnly: 'carrot', flavor: 'as sweet as candy from the ground.' },
+  { id: 'heirloom', name: 'Heirloom Strain', desc: '+35% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.35, cropOnly: 'tomato', flavor: 'seeds saved for generations.' },
+  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.2 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, cropOnly: 'tomato', flavor: 'one fruit fills both hands.' },
+  { id: 'golden',   name: 'Golden Field',    desc: '+38% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.38, cropOnly: 'wheat', flavor: 'the field hums in the breeze.' },
+  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.3 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.30, timeMult: 0.80, cropOnly: 'wheat', flavor: 'sung at the close of summer.' },
+  { id: 'corn_silk', name: 'Silken Husk',    desc: '+40% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.40, cropOnly: 'corn', flavor: 'long fields, bowed by wind.' },
+  { id: 'sweet_corn', name: 'Sweet Corn',    desc: '×2.2 corn yield, −10% time',               rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, timeMult: 0.90, cropOnly: 'corn', flavor: 'butter melts on contact.' },
+  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+50% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'pumpkin', flavor: 'big enough to hollow a kingdom.' },
+  { id: 'field_giant', name: 'Field Giant',  desc: '×2.3 pumpkin yield',                        rarity: 'legendary', archetype: 'stat',    yieldMult: 2.30, cropOnly: 'pumpkin', flavor: 'a county-fair winner.' },
+  { id: 'berry_burst', name: 'Berry Burst',   desc: '+38% strawberry yield',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.38, cropOnly: 'strawberry', flavor: 'red enough to stain a thumb.' },
+  { id: 'wild_jam',  name: 'Wild Jam',         desc: '×2.2 strawberry yield, −15% time',         rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, timeMult: 0.85, cropOnly: 'strawberry', flavor: 'simmered until the spoon stands up.' },
+  { id: 'sunseed',  name: 'Sunseed',          desc: '+45% sunflower yield',                     rarity: 'rare',     archetype: 'stat',     yieldMult: 1.45, cropOnly: 'sunflower', flavor: 'each shell, a small star.' },
+  { id: 'sunblaze', name: 'Sunblaze',         desc: '×2.4 sunflower yield, −10% time',          rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.90, cropOnly: 'sunflower', flavor: 'turning even with the night.' },
 ];
 
 // ============ PERMA-BUFF POOL ============
@@ -1701,7 +1702,7 @@ function pickRandomFromPool(filterFn) {
   return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
-function draftPermaPack(n, rarityFloor = null, generalOnlyCount = 0) {
+function draftPermaPack(n, rarityFloor = null, guaranteedGeneral = 0) {
   const filterByFloor = (b) =>
     rarityFloor ? RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor) : true;
   const generalPool = PERMA_POOL.filter(b => !b.cropOnly && filterByFloor(b));
@@ -1709,10 +1710,21 @@ function draftPermaPack(n, rarityFloor = null, generalOnlyCount = 0) {
 
   const picks = [];
   const used = new Set();
-  for (let i = 0; i < n; i++) {
-    const useGeneral = i < generalOnlyCount;
-    const basePool = useGeneral ? generalPool : fullPool;
-    const pool = basePool.filter(b => !used.has(b.id));
+  // First, fulfill the guaranteed-general slots
+  for (let i = 0; i < guaranteedGeneral && i < n; i++) {
+    const pool = generalPool.filter(b => !used.has(b.id));
+    if (pool.length === 0) break;
+    const weighted = pool.map(b => ({ b, w: PERMA_RARITY_WEIGHTS[b.rarity] }));
+    const total = weighted.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of weighted) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
+    }
+  }
+  // Then fill the rest from the full pool (random — could be general or crop-specific)
+  while (picks.length < n) {
+    const pool = fullPool.filter(b => !used.has(b.id));
     if (pool.length === 0) break;
     const weighted = pool.map(b => ({ b, w: PERMA_RARITY_WEIGHTS[b.rarity] }));
     const total = weighted.reduce((s, x) => s + x.w, 0);
@@ -1901,9 +1913,10 @@ function applyBuff(plotId, buff) {
     plot.totalMs *= buff.timeMult;
     if (echoActive) plot.totalMs *= buff.timeMult;
   }
-  if (buff.custom) handleCustom(plotId, buff, echoActive);
+  let outcome = null;
+  if (buff.custom) outcome = handleCustom(plotId, buff, echoActive);
 
-  plot.activeBuffs.push({ ...buff, _snapshot: snapshot });
+  plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome });
   plot.picksTaken += 1;
   closeAllModals();
   render();
@@ -1923,12 +1936,20 @@ function handleCustom(plotId, buff, echo) {
       plot.yieldMult *= Math.pow(1 + 0.08 * others, e);
       break;
     }
-    case 'coin_flip_17':
-      for (let i = 0; i < e; i++) if (Math.random() < 0.5) plot.yieldMult *= 1.7;
-      break;
-    case 'frost_gamble':
-      for (let i = 0; i < e; i++) plot.yieldMult *= (Math.random() < 0.7) ? 2.2 : 0.5;
-      break;
+    case 'coin_flip_17': {
+      let multGain = 1.0;
+      for (let i = 0; i < e; i++) if (Math.random() < 0.5) multGain *= 1.7;
+      plot.yieldMult *= multGain;
+      return multGain > 1 ? `+${Math.round((multGain - 1) * 100)}%!` : 'miss';
+    }
+    case 'frost_gamble': {
+      let multGain = 1.0;
+      for (let i = 0; i < e; i++) multGain *= (Math.random() < 0.7) ? 2.2 : 0.5;
+      plot.yieldMult *= multGain;
+      return multGain >= 1
+        ? `+${Math.round((multGain - 1) * 100)}%`
+        : `−${Math.round((1 - multGain) * 100)}%`;
+    }
     case 'echo':
       plot.flags.echoLeft = (plot.flags.echoLeft || 0) + 1;
       break;
@@ -2168,11 +2189,9 @@ function openPackModal(rarityFloor = null, customTitle = null) {
   if (!rarityFloor && state.pendingPacks < 1) return;
   if (!rarityFloor) state.pendingPacks -= 1;
 
-  // First 3 packs are all-general so early players get cards they can use
-  // regardless of which crop they're growing.
-  const packNumber = state.packsOpened + 1;
-  const generalOnlyCount = packNumber <= 3 ? 3 : 0;
-  const cards = draftPermaPack(3, rarityFloor, generalOnlyCount);
+  // Every pack guarantees at least 1 general card so the player always pulls
+  // something they can use on any crop. The other 2 cards are random.
+  const cards = draftPermaPack(3, rarityFloor, 1);
   state.currentPackCards = cards;
   state.adUsedForCurrentPack = false;
 
@@ -2667,7 +2686,8 @@ function render() {
           <div class="active-buffs">
             ${plot.activeBuffs.map(b => {
               const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
-              return `<span class="buff-chip ${b.rarity}">${b.name}${extra}</span>`;
+              const outcome = b._outcome ? ` <span class="buff-outcome">→ ${b._outcome}</span>` : '';
+              return `<span class="buff-chip ${b.rarity}">${b.name}${outcome}${extra}</span>`;
             }).join('')}
           </div>
         `;
