@@ -269,6 +269,10 @@ main {
   background: linear-gradient(90deg, rgba(157,111,211,0.14), rgba(157,111,211,0.05));
 }
 .loadout-strip-slot.filled.inactive { opacity: 0.35; filter: grayscale(0.5); }
+.loadout-strip-slot .slot-icon {
+  font-size: 16px;
+  line-height: 1;
+}
 .loadout-strip-slot .slot-text {
   font-family: var(--serif);
   font-style: italic;
@@ -1285,8 +1289,8 @@ main {
 <script>
 // ============ CONFIG ============
 const CROPS = {
-  radish:  { name: 'Radish',  emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 2 },
-  carrot:  { name: 'Carrot',  emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 3 },
+  radish:  { name: 'Radish',  emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
+  carrot:  { name: 'Carrot',  emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
   tomato:  { name: 'Tomato',  emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3 },
   wheat:   { name: 'Wheat',   emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 450,  pickCount: 5 },
   corn:    { name: 'Corn',    emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 700,  pickCount: 5 },
@@ -1297,8 +1301,8 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-const TAP_COOLDOWN_MS = 200;
-const TAP_BASE_REDUCTION = 0.005; // 0.5% per tap at 1x speed (Cookie Clicker tiny)
+const TAP_COOLDOWN_MS = 50;
+const TAP_BASE_REDUCTION = 0.0025; // 0.25% per tap at 1x speed (Cookie Clicker tiny)
 // Mastery: each crop gains a small permanent yield bonus per harvests-of-that-crop.
 const MASTERY_BONUS_PER_5 = 0.001; // +0.1% per 5 harvests of the same crop
 
@@ -1427,7 +1431,7 @@ const PERMA_POOL = [
   { id: 'p_pu_court', name: 'Autumn Court', desc: '+28% pumpkin yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'pumpkin', flavor: 'the crowned harvest.' },
 ];
 
-const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000, 70000, 175000];
+const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000];
 
 // ============ STATE ============
 const state = {
@@ -1489,7 +1493,7 @@ function fmtTimeRemaining(ms) {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return `${h}h ${m % 60}m ${s % 60}s`;
 }
 
 function picksUnlockedAt(plot) {
@@ -1626,15 +1630,21 @@ function plant(plotId, cropType) {
 
 function tapEffectiveReduction() {
   // Per-tap reduction at speed N matches what N taps at 1x would do.
-  // 1× → 0.5%, 60× → 26%, 600× → 95%
+  // 1× → 0.25%, 60× → 14%, 600× → 78%
   const speed = Math.max(1, state.speed);
   return 1 - Math.pow(1 - TAP_BASE_REDUCTION, speed);
+}
+
+function anyModalOpen() {
+  return ['plantModal', 'buffModal', 'packModal', 'collectionModal', 'loadoutModal']
+    .some(id => !document.getElementById(id).hidden);
 }
 
 function tapCrop(plotId) {
   const plot = state.plots[plotId];
   if (!plot.crop || plot.locked) return;
   if (isReady(plot)) return;
+  if (anyModalOpen()) return; // don't process taps under an open modal
   const now = performance.now();
   if (now - plot.lastTapTime < TAP_COOLDOWN_MS) return;
 
@@ -1680,7 +1690,7 @@ function harvest(plotId, ev) {
   if (plot.flags.skillFerment) {
     const overripeMs = plot.elapsedMs - plot.totalMs;
     const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
-    const ticks = Math.max(0, Math.floor(overripeRealSec / 5));
+    const ticks = Math.min(20, Math.max(0, Math.floor(overripeRealSec / 5))); // cap at +160%
     mult *= (1 + 0.08 * ticks);
   }
   if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
@@ -1710,7 +1720,14 @@ function harvest(plotId, ev) {
     const savedBuffs = plot.activeBuffs.filter(b => b.id !== 'eternal');
     const savedYieldMult = plot.yieldMult;
     const savedTotalPicks = plot.totalPicks;
-    const savedFlags = { ...plot.flags, eternalUsed: true, eternalActive: false };
+    // preserve passive run modifiers, but clear one-shot triggers so they don't re-fire
+    const savedFlags = {
+      ...plot.flags,
+      eternalUsed: true,
+      eternalActive: false,
+      committedNoMore: false,
+      picksAtCommit: undefined,
+    };
     const cropType = plot.crop;
     Object.assign(plot, makePlot(plotId));
     plot.crop = cropType;
@@ -1733,6 +1750,15 @@ function applyBuff(plotId, buff) {
   if (!plot.crop) return;
   if (picksAvailable(plot) < 1) return;
 
+  // snapshot pre-buff state so Reroll can fully restore it
+  const snapshot = {
+    yieldMult: plot.yieldMult,
+    totalMs: plot.totalMs,
+    totalPicks: plot.totalPicks,
+    flags: { ...plot.flags },
+    activeBuffsLen: plot.activeBuffs.length,
+  };
+
   // commit deferred draft modifiers (only when buff is actually picked)
   if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) plot.flags.wishflowerLeft -= 1;
   if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) plot.flags.wideDraftLeft -= 1;
@@ -1750,7 +1776,7 @@ function applyBuff(plotId, buff) {
   }
   if (buff.custom) handleCustom(plotId, buff, echoActive);
 
-  plot.activeBuffs.push(buff);
+  plot.activeBuffs.push({ ...buff, _snapshot: snapshot });
   plot.picksTaken += 1;
   closeAllModals();
   render();
@@ -1831,8 +1857,18 @@ function handleCustom(plotId, buff, echo) {
     case 'reroll_last': {
       if (plot.activeBuffs.length > 0) {
         const last = plot.activeBuffs[plot.activeBuffs.length - 1];
-        if (last.yieldMult) plot.yieldMult /= last.yieldMult;
-        plot.activeBuffs.pop();
+        // restore from snapshot (handles yield, time, flags, and any cascade-pushed buffs)
+        if (last._snapshot) {
+          plot.yieldMult = last._snapshot.yieldMult;
+          plot.totalMs = last._snapshot.totalMs;
+          plot.totalPicks = last._snapshot.totalPicks;
+          plot.flags = { ...last._snapshot.flags };
+          plot.activeBuffs.length = last._snapshot.activeBuffsLen;
+        } else {
+          // fallback for buffs without snapshot (shouldn't happen post-fix)
+          if (last.yieldMult) plot.yieldMult /= last.yieldMult;
+          plot.activeBuffs.pop();
+        }
         plot.picksTaken -= 1;
         plot.totalPicks += 1;
       }
@@ -1847,8 +1883,9 @@ function handleCustom(plotId, buff, echo) {
       plot.flags.picksAtCommit = plot.picksTaken + 1;
       break;
     case 'all_in': {
-      const others = plot.activeBuffs.filter(b => b.id !== 'all_in');
-      others.forEach(b => { if (b.yieldMult) plot.yieldMult /= b.yieldMult; });
+      // hard reset yieldMult to baseline (penalty carryover preserved), then apply 2.5x
+      const carryover = plot.flags.nextPenaltyMult || 1.0;
+      plot.yieldMult = carryover;
       plot.activeBuffs = [];
       plot.yieldMult *= Math.pow(2.5, e);
       break;
@@ -2073,8 +2110,12 @@ function watchAdForBonus() {
       clearInterval(interval);
       state.adPlaying = false;
       state.adUsedForCurrentPack = true;
-      // add 4th card uncommon-or-higher
-      const bonus = draftPermaPack(1, 'uncommon')[0];
+      // add 4th card uncommon-or-higher; avoid duplicates of cards already in this pack
+      const existingIds = new Set(state.currentPackCards.map(c => c.id));
+      let bonus = null;
+      for (let attempt = 0; attempt < 20 && (!bonus || existingIds.has(bonus.id)); attempt++) {
+        bonus = draftPermaPack(1, 'uncommon')[0];
+      }
       state.currentPackCards.push(bonus);
       renderPackCards();
       renderPackActions();
@@ -2320,14 +2361,16 @@ function render() {
         </div>
       `;
 
-      // Build loadout strip
-      const loadoutHtml = '<div class="loadout-strip" data-plotid="' + i + '">' +
+      // Build loadout strip — shows crop emoji for crop-specific cards, 🌿 for general
+      const loadoutHtml = '<div class="loadout-strip" data-plotid="' + i + '" title="Click to edit loadout">' +
         Array.from({length: MAX_PERMA_SLOTS}, (_, j) => {
           const id = loadout[j];
           const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
           if (!buff) return '<div class="loadout-strip-slot">·</div>';
           const active = isBuffActiveOnPlot(buff, plot);
-          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}"><span class="slot-text">${buff.name}</span></div>`;
+          const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '🌿';
+          const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
+          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label}"><span class="slot-icon">${icon}</span></div>`;
         }).join('') +
         '</div>';
 
@@ -2345,11 +2388,6 @@ function render() {
         btn.textContent = 'Plant a Crop';
         btn.onclick = () => openPlantModal(i);
         actions.appendChild(btn);
-        const loadBtn = document.createElement('button');
-        loadBtn.className = 'btn btn-ghost';
-        loadBtn.textContent = `Edit Loadout (${loadout.length}/${MAX_PERMA_SLOTS})`;
-        loadBtn.onclick = () => openLoadoutModal(i);
-        actions.appendChild(loadBtn);
         el.appendChild(actions);
       } else {
         const crop = CROPS[plot.crop];
@@ -2374,7 +2412,7 @@ function render() {
         el.innerHTML = labelHtml + loadoutHtml + `
           <div class="crop-header">
             <div class="crop-name">${crop.name}</div>
-            <div class="yield-mult">×${effectiveYield.toFixed(2)}</div>
+            <div class="yield-mult" title="Yield multiplier — applied to base yield at harvest">×${effectiveYield.toFixed(2)} yield</div>
           </div>
           <div class="growth-display">
             <div class="crop-visual-wrap ${ready ? 'exhausted' : ''}" data-plotid="${i}">
@@ -2418,12 +2456,6 @@ function render() {
           hb.onclick = (ev) => harvest(i, ev);
           actions.appendChild(hb);
         }
-
-        const loadBtn = document.createElement('button');
-        loadBtn.className = 'btn btn-ghost';
-        loadBtn.textContent = `Loadout (${loadout.length}/${MAX_PERMA_SLOTS})`;
-        loadBtn.onclick = () => openLoadoutModal(i);
-        actions.appendChild(loadBtn);
 
         el.appendChild(actions);
       }
