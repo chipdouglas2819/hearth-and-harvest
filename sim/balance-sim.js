@@ -3,7 +3,16 @@
 // over many planted runs to surface OP combos and check the plot-cost economy.
 
 // ============ DATA (mirror of v6 BUFF_POOL) ============
-const CROPS = {
+// Pass --proposed to use the rebalance values; default = current v6 values.
+const USE_PROPOSED = process.argv.includes('--proposed');
+const CROPS = USE_PROPOSED ? {
+  radish:  { growthHrs: 4,  plantCost: 20,  baseYield: 80,   pickCount: 2 },
+  carrot:  { growthHrs: 8,  plantCost: 35,  baseYield: 175,  pickCount: 3 },
+  tomato:  { growthHrs: 12, plantCost: 60,  baseYield: 280,  pickCount: 3 },
+  wheat:   { growthHrs: 24, plantCost: 100, baseYield: 450,  pickCount: 5 },
+  corn:    { growthHrs: 30, plantCost: 175, baseYield: 700,  pickCount: 5 },
+  pumpkin: { growthHrs: 40, plantCost: 220, baseYield: 800,  pickCount: 6 },
+} : {
   radish:  { growthHrs: 4,  plantCost: 20,  baseYield: 60,   pickCount: 2 },
   carrot:  { growthHrs: 8,  plantCost: 35,  baseYield: 130,  pickCount: 3 },
   tomato:  { growthHrs: 12, plantCost: 60,  baseYield: 240,  pickCount: 3 },
@@ -323,8 +332,11 @@ for (const s of stats) {
 
 // ============ PLOT ECONOMY ============
 console.log('\n--- PLOT ECONOMY (assumes endless single-crop greedy run, no taps) ---');
-const PLOT_COSTS = [0, 250, 700, 1700, 4000, 9000, 19000, 40000];
-console.log('Crop      coins/hr   hrs to next plot at $250/700/1700/4000/9000/19000/40000');
+const PLOT_COSTS = USE_PROPOSED
+  ? [0, 300, 1000, 3000, 9000, 25000, 70000, 175000]
+  : [0, 250, 700, 1700, 4000, 9000, 19000, 40000];
+const costStr = PLOT_COSTS.slice(1).map(c => '$' + c).join('/');
+console.log(`Crop      coins/hr   hrs to next plot at ${costStr}`);
 for (const s of stats) {
   const cph = s.meanPerHour;
   const hrs = PLOT_COSTS.slice(1).map(c => (c / cph).toFixed(1));
