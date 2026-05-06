@@ -2500,10 +2500,12 @@ function render() {
   document.getElementById('totalCollected').textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} collected`;
   document.getElementById('totalHarvestsStat').textContent = `${state.totalHarvests} harvest${state.totalHarvests === 1 ? '' : 's'}`;
 
-  // plots
+  // plots — show all unlocked plots, plus only the FIRST locked plot (next-to-buy)
   const grid = document.getElementById('plotsGrid');
   grid.innerHTML = '';
+  const firstLockedIdx = state.plots.findIndex(p => p.locked);
   state.plots.forEach((plot, i) => {
+    if (plot.locked && i !== firstLockedIdx) return; // hide all locked plots except next-to-buy
     const el = document.createElement('div');
     el.className = 'plot';
     el.setAttribute('data-plotid', i);
@@ -2644,23 +2646,28 @@ function render() {
     grid.appendChild(el);
   });
 
-  // mastery — +0.1% yield per 5 harvests of the same crop
+  // mastery — only show crops the player has actually grown
   const mList = document.getElementById('masteryList');
   mList.innerHTML = '';
-  for (const [key, c] of Object.entries(CROPS)) {
-    const count = state.mastery[key];
-    const bonusPct = (Math.floor(count / 5) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
-    const toNext = 5 - (count % 5);
-    const row = document.createElement('div');
-    row.className = 'mastery-row';
-    row.innerHTML = `
-      <span class="name">${c.emoji} ${c.name}</span>
-      <span style="text-align:right;">
-        <div class="count">${count} · +${bonusPct}%</div>
-        <div class="next-unlock">${toNext} to next +0.1%</div>
-      </span>
-    `;
-    mList.appendChild(row);
+  const grownEntries = Object.entries(CROPS).filter(([key]) => state.mastery[key] > 0);
+  if (grownEntries.length === 0) {
+    mList.innerHTML = '<div class="harvest-empty">harvest a crop to begin mastery</div>';
+  } else {
+    for (const [key, c] of grownEntries) {
+      const count = state.mastery[key];
+      const bonusPct = (Math.floor(count / 5) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
+      const toNext = 5 - (count % 5);
+      const row = document.createElement('div');
+      row.className = 'mastery-row';
+      row.innerHTML = `
+        <span class="name">${c.emoji} ${c.name}</span>
+        <span style="text-align:right;">
+          <div class="count">${count} · +${bonusPct}%</div>
+          <div class="next-unlock">${toNext} to next +0.1%</div>
+        </span>
+      `;
+      mList.appendChild(row);
+    }
   }
 
   // log
