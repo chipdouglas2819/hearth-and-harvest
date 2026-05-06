@@ -32,7 +32,7 @@ const BUFF_POOL = [
   { id: 'rain',     name: 'Gentle Rain',    rarity: 'common',   timeMult: 0.88 },
   { id: 'rich',     name: 'Rich Soil',      rarity: 'common',   yieldMult: 1.18 },
   { id: 'compost',  name: 'Compost Tea',    rarity: 'common',   yieldMult: 1.08, timeMult: 0.92 },
-  { id: 'sprout',   name: 'Eager Sprout',   rarity: 'common',   timeMult: 0.80 },
+  { id: 'sprout',   name: 'Eager Sprout',   rarity: 'common',   timeMult: 0.85 },
   { id: 'sturdy',   name: 'Sturdy Stems',   rarity: 'common',   yieldMult: 1.15 },
   { id: 'patient',  name: 'Slow & Steady',  rarity: 'common',   yieldMult: 1.30, timeMult: 1.20 },
   { id: 'common_synergy', name: 'Folk Wisdom', rarity: 'common', custom: 'common_synergy' },
@@ -41,7 +41,7 @@ const BUFF_POOL = [
   { id: 'mulch',    name: 'Living Mulch',   rarity: 'uncommon', yieldMult: 1.22, timeMult: 0.90 },
   { id: 'symbiosis', name: 'Symbiosis',     rarity: 'uncommon', custom: 'symbiosis' },
   { id: 'gamble',   name: 'Coin Flip',      rarity: 'uncommon', custom: 'coin_flip_17' },
-  { id: 'tradeoff_a', name: 'Long Patience', rarity: 'uncommon', yieldMult: 1.40, timeMult: 1.25 },
+  { id: 'tradeoff_a', name: 'Long Patience', rarity: 'uncommon', yieldMult: 1.50, timeMult: 1.25 },
   { id: 'echo',     name: 'Echo',           rarity: 'uncommon', yieldMult: 1.12, custom: 'echo' },
   { id: 'twofold',  name: 'Twofold Path',   rarity: 'uncommon', yieldMult: 1.15, custom: 'twofold' },
   { id: 'cross_a',  name: 'Wild Pollen',    rarity: 'uncommon', custom: 'cross_yield_15' },
@@ -50,7 +50,7 @@ const BUFF_POOL = [
   { id: 'devour',   name: 'Eat the Roots',  rarity: 'uncommon', yieldMult: 1.45, custom: 'next_penalty_20' },
   // rare
   { id: 'storm',    name: 'After the Storm', rarity: 'rare', yieldMult: 1.55 },
-  { id: 'oldway',   name: 'The Old Way',    rarity: 'rare', yieldMult: 1.20, timeMult: 0.60 },
+  { id: 'oldway',   name: 'The Old Way',    rarity: 'rare', yieldMult: 1.20, timeMult: 0.75 },
   { id: 'common_amp', name: 'Rare Earth',   rarity: 'rare', custom: 'common_amp' },
   { id: 'cornucopia', name: 'Cornucopia',   rarity: 'rare', yieldMult: 1.20, custom: 'cornucopia' },
   { id: 'commit',   name: 'Devoted Tending', rarity: 'rare', custom: 'no_more_picks_80' },
@@ -93,11 +93,27 @@ function makePlot(crop) {
   };
 }
 
-function draftN(n, rarityFloor = null) {
+function draftN(n, rarityFloor = null, plot = null) {
+  // Match the game: legendary+ are unique per run, cross-plot/synergy boons
+  // filtered when inapplicable. (Sim has no other plots, so always filter cross.)
+  const lockedRarities = ['legendary', 'mythic'];
+  const eligible = BUFF_POOL.filter(b => {
+    if (plot && lockedRarities.includes(b.rarity) && plot.activeBuffs.some(ab => ab.id === b.id)) return false;
+    if (['cross_yield_15', 'cross_pick_1', 'cross_yield_50'].includes(b.custom)) return false;
+    if (plot) {
+      const isLastPick = (plot.totalPicks - plot.picksTaken) <= 1;
+      if (['echo', 'cornucopia', 'wishflower'].includes(b.custom) && isLastPick) return false;
+      if (b.custom === 'symbiosis' && plot.activeBuffs.length === 0) return false;
+      if (b.custom === 'common_amp' && plot.activeBuffs.filter(x => x.rarity === 'common').length === 0) return false;
+      if (b.custom === 'reroll_last' && plot.activeBuffs.length === 0) return false;
+      if (b.custom === 'double_actives' && !plot.activeBuffs.some(x => x.yieldMult)) return false;
+    }
+    return true;
+  });
   const filtered = rarityFloor
-    ? BUFF_POOL.filter(b => RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor))
-    : BUFF_POOL;
-  const usePool = filtered.length >= n ? filtered : BUFF_POOL;
+    ? eligible.filter(b => RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor))
+    : eligible;
+  const usePool = filtered.length >= n ? filtered : eligible;
   const weighted = usePool.map(b => ({ b, w: RARITY_WEIGHTS[b.rarity] }));
   const picks = [];
   const used = new Set();
@@ -199,9 +215,13 @@ function handleCustom(plot, buff, echo) {
       }
       break;
     }
-    case 'double_actives':
-      plot.activeBuffs.forEach(b => { if (b.yieldMult) plot.yieldMult *= b.yieldMult; });
+    case 'double_actives': {
+      const yieldBuffs = plot.activeBuffs.filter(b => b.yieldMult);
+      if (yieldBuffs.length === 0) break;
+      const best = yieldBuffs.reduce((max, b) => b.yieldMult > max.yieldMult ? b : max);
+      plot.yieldMult *= Math.pow(best.yieldMult, e);
       break;
+    }
     case 'no_more_picks_80':
       plot.flags.noMorePicks = true;
       plot.flags.committedNoMore = true;
@@ -215,8 +235,8 @@ function handleCustom(plot, buff, echo) {
       break;
     }
     case 'wishflower':
-      plot.flags.wishflowerLeft = (plot.flags.wishflowerLeft || 0) + 3;
-      plot.totalPicks += 3;
+      plot.flags.wishflowerLeft = (plot.flags.wishflowerLeft || 0) + 2;
+      plot.totalPicks += 2;
       break;
     case 'world_tree':
       plot.yieldMult *= Math.pow(3.5, e);
@@ -268,14 +288,14 @@ function simulateRun(crop, strategy) {
     if (plot.flags.noMorePicks) break;
     const draftSize = plot.flags.wideDraftLeft > 0 ? 5 : 3;
     const rarityFloor = plot.flags.wishflowerLeft > 0 ? 'legendary' : null;
-    const draftedPicks = draftN(draftSize, rarityFloor);
+    const draftedPicks = draftN(draftSize, rarityFloor, plot);
     if (draftedPicks.length === 0) break;
     const chosen = strategy(draftedPicks);
     applyBuff(plot, chosen);
   }
   // committedNoMore final-multiplier check
   if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
-    plot.yieldMult *= 1.80;
+    plot.yieldMult *= 1.60;
   }
   const baseYield = CROPS[crop].baseYield;
   const yieldAmount = Math.floor(baseYield * plot.yieldMult);
