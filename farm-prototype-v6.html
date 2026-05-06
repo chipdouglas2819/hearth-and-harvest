@@ -155,6 +155,22 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .speed-btn:hover { border-color: var(--moss); }
 .speed-btn.active { background: var(--forest); color: var(--cream); border-color: var(--forest); }
 
+.debug-btn { font-size: 16px; padding: 6px 12px; }
+.debug-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.debug-target { margin: 12px 0; font-size: 13px; color: var(--moss); }
+.debug-target select { font-family: var(--mono); padding: 4px 8px; margin-left: 8px; }
+.debug-section-title { font-family: var(--serif); font-size: 14px; font-weight: 600; color: var(--forest); margin: 16px 0 8px; }
+.debug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; max-height: 380px; overflow-y: auto; padding: 4px; }
+.debug-buff-card { padding: 8px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; transition: all 0.1s ease; background: var(--paper); font-size: 11px; }
+.debug-buff-card:hover { border-color: var(--moss); background: rgba(143, 166, 142, 0.08); }
+.debug-buff-card .dbg-rarity { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--sage); }
+.debug-buff-card .dbg-name { font-family: var(--serif); font-weight: 600; color: var(--forest); margin: 2px 0; font-size: 12px; }
+.debug-buff-card .dbg-desc { color: var(--moss); font-size: 10px; line-height: 1.3; }
+.debug-buff-card.uncommon { border-left: 3px solid var(--moss); }
+.debug-buff-card.rare { border-left: 3px solid var(--terracotta); }
+.debug-buff-card.legendary { border-left: 3px solid var(--gold); }
+.debug-buff-card.mythic { border-left: 3px solid var(--mythic); }
+
 main {
   max-width: 1280px;
   margin: 0 auto;
@@ -458,6 +474,7 @@ main {
   font-family: var(--mono);
   border-left: 3px solid var(--sage);
 }
+.buff-chip .ferment-bonus { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--terracotta); }
 .buff-chip.uncommon { border-left-color: var(--moss); background: rgba(74, 107, 79, 0.10); }
 .buff-chip.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.10); color: var(--rust); }
 .buff-chip.legendary { border-left-color: var(--gold); background: rgba(212, 160, 44, 0.14); color: var(--rust); font-weight: 600; }
@@ -1112,10 +1129,15 @@ main {
 .lm-card .lc-tag.crop { color: var(--terracotta); }
 .lm-card .lc-count {
   font-family: var(--mono);
-  font-size: 10px;
-  color: var(--moss);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--terracotta);
+  background: rgba(199, 93, 58, 0.14);
+  padding: 2px 6px;
+  border-radius: 4px;
   position: absolute;
   bottom: 6px; right: 8px;
+  letter-spacing: 0.04em;
 }
 
 .lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
@@ -1194,6 +1216,10 @@ main {
         <button class="speed-btn" data-speed="60">60×</button>
         <button class="speed-btn active" data-speed="600">600×</button>
       </div>
+    </div>
+    <div class="topbar-btn">
+      <span class="label-tiny">debug</span>
+      <button class="btn-pill debug-btn" id="debugBtn" title="Test boons / dev shortcuts">🔧</button>
     </div>
   </div>
 </header>
@@ -1277,6 +1303,28 @@ main {
   </div>
 </div>
 
+<div class="modal" id="debugModal" hidden>
+  <div class="modal-content wide">
+    <h2>🔧 Debug / Boon Test Panel</h2>
+    <p class="modal-subtitle">Force-apply any in-run boon to a growing plot, or use shortcuts. For testing only — not visible in production.</p>
+    <div class="debug-actions">
+      <button class="btn btn-ghost" id="dbgAddCoins">+ 1,000 coins</button>
+      <button class="btn btn-ghost" id="dbgGivePack">+ 1 pack</button>
+      <button class="btn btn-ghost" id="dbgMakeReady">Make all plots ready</button>
+      <button class="btn btn-ghost" id="dbgPlantAll">Plant all empty plots (radish)</button>
+      <button class="btn btn-ghost" id="dbgGiveAllPermas">Add every perma to collection</button>
+    </div>
+    <div class="debug-target">
+      <label>Apply boon to plot:
+        <select id="dbgPlotSelect"></select>
+      </label>
+    </div>
+    <div class="debug-section-title">In-run boons (click to apply)</div>
+    <div class="debug-grid" id="debugBuffGrid"></div>
+    <button class="modal-close" data-close>close</button>
+  </div>
+</div>
+
 <div class="modal" id="collectionModal" hidden>
   <div class="modal-content wide collection-modal-content">
     <h2>Boon Collection</h2>
@@ -1289,12 +1337,14 @@ main {
 <script>
 // ============ CONFIG ============
 const CROPS = {
-  radish:  { name: 'Radish',  emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
-  carrot:  { name: 'Carrot',  emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
-  tomato:  { name: 'Tomato',  emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3 },
-  wheat:   { name: 'Wheat',   emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 450,  pickCount: 5 },
-  corn:    { name: 'Corn',    emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 700,  pickCount: 5 },
-  pumpkin: { name: 'Pumpkin', emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 800,  pickCount: 6 },
+  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
+  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
+  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3 },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 380,  pickCount: 4 },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 450,  pickCount: 6 },
+  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 700,  pickCount: 5 },
+  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 800,  pickCount: 6 },
+  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1100, pickCount: 6 },
 };
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
@@ -1341,7 +1391,7 @@ const BUFF_POOL = [
   { id: 'commit',   name: 'Devoted Tending', desc: '+80% yield IF you take no more boons.',    rarity: 'rare',     archetype: 'commit',   custom: 'no_more_picks_80', flavor: 'a vow kept.' },
   { id: 'cross_b',  name: 'Hive Mind',       desc: '+1 boon to every other plot growing now',  rarity: 'rare',     archetype: 'cross',    custom: 'cross_pick_1', flavor: 'gifts shared, freely given.' },
   { id: 'high_gamble', name: 'Frost Gamble', desc: '70% chance ×2.2 yield. 30% ×0.5.',         rarity: 'rare',     archetype: 'gamble',   custom: 'frost_gamble', flavor: 'a north wind is coming.' },
-  { id: 'ferment',  name: 'Slow Ferment',    desc: 'every 5s past ripeness: +8% yield',        rarity: 'rare',     archetype: 'skill',    custom: 'ferment_5s_8', flavor: 'patience makes wine.' },
+  { id: 'ferment',  name: 'Slow Ferment',    desc: 'every 5s past ripeness: +8% yield (max +160% at 100s)', rarity: 'rare', archetype: 'skill', custom: 'ferment_5s_8', flavor: 'patience makes wine.' },
   { id: 'pickback', name: 'Reroll the Day',  desc: 'redraft your previous boon on this plot',  rarity: 'rare',     archetype: 'meta',     custom: 'reroll_last', flavor: 'the wise one chooses twice.' },
   { id: 'rare_doubler', name: 'Garden Sage', desc: 'doubles all yield boons already active',   rarity: 'rare',     archetype: 'meta',     custom: 'double_actives', flavor: 'the elder\'s touch.' },
 
@@ -1368,6 +1418,10 @@ const BUFF_POOL = [
   { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.8 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, timeMult: 0.80, cropOnly: 'wheat', flavor: 'sung at the close of summer.' },
   { id: 'corn_silk', name: 'Silken Husk',    desc: '+50% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'corn', flavor: 'long fields, bowed by wind.' },
   { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+60% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.60, cropOnly: 'pumpkin', flavor: 'big enough to hollow a kingdom.' },
+  { id: 'berry_burst', name: 'Berry Burst',   desc: '+45% strawberry yield',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'strawberry', flavor: 'red enough to stain a thumb.' },
+  { id: 'wild_jam',  name: 'Wild Jam',         desc: '×2.6 strawberry yield, −15% time',         rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, timeMult: 0.85, cropOnly: 'strawberry', flavor: 'simmered until the spoon stands up.' },
+  { id: 'sunseed',  name: 'Sunseed',          desc: '+55% sunflower yield',                     rarity: 'rare',     archetype: 'stat',     yieldMult: 1.55, cropOnly: 'sunflower', flavor: 'each shell, a small star.' },
+  { id: 'sunblaze', name: 'Sunblaze',         desc: '×2.9 sunflower yield, −10% time',          rarity: 'legendary', archetype: 'stat',    yieldMult: 2.90, timeMult: 0.90, cropOnly: 'sunflower', flavor: 'turning even with the night.' },
 ];
 
 // ============ PERMA-BUFF POOL ============
@@ -1425,13 +1479,26 @@ const PERMA_POOL = [
   { id: 'p_co_pact', name: 'Maize Pact', desc: '+28% corn yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'corn', flavor: 'an old promise kept.' },
 
   // === PUMPKIN set ===
+  // === STRAWBERRY set ===
+  { id: 'p_s_runner', name: 'Runner Beds', desc: '+6% strawberry yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'strawberry', flavor: 'they spread where they please.' },
+  { id: 'p_s_straw', name: 'Mulched Straw', desc: '+10% strawberry yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'strawberry', flavor: 'keeps the berries off the ground.' },
+  { id: 'p_s_morning', name: 'Morning Sun', desc: '−12% strawberry time', rarity: 'rare', timeMult: 0.88, cropOnly: 'strawberry', flavor: 'eastern light, daily.' },
+  { id: 'p_s_jubilee', name: 'Jubilee Patch', desc: '+28% strawberry yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'strawberry', flavor: 'a season fit for celebration.' },
+
+  // === SUNFLOWER set ===
+  { id: 'p_su_face', name: 'Open Face', desc: '+6% sunflower yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'sunflower', flavor: 'turning, always turning.' },
+  { id: 'p_su_stake', name: 'Garden Stake', desc: '+10% sunflower yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'sunflower', flavor: 'tall ones need a hand.' },
+  { id: 'p_su_quick', name: 'Quick Bloom', desc: '−12% sunflower time', rarity: 'rare', timeMult: 0.88, cropOnly: 'sunflower', flavor: 'the early flower steals the bee.' },
+  { id: 'p_su_crown', name: 'Solar Crown', desc: '+28% sunflower yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'sunflower', flavor: 'a halo of seeds.' },
+
+  // === PUMPKIN set ===
   { id: 'p_pu_vine', name: 'Vine Trellis', desc: '+6% pumpkin yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'pumpkin', flavor: 'for the wandering ones.' },
   { id: 'p_pu_heavy', name: 'Heavy Soil', desc: '+10% pumpkin yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'pumpkin', flavor: 'rich, slow earth.' },
   { id: 'p_pu_heart', name: 'Pumpkin Heart', desc: '−12% pumpkin time', rarity: 'rare', timeMult: 0.88, cropOnly: 'pumpkin', flavor: 'ripens in the cold.' },
   { id: 'p_pu_court', name: 'Autumn Court', desc: '+28% pumpkin yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'pumpkin', flavor: 'the crowned harvest.' },
 ];
 
-const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000];
+const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000, 70000, 175000];
 
 // ============ STATE ============
 const state = {
@@ -1439,7 +1506,7 @@ const state = {
   speed: 600,
   lastTick: performance.now(),
   plots: [],
-  mastery: { radish: 0, carrot: 0, tomato: 0, wheat: 0, corn: 0, pumpkin: 0 },
+  mastery: { radish: 0, carrot: 0, tomato: 0, strawberry: 0, wheat: 0, corn: 0, pumpkin: 0, sunflower: 0 },
   harvestLog: [],
   totalHarvests: 0,
   pendingPacks: 0,
@@ -1649,6 +1716,7 @@ function tapCrop(plotId) {
   if (now - plot.lastTapTime < TAP_COOLDOWN_MS) return;
 
   const reduction = tapEffectiveReduction();
+  const wasPicksAvail = picksAvailable(plot);
   plot.tapsUsed += 1;
   plot.lastTapTime = now;
   plot.totalMs *= (1 - reduction);
@@ -1667,13 +1735,23 @@ function tapCrop(plotId) {
     setTimeout(() => popup.remove(), 700);
   }
 
-  // update tap counter and progress without full DOM rebuild
+  // update tap counter without full DOM rebuild
   const plotEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
   if (plotEl) {
     const counter = plotEl.querySelector('.tap-counter');
     if (counter) counter.textContent = `⊹ ${plot.tapsUsed}`;
   }
-  updatePlotTick(plot);
+
+  // If tap pushed plot to ready, or unlocked new picks, that's a structural
+  // change. Tick won't catch it (wasReady will already be true on next tick),
+  // so render() must happen here.
+  const isNowReady = isReady(plot);
+  const nowPicksAvail = picksAvailable(plot);
+  if (isNowReady || nowPicksAvail !== wasPicksAvail) {
+    render();
+  } else {
+    updatePlotTick(plot);
+  }
 }
 
 function harvest(plotId, ev) {
@@ -2110,13 +2188,27 @@ function watchAdForBonus() {
       clearInterval(interval);
       state.adPlaying = false;
       state.adUsedForCurrentPack = true;
-      // add 4th card uncommon-or-higher; avoid duplicates of cards already in this pack
-      const existingIds = new Set(state.currentPackCards.map(c => c.id));
+      // 4th bonus card: uncommon+, never a duplicate of pack OR collection
+      const ownedIds = new Set([
+        ...state.currentPackCards.map(c => c.id),
+        ...state.collection.map(c => c.id),
+      ]);
       let bonus = null;
-      for (let attempt = 0; attempt < 20 && (!bonus || existingIds.has(bonus.id)); attempt++) {
-        bonus = draftPermaPack(1, 'uncommon')[0];
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const candidate = draftPermaPack(1, 'uncommon')[0];
+        if (candidate && !ownedIds.has(candidate.id)) { bonus = candidate; break; }
       }
-      state.currentPackCards.push(bonus);
+      // Hard fallback: pull a guaranteed-unowned uncommon+ directly from PERMA_POOL
+      if (!bonus) {
+        const unowned = PERMA_POOL.filter(b =>
+          !ownedIds.has(b.id) &&
+          RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf('uncommon')
+        );
+        bonus = unowned.length > 0
+          ? unowned[Math.floor(Math.random() * unowned.length)]
+          : draftPermaPack(1, 'uncommon')[0]; // user owns everything; accept duplicate
+      }
+      if (bonus) state.currentPackCards.push(bonus);
       renderPackCards();
       renderPackActions();
     }
@@ -2275,7 +2367,78 @@ function closeAllModals() {
   document.getElementById('packModal').hidden = true;
   document.getElementById('collectionModal').hidden = true;
   document.getElementById('loadoutModal').hidden = true;
+  document.getElementById('debugModal').hidden = true;
 }
+
+// ============ DEBUG PANEL ============
+function openDebugModal() {
+  // populate plot selector
+  const sel = document.getElementById('dbgPlotSelect');
+  sel.innerHTML = '';
+  state.plots.forEach((p, i) => {
+    if (p.locked) return;
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `Plot ${i + 1}` + (p.crop ? ` · ${CROPS[p.crop].name}` : ' (empty)');
+    sel.appendChild(opt);
+  });
+
+  // populate buff grid
+  const grid = document.getElementById('debugBuffGrid');
+  grid.innerHTML = '';
+  const sorted = [...BUFF_POOL].sort((a, b) => {
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return ar - br;
+    return a.name.localeCompare(b.name);
+  });
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    card.className = `debug-buff-card ${buff.rarity}`;
+    const cropTag = buff.cropOnly ? ` · ${CROPS[buff.cropOnly].emoji}${CROPS[buff.cropOnly].name}` : '';
+    card.innerHTML = `
+      <div class="dbg-rarity">${buff.rarity}${cropTag}</div>
+      <div class="dbg-name">${buff.name}</div>
+      <div class="dbg-desc">${buff.desc}</div>
+    `;
+    card.onclick = () => {
+      const plotId = parseInt(document.getElementById('dbgPlotSelect').value);
+      const plot = state.plots[plotId];
+      if (!plot || !plot.crop) {
+        alert('Select a plot with a crop planted.');
+        return;
+      }
+      // bypass picksAvailable; force-apply for testing
+      if (plot.picksTaken >= plot.totalPicks) plot.totalPicks = plot.picksTaken + 1;
+      applyBuff(plotId, buff);
+      // reopen debug panel since applyBuff closed all modals
+      document.getElementById('debugModal').hidden = false;
+    };
+    grid.appendChild(card);
+  });
+
+  document.getElementById('debugModal').hidden = false;
+}
+
+document.getElementById('debugBtn').onclick = openDebugModal;
+document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
+document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
+document.getElementById('dbgMakeReady').onclick = () => {
+  state.plots.forEach(p => { if (!p.locked && p.crop) p.elapsedMs = p.totalMs; });
+  render();
+};
+document.getElementById('dbgPlantAll').onclick = () => {
+  // plant radish on every empty unlocked plot we can afford
+  state.plots.forEach((p, i) => {
+    if (p.locked || p.crop) return;
+    if (activeCropsGrowing().has('radish')) return; // game rule: one of each crop
+    if (state.money >= CROPS.radish.plantCost) plant(i, 'radish');
+  });
+};
+document.getElementById('dbgGiveAllPermas').onclick = () => {
+  PERMA_POOL.forEach(b => addToCollection(b));
+  render();
+};
 
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeAllModals);
 document.querySelectorAll('.modal').forEach(m => {
@@ -2299,6 +2462,17 @@ document.querySelectorAll('.speed-btn').forEach(b => {
 // ============ RENDER ============
 function visualScale(yieldMult) {
   return 1.0 + Math.min(0.6, (yieldMult - 1) * 0.18);
+}
+
+// Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
+function getFermentBonusText(plot) {
+  if (!plot || !plot.flags || !plot.flags.skillFerment) return '';
+  if (!isReady(plot)) return '+0%';
+  const overripeMs = plot.elapsedMs - plot.totalMs;
+  const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+  const ticks = Math.max(0, Math.floor(overripeRealSec / 5));
+  if (ticks >= 20) return 'MAX +160%';
+  return `+${ticks * 8}%`;
 }
 
 function render() {
@@ -2368,7 +2542,7 @@ function render() {
           const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
           if (!buff) return '<div class="loadout-strip-slot">·</div>';
           const active = isBuffActiveOnPlot(buff, plot);
-          const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '🌿';
+          const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
           const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
           return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label}"><span class="slot-icon">${icon}</span></div>`;
         }).join('') +
@@ -2428,7 +2602,10 @@ function render() {
             <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
           </div>
           <div class="active-buffs">
-            ${plot.activeBuffs.map(b => `<span class="buff-chip ${b.rarity}">${b.name}</span>`).join('')}
+            ${plot.activeBuffs.map(b => {
+              const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
+              return `<span class="buff-chip ${b.rarity}">${b.name}${extra}</span>`;
+            }).join('')}
           </div>
         `;
 
@@ -2511,6 +2688,11 @@ function updatePlotTick(plot) {
   if (info && info.children.length >= 2) {
     const remain = plot.totalMs - plot.elapsedMs;
     info.children[0].textContent = isReady(plot) ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left';
+  }
+  // live ferment counter
+  if (plot.flags && plot.flags.skillFerment) {
+    const fermentEl = plotEl.querySelector('.ferment-bonus');
+    if (fermentEl) fermentEl.textContent = getFermentBonusText(plot);
   }
 }
 
