@@ -1,0 +1,2545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hearth & Harvest — v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --cream: #FBF6E9;
+  --paper: #FEFCF7;
+  --forest: #2D4A3E;
+  --sage: #8FA68E;
+  --moss: #4A6B4F;
+  --terracotta: #C75D3A;
+  --rust: #A0451B;
+  --butter: #F4C147;
+  --gold: #D4A02C;
+  --wood: #6B4423;
+  --ink: #1F2419;
+  --mythic: #6B3FA0;
+  --mythic-glow: #9D6FD3;
+  --shadow-sm: 0 1px 2px rgba(45, 74, 62, 0.08);
+  --shadow-md: 0 4px 14px rgba(45, 74, 62, 0.10);
+  --shadow-lg: 0 12px 32px rgba(45, 74, 62, 0.18);
+  --border: rgba(45, 74, 62, 0.14);
+  --border-strong: rgba(45, 74, 62, 0.28);
+  --serif: 'Fraunces', Georgia, serif;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(circle at 15% 12%, rgba(143, 166, 142, 0.10), transparent 30%),
+    radial-gradient(circle at 85% 88%, rgba(244, 193, 71, 0.08), transparent 35%);
+}
+
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 36px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(254, 252, 247, 0.6);
+  backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 50;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.brand h1 {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  color: var(--forest);
+  font-style: italic;
+}
+.brand .subtitle {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--moss);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: block;
+  margin-top: -2px;
+}
+
+.stats { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.money { display: flex; flex-direction: column; align-items: flex-end; }
+.label-tiny {
+  font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--moss);
+  font-weight: 500;
+}
+.money .value {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 32px;
+  color: var(--terracotta);
+  line-height: 1;
+  font-feature-settings: "tnum";
+}
+.money .value::before { content: '◉ '; color: var(--butter); font-size: 18px; vertical-align: 4px; }
+
+.topbar-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.btn-pill {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 15px;
+  font-style: italic;
+  padding: 9px 16px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.18s ease;
+  border: 1px solid transparent;
+}
+.btn-pill.boons { background: var(--butter); color: var(--ink); border-color: var(--gold); }
+.btn-pill.boons:hover:not(:disabled) { background: var(--gold); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-pill.packs { background: linear-gradient(135deg, var(--mythic), var(--terracotta)); color: white; }
+.btn-pill.packs:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
+.btn-pill:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-pill .badge {
+  background: rgba(0,0,0,0.25);
+  color: white;
+  border-radius: 999px;
+  width: 22px; height: 22px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-family: var(--sans);
+  font-style: normal;
+}
+.btn-pill.boons .badge { background: var(--terracotta); color: var(--cream); }
+.btn-pill.has-attention { animation: attentionPulse 1.5s ease-in-out infinite; }
+.btn-pill.packs.has-attention { animation: packPulse 1.8s ease-in-out infinite; }
+@keyframes attentionPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(244, 193, 71, 0); }
+}
+@keyframes packPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(157, 111, 211, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(157, 111, 211, 0); }
+}
+
+.speed-control { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.speed-row { display: flex; gap: 4px; }
+.speed-btn {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--moss);
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+.speed-btn:hover { border-color: var(--moss); }
+.speed-btn.active { background: var(--forest); color: var(--cream); border-color: var(--forest); }
+
+main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 36px 80px;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 32px;
+  align-items: start;
+}
+
+.plots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.plot {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  position: relative;
+  overflow: visible;
+  transition: all 0.2s ease;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.plot:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.plot.locked {
+  border-style: dashed;
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.plot.locked .lock-icon {
+  font-size: 22px; color: var(--sage); margin-bottom: 12px;
+  font-family: var(--serif);
+}
+.plot.locked .lock-cost {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--moss);
+  margin-bottom: 14px;
+}
+
+.plot-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tap-counter {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--moss);
+  background: rgba(143, 166, 142, 0.15);
+  padding: 2px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
+}
+.tap-counter.full { color: var(--sage); opacity: 0.5; }
+
+/* === per-plot loadout strip === */
+.loadout-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: rgba(143, 166, 142, 0.04);
+  transition: all 0.15s ease;
+}
+.loadout-strip:hover { border-color: var(--moss); background: rgba(143, 166, 142, 0.10); }
+.loadout-strip-slot {
+  height: 28px;
+  border-radius: 5px;
+  background: rgba(45, 74, 62, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--sage);
+  position: relative;
+  overflow: hidden;
+}
+.loadout-strip-slot.filled {
+  background: rgba(143, 166, 142, 0.15);
+  color: var(--ink);
+  border-left: 3px solid var(--sage);
+}
+.loadout-strip-slot.filled.uncommon { border-left-color: var(--moss); }
+.loadout-strip-slot.filled.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.08); }
+.loadout-strip-slot.filled.legendary {
+  border-left-color: var(--gold);
+  background: linear-gradient(90deg, rgba(244,193,71,0.12), rgba(244,193,71,0.05));
+}
+.loadout-strip-slot.filled.mythic {
+  border-left-color: var(--mythic);
+  background: linear-gradient(90deg, rgba(157,111,211,0.14), rgba(157,111,211,0.05));
+}
+.loadout-strip-slot.filled.inactive { opacity: 0.35; filter: grayscale(0.5); }
+.loadout-strip-slot .slot-text {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--forest);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+  width: 100%;
+  text-align: center;
+}
+
+.plot-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 12px;
+}
+.plot-empty .soil-illustration {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, var(--wood), #4a2d18);
+  opacity: 0.3;
+}
+
+.plot.growing { background: linear-gradient(to bottom, var(--paper) 0%, #F7F2DD 100%); }
+
+.plot.legendary-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, rgba(244, 193, 71, 0.10), transparent 70%);
+  pointer-events: none;
+  border-radius: 14px;
+}
+.plot.mythic-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 30%, rgba(157, 111, 211, 0.18), transparent 70%);
+  pointer-events: none;
+  animation: mythicPulse 3s ease-in-out infinite;
+  border-radius: 14px;
+}
+@keyframes mythicPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+.crop-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.crop-name { font-family: var(--serif); font-size: 20px; font-weight: 600; color: var(--forest); }
+.yield-mult { font-family: var(--mono); font-size: 13px; color: var(--terracotta); font-weight: 600; }
+
+.growth-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0 12px;
+  height: 110px;
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+}
+.crop-visual-wrap {
+  display: inline-block;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  pointer-events: auto;
+}
+.crop-visual-wrap:active:not(.exhausted) { transform: scale(0.92); }
+.crop-visual-wrap.tapped { animation: tapBounce 0.32s ease; }
+.crop-visual-wrap.exhausted { cursor: default; pointer-events: none; }
+@keyframes tapBounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.18); }
+  70% { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+.tap-hint {
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  white-space: nowrap;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.tap-popup {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--moss);
+  pointer-events: none;
+  animation: tapPopup 0.6s ease-out forwards;
+  top: 0;
+  left: 50%;
+}
+@keyframes tapPopup {
+  0% { opacity: 0; transform: translate(-50%, 0); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -30px); }
+}
+
+.crop-visual {
+  font-size: 56px;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s, filter 0.3s;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12));
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform-origin: center;
+  line-height: 1;
+}
+
+.plot.ready .crop-visual {
+  animation: pulseReady 1.6s ease-in-out infinite;
+}
+@keyframes pulseReady {
+  0%, 100% { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12)); }
+  50% { filter: drop-shadow(0 6px 16px rgba(244, 193, 71, 0.5)); }
+}
+
+.progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(45, 74, 62, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 2;
+}
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--sage), var(--moss)); transition: width 0.3s ease; border-radius: 3px; }
+.plot.ready .progress-fill { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+
+.plot-info {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--moss);
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 2;
+}
+
+.active-buffs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  min-height: 18px;
+  position: relative;
+  z-index: 2;
+}
+.buff-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(143, 166, 142, 0.18);
+  color: var(--moss);
+  border-radius: 10px;
+  font-weight: 500;
+  font-family: var(--mono);
+  border-left: 3px solid var(--sage);
+}
+.buff-chip.uncommon { border-left-color: var(--moss); background: rgba(74, 107, 79, 0.10); }
+.buff-chip.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.10); color: var(--rust); }
+.buff-chip.legendary { border-left-color: var(--gold); background: rgba(212, 160, 44, 0.14); color: var(--rust); font-weight: 600; }
+.buff-chip.mythic { border-left-color: var(--mythic); background: rgba(107, 63, 160, 0.14); color: var(--mythic); font-weight: 600; }
+
+.plot-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-primary { background: var(--forest); color: var(--cream); }
+.btn-primary:hover { background: var(--moss); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-harvest {
+  background: var(--terracotta);
+  color: var(--cream);
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+}
+.btn-harvest::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.3) 50%, transparent 70%);
+  animation: shimmer 2s linear infinite;
+}
+@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.btn-harvest:hover { background: var(--rust); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+.btn-pick { background: var(--butter); color: var(--ink); font-weight: 600; }
+.btn-pick:hover { background: #ECB832; }
+.pick-badge {
+  background: var(--terracotta);
+  color: var(--cream);
+  border-radius: 999px;
+  width: 20px; height: 20px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.btn-pick.pulse { animation: attentionPulse 1.4s ease-in-out infinite; }
+
+.btn-secondary { background: var(--paper); color: var(--forest); border-color: var(--border); }
+.btn-secondary:hover { border-color: var(--moss); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--moss);
+  border-color: var(--border);
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.btn-ghost:hover { border-color: var(--moss); background: rgba(143, 166, 142, 0.06); }
+
+.sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 130px; }
+.panel {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+.panel h3 {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--forest);
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+.pack-progress {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--moss);
+  margin-bottom: 6px;
+}
+.pack-bar { height: 6px; background: rgba(45, 74, 62, 0.08); border-radius: 3px; overflow: hidden; }
+.pack-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mythic), var(--terracotta));
+  transition: width 0.4s ease;
+  border-radius: 3px;
+}
+.pack-stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--sage);
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.mastery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+}
+.mastery-row:last-child { border-bottom: none; }
+.mastery-row .name { display: flex; align-items: center; gap: 8px; color: var(--moss); }
+.mastery-row .count { font-family: var(--mono); color: var(--forest); font-weight: 600; }
+.mastery-row .next-unlock { font-size: 10px; color: var(--sage); font-style: italic; }
+
+.harvest-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.harvest-entry:last-child { border-bottom: none; }
+.harvest-entry .what { color: var(--moss); }
+.harvest-entry .amount { font-family: var(--mono); color: var(--terracotta); font-weight: 600; }
+.harvest-empty { font-size: 12px; color: var(--sage); font-style: italic; text-align: center; padding: 12px 0; }
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(31, 36, 25, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: fadeIn 0.2s ease;
+  padding: 20px;
+  overflow-y: auto;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal[hidden] { display: none; }
+.modal-content {
+  background: var(--paper);
+  border-radius: 18px;
+  padding: 32px;
+  max-width: 820px;
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
+}
+.modal-content.wide { max-width: 1000px; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+.modal-content h2 {
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--forest);
+  margin-bottom: 4px;
+  font-style: italic;
+}
+
+.buff-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px dashed var(--border);
+}
+.buff-modal-header .bm-emoji { font-size: 48px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15)); }
+.buff-modal-header .bm-info { flex: 1; }
+.buff-modal-header .bm-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-bottom: 2px;
+}
+.buff-modal-header .bm-title {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 600;
+  color: var(--forest);
+}
+.buff-modal-header .bm-meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--moss);
+  margin-top: 4px;
+}
+
+.modal-subtitle { color: var(--moss); font-size: 13px; margin-bottom: 24px; }
+.modal-close {
+  display: block;
+  margin: 20px auto 0;
+  font-size: 12px;
+  color: var(--sage);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 6px 12px;
+}
+.modal-close:hover { color: var(--moss); }
+
+.plant-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.plant-option {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: left;
+  background: var(--paper);
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+.plant-option:hover:not(:disabled) { border-color: var(--moss); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.plant-option:disabled { opacity: 0.45; cursor: not-allowed; }
+.plant-option .po-emoji { font-size: 32px; }
+.plant-option .po-name { font-family: var(--serif); font-size: 18px; font-weight: 600; color: var(--forest); }
+.plant-option .po-stats { font-family: var(--mono); font-size: 11px; color: var(--moss); display: flex; flex-direction: column; gap: 2px; }
+.plant-option .po-reason {
+  position: absolute;
+  top: 10px; right: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.plant-option .po-reason.busy { color: var(--rust); background: rgba(199, 93, 58, 0.12); }
+.plant-option .po-reason.broke { color: var(--moss); background: rgba(74, 107, 79, 0.12); }
+
+.buff-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.buff-options.wide { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 720px) {
+  .buff-options, .buff-options.wide { grid-template-columns: 1fr; }
+  main { grid-template-columns: 1fr; padding: 20px; }
+  .topbar { padding: 16px 20px; flex-wrap: wrap; gap: 12px; }
+  .sidebar { position: static; }
+  .stats { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 1100px) {
+  .buff-options.wide { grid-template-columns: repeat(3, 1fr); }
+}
+
+.buff-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  background: var(--paper);
+  text-align: left;
+  transition: all 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.buff-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 4px;
+  background: var(--sage);
+}
+.buff-card.uncommon::before { background: var(--moss); }
+.buff-card.rare::before { background: var(--terracotta); }
+.buff-card.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+.buff-card.mythic::before { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.buff-card.mythic { background: linear-gradient(135deg, var(--paper) 0%, rgba(157, 111, 211, 0.06) 100%); border-color: rgba(107, 63, 160, 0.30); }
+.buff-card.legendary { background: linear-gradient(135deg, var(--paper) 0%, rgba(244, 193, 71, 0.08) 100%); }
+.buff-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+
+.buff-rarity {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sage);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.buff-card.uncommon .buff-rarity { color: var(--moss); }
+.buff-card.rare .buff-rarity { color: var(--terracotta); }
+.buff-card.legendary .buff-rarity { color: var(--rust); }
+.buff-card.mythic .buff-rarity { color: var(--mythic); }
+.buff-archetype {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--sage);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.buff-name { font-family: var(--serif); font-size: 18px; font-weight: 600; color: var(--forest); font-style: italic; }
+.buff-desc { font-size: 13px; color: var(--moss); line-height: 1.4; }
+.buff-flavor {
+  font-size: 11px;
+  color: var(--sage);
+  font-style: italic;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+/* === pack opening === */
+.pack-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.pack-cards.has-bonus { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 720px) { .pack-cards, .pack-cards.has-bonus { grid-template-columns: 1fr 1fr; } }
+
+.pack-card {
+  border-radius: 14px;
+  padding: 22px 18px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  animation: cardReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+.pack-card.bonus { animation: cardReveal 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards; animation-delay: 0s !important; }
+.pack-card:nth-child(1) { animation-delay: 0.1s; }
+.pack-card:nth-child(2) { animation-delay: 0.3s; }
+.pack-card:nth-child(3) { animation-delay: 0.5s; }
+@keyframes cardReveal {
+  0% { opacity: 0; transform: rotateY(-90deg) scale(0.8); }
+  100% { opacity: 1; transform: rotateY(0) scale(1); }
+}
+.pack-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 5px;
+  background: var(--sage);
+}
+.pack-card.uncommon::before { background: var(--moss); }
+.pack-card.rare::before { background: var(--terracotta); }
+.pack-card.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+.pack-card.mythic::before { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.pack-card.legendary {
+  background: radial-gradient(ellipse at top, rgba(244, 193, 71, 0.15), transparent 60%), var(--paper);
+  border-color: var(--gold);
+}
+.pack-card.mythic {
+  background: radial-gradient(ellipse at top, rgba(157, 111, 211, 0.20), transparent 60%), var(--paper);
+  border-color: var(--mythic);
+}
+.pack-card.bonus { border: 2px solid var(--moss); }
+.pack-card.bonus::after {
+  content: 'AD BONUS';
+  position: absolute;
+  top: 8px; right: 8px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  background: var(--moss);
+  color: var(--cream);
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.pack-card .pc-rarity {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sage);
+  font-weight: 600;
+}
+.pack-card.uncommon .pc-rarity { color: var(--moss); }
+.pack-card.rare .pc-rarity { color: var(--terracotta); }
+.pack-card.legendary .pc-rarity { color: var(--rust); }
+.pack-card.mythic .pc-rarity { color: var(--mythic); }
+.pack-card .pc-name { font-family: var(--serif); font-size: 22px; font-weight: 600; color: var(--forest); font-style: italic; }
+.pack-card.mythic .pc-name { color: var(--mythic); }
+.pack-card .pc-desc { font-size: 13px; color: var(--moss); }
+.pack-card .pc-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-top: 2px;
+}
+.pack-card .pc-tag.crop { color: var(--terracotta); }
+.pack-card .pc-flavor {
+  font-size: 11px;
+  color: var(--sage);
+  font-style: italic;
+  margin-top: auto;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.pack-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pack-actions .btn { padding: 12px 24px; font-size: 14px; }
+
+.shop-btn {
+  padding: 14px 18px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-family: var(--sans);
+  text-align: left;
+  transition: all 0.18s ease;
+  border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  min-width: 220px;
+}
+.shop-btn .sb-title { font-family: var(--serif); font-size: 16px; font-style: italic; font-weight: 600; }
+.shop-btn .sb-desc { font-size: 11px; opacity: 0.85; }
+.shop-btn.ad { background: linear-gradient(135deg, #4A6B4F, var(--moss)); color: white; }
+.shop-btn.ad:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.1); }
+.shop-btn.premium { background: linear-gradient(135deg, var(--mythic), var(--terracotta)); color: white; }
+.shop-btn.premium:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
+.shop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.ad-playing {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+}
+
+/* === loadout modal === */
+.lm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--border);
+}
+.lm-header-info h2 { margin-bottom: 2px; }
+.lm-header-info .lm-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+
+.lm-slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.lm-slot {
+  border-radius: 10px;
+  padding: 14px;
+  min-height: 92px;
+  background: rgba(143, 166, 142, 0.05);
+  border: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  text-align: center;
+  position: relative;
+}
+.lm-slot.filled {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+.lm-slot.filled::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 10px 10px 0 0;
+  background: var(--sage);
+}
+.lm-slot.filled.uncommon::before { background: var(--moss); }
+.lm-slot.filled.rare::before { background: var(--terracotta); }
+.lm-slot.filled.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+.lm-slot.filled.mythic::before { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.lm-slot.filled.inactive { opacity: 0.5; }
+.lm-slot.filled .ls-rarity {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--sage);
+  font-weight: 600;
+}
+.lm-slot.filled.uncommon .ls-rarity { color: var(--moss); }
+.lm-slot.filled.rare .ls-rarity { color: var(--terracotta); }
+.lm-slot.filled.legendary .ls-rarity { color: var(--rust); }
+.lm-slot.filled.mythic .ls-rarity { color: var(--mythic); }
+.lm-slot.filled .ls-name { font-family: var(--serif); font-size: 14px; font-weight: 600; font-style: italic; color: var(--forest); margin-top: 2px; line-height: 1.1; }
+.lm-slot.filled .ls-desc { font-size: 11px; color: var(--moss); margin-top: 4px; }
+.lm-slot.filled .ls-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-top: 6px;
+}
+.lm-slot.filled .ls-tag.inactive-text { color: var(--rust); }
+.lm-slot.filled .ls-remove {
+  position: absolute;
+  top: 8px; right: 8px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--sage);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.lm-slot.filled:hover .ls-remove { opacity: 1; }
+
+.lm-section-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--moss);
+  margin: 14px 0 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.lm-section-title .lm-sec-meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--sage); text-transform: uppercase; font-style: normal; }
+
+.lm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.lm-grid::-webkit-scrollbar { width: 6px; }
+.lm-grid::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+.lm-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--paper);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 92px;
+}
+.lm-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 10px 10px 0 0;
+  background: var(--sage);
+}
+.lm-card.uncommon::before { background: var(--moss); }
+.lm-card.rare::before { background: var(--terracotta); }
+.lm-card.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+.lm-card.mythic::before { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.lm-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.lm-card.equipped {
+  background: rgba(143, 166, 142, 0.10);
+  border-color: var(--moss);
+}
+.lm-card.equipped::after {
+  content: 'equipped';
+  position: absolute;
+  top: 7px; right: 7px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--moss);
+  color: var(--cream);
+  padding: 1px 5px;
+  border-radius: 999px;
+}
+.lm-card.inactive { opacity: 0.55; }
+.lm-card .lc-rarity {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sage);
+  font-weight: 600;
+}
+.lm-card.uncommon .lc-rarity { color: var(--moss); }
+.lm-card.rare .lc-rarity { color: var(--terracotta); }
+.lm-card.legendary .lc-rarity { color: var(--rust); }
+.lm-card.mythic .lc-rarity { color: var(--mythic); }
+.lm-card .lc-name { font-family: var(--serif); font-size: 14px; font-weight: 600; color: var(--forest); font-style: italic; line-height: 1.1; }
+.lm-card .lc-desc { font-size: 11px; color: var(--moss); }
+.lm-card .lc-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+.lm-card .lc-tag.crop { color: var(--terracotta); }
+.lm-card .lc-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--moss);
+  position: absolute;
+  bottom: 6px; right: 8px;
+}
+
+.lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
+
+/* === collection modal (now smaller, no ad) === */
+.collection-modal-content { max-width: 920px; }
+.shop-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+
+.float-money {
+  position: fixed;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 24px;
+  color: var(--terracotta);
+  pointer-events: none;
+  z-index: 200;
+  animation: floatUp 1.2s ease-out forwards;
+  text-shadow: 0 2px 8px rgba(255,255,255,0.8);
+}
+@keyframes floatUp {
+  0% { opacity: 0; transform: translateY(0) scale(0.8); }
+  20% { opacity: 1; transform: translateY(-10px) scale(1.1); }
+  100% { opacity: 0; transform: translateY(-60px) scale(1); }
+}
+
+.readme {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 36px 60px;
+  font-size: 12px;
+  color: var(--sage);
+  line-height: 1.7;
+  font-style: italic;
+  border-top: 1px dashed var(--border);
+  padding-top: 24px;
+}
+.readme strong { color: var(--moss); font-style: normal; font-weight: 600; }
+
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>Hearth & Harvest</h1>
+    <span class="subtitle">v6 — bug fixes, partial-render</span>
+  </div>
+  <div class="stats">
+    <div class="topbar-btn">
+      <span class="label-tiny">boons</span>
+      <button class="btn-pill boons" id="globalPicksBtn" disabled>
+        Open Boons <span class="badge" id="globalPicksBadge">0</span>
+      </button>
+    </div>
+    <div class="topbar-btn">
+      <span class="label-tiny">packs</span>
+      <button class="btn-pill packs" id="packsBtn">
+        Collection <span class="badge" id="packsBadge">0</span>
+      </button>
+    </div>
+    <div class="money">
+      <span class="label-tiny">coin</span>
+      <span class="value" id="moneyValue">25</span>
+    </div>
+    <div class="speed-control">
+      <span class="label-tiny">time speed</span>
+      <div class="speed-row">
+        <button class="speed-btn" data-speed="1">1×</button>
+        <button class="speed-btn" data-speed="60">60×</button>
+        <button class="speed-btn active" data-speed="600">600×</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="plots-grid" id="plotsGrid"></section>
+  <aside class="sidebar">
+    <div class="panel">
+      <h3>Pack Progress</h3>
+      <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
+      <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
+      <div class="pack-stats">
+        <span id="totalCollected">0 boons collected</span>
+        <span id="totalHarvestsStat">0 harvests</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Mastery</h3>
+      <div id="masteryList"></div>
+    </div>
+    <div class="panel">
+      <h3>Recent Harvests</h3>
+      <div id="harvestLog"></div>
+    </div>
+  </aside>
+</main>
+
+<div class="readme">
+  <strong>v6 fixes:</strong> The boon and plant button issues were from render rebuilding the entire plot DOM every frame at 600× speed — clicks were being lost mid-event. Tick now does light DOM updates (progress bar, time text) without rebuilding. Tap effect scales with speed (≈2% at 1×, ≈11% at 600×) and now animates visibly. Time-mult buffs no longer un-ready a ripe plot when applied late. Plant modal now shows "need ◉ X more" so it's clear why options are locked. Wishflower/Cornucopia no longer waste their charge on closing the modal. Starting balance: ◉ 25 — exactly one radish. <strong>Monetization (TBD):</strong> the right model — battle-pass-style permanent upgrades, ad-free purchase, or a subscription — depends on the meta-game we haven't built yet. Removed the per-pack price tag. The Watch-Ad-for-Bonus-Card button stays in pack openings as the rewarded video pattern.
+</div>
+
+<div class="modal" id="plantModal" hidden>
+  <div class="modal-content">
+    <h2>Plant a Crop</h2>
+    <p class="modal-subtitle">choose what to grow on this plot — only one of each type can be growing at once</p>
+    <div class="plant-options" id="plantOptions"></div>
+    <button class="modal-close" data-close>cancel</button>
+  </div>
+</div>
+
+<div class="modal" id="buffModal" hidden>
+  <div class="modal-content">
+    <div class="buff-modal-header">
+      <div class="bm-emoji" id="bmEmoji">🍅</div>
+      <div class="bm-info">
+        <div class="bm-eyebrow" id="bmEyebrow">drafting boon for</div>
+        <div class="bm-title" id="bmTitle">Tomato</div>
+        <div class="bm-meta" id="bmMeta">Plot 1 · 2 picks remaining</div>
+      </div>
+    </div>
+    <div class="buff-options" id="buffOptions"></div>
+    <button class="modal-close" data-close>skip</button>
+  </div>
+</div>
+
+<div class="modal" id="packModal" hidden>
+  <div class="modal-content wide">
+    <h2 id="packTitle">A New Pack</h2>
+    <p class="modal-subtitle">three permanent boons — they apply to a plot when equipped</p>
+    <div class="pack-cards" id="packCards"></div>
+    <div class="pack-actions" id="packActions"></div>
+    <button class="modal-close" data-close>close</button>
+  </div>
+</div>
+
+<div class="modal" id="loadoutModal" hidden>
+  <div class="modal-content wide">
+    <div class="lm-header">
+      <div class="lm-header-info">
+        <h2 id="lmTitle">Plot 1 Loadout</h2>
+        <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
+      </div>
+    </div>
+    <div class="lm-slots" id="lmSlots"></div>
+    <div class="lm-section-title">
+      <span>Collection</span>
+      <span class="lm-sec-meta" id="lmCollectionMeta"></span>
+    </div>
+    <div class="lm-grid" id="lmGrid"></div>
+    <button class="modal-close" data-close>done</button>
+  </div>
+</div>
+
+<div class="modal" id="collectionModal" hidden>
+  <div class="modal-content wide collection-modal-content">
+    <h2>Boon Collection</h2>
+    <p class="modal-subtitle">all owned perma-boons. equip them on individual plots from the plot's loadout panel.</p>
+    <div class="lm-grid" id="collectionGrid" style="max-height: 480px;"></div>
+    <button class="modal-close" data-close>close</button>
+  </div>
+</div>
+
+<script>
+// ============ CONFIG ============
+const CROPS = {
+  radish:  { name: 'Radish',  emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 60,   pickCount: 2 },
+  carrot:  { name: 'Carrot',  emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 130,  pickCount: 3 },
+  tomato:  { name: 'Tomato',  emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 240,  pickCount: 3 },
+  wheat:   { name: 'Wheat',   emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 150, baseYield: 800,  pickCount: 5 },
+  corn:    { name: 'Corn',    emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 250, baseYield: 1500, pickCount: 5 },
+  pumpkin: { name: 'Pumpkin', emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 350, baseYield: 2200, pickCount: 6 },
+};
+
+const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
+const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
+const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+
+const TAP_LIMIT = 15;
+const TAP_COOLDOWN_MS = 200;
+const TAP_BASE_REDUCTION = 0.02;
+
+const HARVESTS_PER_PACK = 10;
+const MAX_PERMA_SLOTS = 4;
+
+const BUFF_POOL = [
+  // ============ COMMON ============
+  { id: 'sun',      name: 'Sunny Days',     desc: '+12% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.12, flavor: 'a warm patch of sky.' },
+  { id: 'rain',     name: 'Gentle Rain',    desc: '−12% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.88,  flavor: 'soft drumming on leaves.' },
+  { id: 'rich',     name: 'Rich Soil',      desc: '+18% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.18, flavor: 'dark, crumbling, alive.' },
+  { id: 'compost',  name: 'Compost Tea',    desc: '+8% yield, −8% time',                       rarity: 'common',   archetype: 'stat',     yieldMult: 1.08, timeMult: 0.92, flavor: 'an old farmer\'s trick.' },
+  { id: 'sprout',   name: 'Eager Sprout',   desc: '−20% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.80,  flavor: 'this one wants to grow.' },
+  { id: 'sturdy',   name: 'Sturdy Stems',   desc: '+15% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.15, flavor: 'bend in wind, never break.' },
+  { id: 'patient',  name: 'Slow & Steady',  desc: '+30% yield, +20% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.30, timeMult: 1.20, flavor: 'haste makes waste.' },
+  { id: 'common_synergy', name: 'Folk Wisdom', desc: '+5% yield per common buff (incl. this)', rarity: 'common',   archetype: 'synergy',  custom: 'common_synergy', flavor: 'small things, well done.' },
+
+  // ============ UNCOMMON ============
+  { id: 'bee',      name: 'Bee Visitation',  desc: '+25% yield',                               rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.25, flavor: 'they know which flowers to find.' },
+  { id: 'mulch',    name: 'Living Mulch',    desc: '+22% yield, −10% time',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.22, timeMult: 0.90, flavor: 'clover keeping the roots cool.' },
+  { id: 'symbiosis', name: 'Symbiosis',      desc: '+8% yield per OTHER active buff',          rarity: 'uncommon', archetype: 'synergy',  custom: 'symbiosis', flavor: 'each gift makes the next greater.' },
+  { id: 'gamble',   name: 'Coin Flip',       desc: '50% chance: ×1.7 yield. else: nothing.',   rarity: 'uncommon', archetype: 'gamble',   custom: 'coin_flip_17', flavor: 'fortune favors the planted.' },
+  { id: 'tradeoff_a', name: 'Long Patience', desc: '+40% yield, +25% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.40, timeMult: 1.25, flavor: 'wait, and the field will pay.' },
+  { id: 'echo',     name: 'Echo',            desc: '+12% yield. your NEXT boon\'s effects apply twice.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.12, custom: 'echo', flavor: 'the field remembers.' },
+  { id: 'twofold',  name: 'Twofold Path',    desc: '+15% yield. then apply a random uncommon-or-lower boon.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.15, custom: 'twofold', flavor: 'the soil decides what else.' },
+  { id: 'cross_a',  name: 'Wild Pollen',     desc: '+15% yield to ALL other active plots',     rarity: 'uncommon', archetype: 'cross',    custom: 'cross_yield_15', flavor: 'the wind carries gifts.' },
+  { id: 'lock_time', name: 'Steady Hand',    desc: '+30% yield. no time buffs after this.',    rarity: 'uncommon', archetype: 'commit',   yieldMult: 1.30, custom: 'lock_time', flavor: 'a craftsman\'s tempo.' },
+  { id: 'skill_a',  name: 'Peak Ripeness',   desc: 'harvest within 10s of ripe = ×1.6 yield', rarity: 'uncommon', archetype: 'skill',    custom: 'skill_window_10', flavor: 'timing is taste.' },
+  { id: 'devour',   name: 'Eat the Roots',   desc: '+45% yield, −20% from next planting',     rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.45, custom: 'next_penalty_20', flavor: 'today\'s feast, tomorrow\'s hunger.' },
+
+  // ============ RARE ============
+  { id: 'storm',    name: 'After the Storm', desc: '+55% yield',                               rarity: 'rare',     archetype: 'stat',     yieldMult: 1.55, flavor: 'rinsed clean, charged with rain.' },
+  { id: 'oldway',   name: 'The Old Way',     desc: '−40% time, +20% yield',                    rarity: 'rare',     archetype: 'stat',     yieldMult: 1.20, timeMult: 0.60, flavor: 'as grandmother did it.' },
+  { id: 'common_amp', name: 'Rare Earth',    desc: '+25% yield per common buff this run',      rarity: 'rare',     archetype: 'synergy',  custom: 'common_amp', flavor: 'simple things multiplied.' },
+  { id: 'cornucopia', name: 'Cornucopia',    desc: '+20% yield. your NEXT draft shows 5 boons.', rarity: 'rare',   archetype: 'cascade',  yieldMult: 1.20, custom: 'cornucopia', flavor: 'the basket overflows.' },
+  { id: 'commit',   name: 'Devoted Tending', desc: '+80% yield IF you take no more boons.',    rarity: 'rare',     archetype: 'commit',   custom: 'no_more_picks_80', flavor: 'a vow kept.' },
+  { id: 'cross_b',  name: 'Hive Mind',       desc: '+1 boon to every other plot growing now',  rarity: 'rare',     archetype: 'cross',    custom: 'cross_pick_1', flavor: 'gifts shared, freely given.' },
+  { id: 'high_gamble', name: 'Frost Gamble', desc: '70% chance ×2.2 yield. 30% ×0.5.',         rarity: 'rare',     archetype: 'gamble',   custom: 'frost_gamble', flavor: 'a north wind is coming.' },
+  { id: 'ferment',  name: 'Slow Ferment',    desc: 'every 5s past ripeness: +8% yield',        rarity: 'rare',     archetype: 'skill',    custom: 'ferment_5s_8', flavor: 'patience makes wine.' },
+  { id: 'pickback', name: 'Reroll the Day',  desc: 'redraft your previous boon on this plot',  rarity: 'rare',     archetype: 'meta',     custom: 'reroll_last', flavor: 'the wise one chooses twice.' },
+  { id: 'rare_doubler', name: 'Garden Sage', desc: 'doubles all yield boons already active',   rarity: 'rare',     archetype: 'meta',     custom: 'double_actives', flavor: 'the elder\'s touch.' },
+
+  // ============ LEGENDARY ============
+  { id: 'plenty',   name: 'Year of Plenty',  desc: '×1.9 yield',                               rarity: 'legendary', archetype: 'stat',     yieldMult: 1.90, flavor: 'the harvest of a lifetime.' },
+  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.5 yield, +60% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.50, timeMult: 1.60, flavor: 'years pass. the field remembers.' },
+  { id: 'cascade_gold', name: 'Cascade of Gold', desc: 'apply 2 random rare boons immediately.', rarity: 'legendary', archetype: 'cascade', custom: 'cascade_gold', flavor: 'the sky opens.' },
+  { id: 'cross_leg', name: 'Garden\'s Blessing', desc: 'all OTHER plots: +50% yield this run', rarity: 'legendary', archetype: 'cross',    custom: 'cross_yield_50', flavor: 'every patch sings.' },
+  { id: 'all_in',   name: 'All In',          desc: '×2.5 yield. lose all other current buffs.', rarity: 'legendary', archetype: 'commit', custom: 'all_in', flavor: 'one true thing, no more.' },
+
+  // ============ MYTHIC ============
+  { id: 'wishflower', name: 'Wishflower',    desc: 'next 3 boons: guaranteed legendary+',      rarity: 'mythic',    archetype: 'meta',     custom: 'wishflower', flavor: 'a single bloom in a thousand fields.' },
+  { id: 'world_tree', name: 'Roots of the World', desc: '×3.5 yield. no more boons this run.', rarity: 'mythic',    archetype: 'commit',   custom: 'world_tree', flavor: 'older than the soil itself.' },
+  { id: 'eternal',  name: 'Eternal Crop',    desc: 'after harvest, plot replants identical with all boons preserved. once.', rarity: 'mythic', archetype: 'meta', custom: 'eternal', flavor: 'the field that keeps giving.' },
+  { id: 'sun_god',  name: 'Solstice',        desc: '×2.5 yield. ALL other plots: ×1.8 yield.', rarity: 'mythic',    archetype: 'cross',    custom: 'solstice', flavor: 'the day the sun stood still.' },
+
+  // ============ CROP-SPECIFIC IN-RUN ============
+  { id: 'crunch',   name: 'Extra Crunch',    desc: '+30% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.30, cropOnly: 'radish',  unlockAt: 5,  flavor: 'snap heard from the fence.' },
+  { id: 'french',   name: 'French Breakfast', desc: '×2.4 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.85, cropOnly: 'radish', unlockAt: 20, flavor: 'served with butter and salt.' },
+  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+50% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'carrot', unlockAt: 5, flavor: 'purple, white, gold, deep red.' },
+  { id: 'heirloom', name: 'Heirloom Strain', desc: '+40% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.40, cropOnly: 'tomato',  unlockAt: 5, flavor: 'seeds saved for generations.' },
+  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.6 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, cropOnly: 'tomato', unlockAt: 20, flavor: 'one fruit fills both hands.' },
+  { id: 'golden',   name: 'Golden Field',    desc: '+45% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'wheat',   unlockAt: 5, flavor: 'the field hums in the breeze.' },
+  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.8 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, timeMult: 0.80, cropOnly: 'wheat', unlockAt: 20, flavor: 'sung at the close of summer.' },
+  { id: 'corn_silk', name: 'Silken Husk',    desc: '+50% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'corn',    unlockAt: 5, flavor: 'long fields, bowed by wind.' },
+  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+60% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.60, cropOnly: 'pumpkin', unlockAt: 5, flavor: 'big enough to hollow a kingdom.' },
+];
+
+// ============ PERMA-BUFF POOL ============
+const PERMA_POOL = [
+  // === GENERAL — apply to any crop ===
+  // Common
+  { id: 'p_glass', name: 'Greenhouse Glass', desc: '+4% yield', rarity: 'common', yieldMult: 1.04, flavor: 'a roof for tender things.' },
+  { id: 'p_lazy_river', name: 'Lazy River', desc: '−3% grow time', rarity: 'common', timeMult: 0.97, flavor: 'water finds its way.' },
+  { id: 'p_seeds', name: 'Quality Seeds', desc: '+5% yield', rarity: 'common', yieldMult: 1.05, flavor: 'sown with care.' },
+  { id: 'p_humming', name: 'Humming Earth', desc: '+3% yield, −2% time', rarity: 'common', yieldMult: 1.03, timeMult: 0.98, flavor: 'a quiet, working soil.' },
+  // Uncommon
+  { id: 'p_loyal_bee', name: 'Loyal Bee', desc: '+7% yield', rarity: 'uncommon', yieldMult: 1.07, flavor: 'returns each spring.' },
+  { id: 'p_tractor', name: 'Ancient Tractor', desc: '−6% grow time', rarity: 'uncommon', timeMult: 0.94, flavor: 'still runs, still smokes.' },
+  { id: 'p_library', name: 'Heirloom Library', desc: '+1% yield per crop in mastery', rarity: 'uncommon', custom: 'mastery_synergy', flavor: 'old knowledge, new harvests.' },
+  { id: 'p_taps_3', name: 'Master Composter', desc: '+3 max taps per planting', rarity: 'uncommon', custom: 'extra_taps', value: 3, flavor: 'nothing wasted.' },
+  // Rare
+  { id: 'p_heritage', name: 'Heritage Strain', desc: '+10% yield', rarity: 'rare', yieldMult: 1.10, flavor: 'pure lineage.' },
+  { id: 'p_spring', name: 'Spring Eternal', desc: '−10% grow time', rarity: 'rare', timeMult: 0.90, flavor: 'the season that never ends.' },
+  { id: 'p_taps_5', name: 'Master\'s Hand', desc: '+5 max taps per planting', rarity: 'rare', custom: 'extra_taps', value: 5, flavor: 'practice and patience.' },
+  { id: 'p_balance', name: 'Balanced Plot', desc: '+8% yield, −5% time', rarity: 'rare', yieldMult: 1.08, timeMult: 0.95, flavor: 'every variable in its right place.' },
+  // Legendary
+  { id: 'p_crystal', name: 'Crystal Greenhouse', desc: '+15% yield', rarity: 'legendary', yieldMult: 1.15, flavor: 'sun made gentle.' },
+  { id: 'p_pact_earth', name: 'Pact of the Earth', desc: '+25% yield, +5% time', rarity: 'legendary', yieldMult: 1.25, timeMult: 1.05, flavor: 'the price of plenty.' },
+  { id: 'p_starlight', name: 'Starlight Garden', desc: '+12% yield, −5% time', rarity: 'legendary', yieldMult: 1.12, timeMult: 0.95, flavor: 'tended under a quiet sky.' },
+  // Mythic
+  { id: 'p_eternal_garden', name: 'Eternal Garden', desc: '+28% yield', rarity: 'mythic', yieldMult: 1.28, flavor: 'older than memory.' },
+  { id: 'p_first_seed', name: 'The First Seed', desc: '+18% yield, −12% time', rarity: 'mythic', yieldMult: 1.18, timeMult: 0.88, flavor: 'planted before the world began.' },
+
+  // === RADISH set ===
+  { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
+  { id: 'p_r_cold', name: 'Cold Frame', desc: '+10% radish yield, −3% time', rarity: 'uncommon', yieldMult: 1.10, timeMult: 0.97, cropOnly: 'radish', flavor: 'crisp through every season.' },
+  { id: 'p_r_knife', name: 'Bunching Knife', desc: '−12% radish time', rarity: 'rare', timeMult: 0.88, cropOnly: 'radish', flavor: 'trim, wash, return for more.' },
+  { id: 'p_r_royal', name: 'Radish Royalty', desc: '+28% radish yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'radish', flavor: 'crowned in greens.' },
+
+  // === CARROT set ===
+  { id: 'p_c_loam', name: 'Sandy Loam', desc: '+6% carrot yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'carrot', flavor: 'lets the roots run deep.' },
+  { id: 'p_c_top', name: 'Carrot Top', desc: '+10% carrot yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'carrot', flavor: 'more leaf, more body.' },
+  { id: 'p_c_long', name: 'Long Bed', desc: '−12% carrot time', rarity: 'rare', timeMult: 0.88, cropOnly: 'carrot', flavor: 'stretching toward the sun.' },
+  { id: 'p_c_rainbow', name: 'Rainbow Strain', desc: '+28% carrot yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
+
+  // === TOMATO set ===
+  { id: 'p_t_cage', name: 'Tomato Cage', desc: '+6% tomato yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'tomato', flavor: 'a steadying hand.' },
+  { id: 'p_t_prune', name: 'Pruning Hand', desc: '+10% tomato yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'tomato', flavor: 'old growth removed, new fed.' },
+  { id: 'p_t_sunny', name: 'Sunny Trellis', desc: '−12% tomato time', rarity: 'rare', timeMult: 0.88, cropOnly: 'tomato', flavor: 'a wall of warmth.' },
+  { id: 'p_t_heir', name: 'Heirloom Vines', desc: '+28% tomato yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'tomato', flavor: 'seeds passed down, summer to summer.' },
+
+  // === WHEAT set ===
+  { id: 'p_w_field', name: 'Wide Field', desc: '+6% wheat yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'wheat', flavor: 'horizon to horizon.' },
+  { id: 'p_w_thresh', name: 'Threshing Floor', desc: '+10% wheat yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'wheat', flavor: 'honest, ancient work.' },
+  { id: 'p_w_combine', name: 'Combine Engine', desc: '−12% wheat time', rarity: 'rare', timeMult: 0.88, cropOnly: 'wheat', flavor: 'the engine never sleeps.' },
+  { id: 'p_w_golden', name: 'Golden Harvest', desc: '+28% wheat yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'wheat', flavor: 'a sea of bread.' },
+
+  // === CORN set ===
+  { id: 'p_co_dust', name: 'Corn Dust', desc: '+6% corn yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'corn', flavor: 'stick to your boots.' },
+  { id: 'p_co_husk', name: 'Husk Cradle', desc: '+10% corn yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'corn', flavor: 'tucked in tight.' },
+  { id: 'p_co_tall', name: 'Tall Stalks', desc: '−12% corn time', rarity: 'rare', timeMult: 0.88, cropOnly: 'corn', flavor: 'high enough to whisper through.' },
+  { id: 'p_co_pact', name: 'Maize Pact', desc: '+28% corn yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'corn', flavor: 'an old promise kept.' },
+
+  // === PUMPKIN set ===
+  { id: 'p_pu_vine', name: 'Vine Trellis', desc: '+6% pumpkin yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'pumpkin', flavor: 'for the wandering ones.' },
+  { id: 'p_pu_heavy', name: 'Heavy Soil', desc: '+10% pumpkin yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'pumpkin', flavor: 'rich, slow earth.' },
+  { id: 'p_pu_heart', name: 'Pumpkin Heart', desc: '−12% pumpkin time', rarity: 'rare', timeMult: 0.88, cropOnly: 'pumpkin', flavor: 'ripens in the cold.' },
+  { id: 'p_pu_court', name: 'Autumn Court', desc: '+28% pumpkin yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'pumpkin', flavor: 'the crowned harvest.' },
+];
+
+const PLOT_COSTS = [0, 250, 700, 1700, 4000, 9000, 19000, 40000];
+
+// ============ STATE ============
+const state = {
+  money: 25,
+  speed: 600,
+  lastTick: performance.now(),
+  plots: [],
+  mastery: { radish: 0, carrot: 0, tomato: 0, wheat: 0, corn: 0, pumpkin: 0 },
+  harvestLog: [],
+  totalHarvests: 0,
+  pendingPacks: 0,
+  collection: [], // [{...buff, count}]
+  loadouts: [[], [], [], [], [], []], // 6 plots × up to 4 buff ids
+  adPlaying: false,
+  adUsedForCurrentPack: false,
+  currentPackCards: [],
+  loadoutModalPlotId: 0,
+};
+
+function makePlot(id) {
+  return {
+    id,
+    crop: null,
+    elapsedMs: 0,
+    totalMs: 0,
+    totalPicks: 0,
+    picksTaken: 0,
+    yieldMult: 1.0,
+    timeMult: 1.0,
+    activeBuffs: [],
+    tapsUsed: 0,
+    tapsMax: TAP_LIMIT,
+    lastTapTime: 0,
+    flags: {
+      lockTime: false,
+      noMorePicks: false,
+      skillWindow10: false,
+      skillFerment: false,
+      eternalActive: false,
+      eternalUsed: false,
+      committedNoMore: false,
+      picksAtCommit: undefined,
+      nextPenaltyMult: 1.0,
+      wishflowerLeft: 0,
+      wideDraftLeft: 0,
+      echoLeft: 0,
+    },
+  };
+}
+
+state.plots.push(makePlot(0));
+for (let i = 1; i < 6; i++) state.plots.push({ id: i, locked: true });
+
+// ============ UTILITY ============
+function fmtMoney(n) { return Math.floor(n).toLocaleString(); }
+function fmtTimeRemaining(ms) {
+  ms = Math.max(0, ms);
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function picksUnlockedAt(plot) {
+  const progress = plot.totalMs > 0 ? plot.elapsedMs / plot.totalMs : 0;
+  return Math.min(plot.totalPicks, Math.floor(progress * (plot.totalPicks + 1)));
+}
+function picksAvailable(plot) {
+  if (!plot.crop) return 0;
+  if (plot.flags.noMorePicks) return 0;
+  return Math.max(0, picksUnlockedAt(plot) - plot.picksTaken);
+}
+function isReady(plot) { return plot.crop && plot.elapsedMs >= plot.totalMs; }
+function progressOf(plot) { if (!plot.crop || plot.totalMs === 0) return 0; return Math.min(1, plot.elapsedMs / plot.totalMs); }
+function totalAvailablePicks() { return state.plots.reduce((a, p) => a + (p.locked ? 0 : picksAvailable(p)), 0); }
+function activeCropsGrowing() { return new Set(state.plots.filter(p => !p.locked && p.crop).map(p => p.crop)); }
+function firstPlotWithPicks() { return state.plots.find(p => !p.locked && p.crop && picksAvailable(p) > 0); }
+
+function addFloat(text, x, y) {
+  const el = document.createElement('div');
+  el.className = 'float-money';
+  el.textContent = text;
+  el.style.left = (x - 40) + 'px';
+  el.style.top = (y - 20) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+// ============ PERMA-BUFF EFFECTS (per plot) ============
+function isBuffActiveOnPlot(buff, plot) {
+  if (!buff.cropOnly) return true;
+  return plot && plot.crop === buff.cropOnly;
+}
+
+function getActivePerma(plotId) {
+  const plot = state.plots[plotId];
+  const loadout = state.loadouts[plotId] || [];
+  return loadout
+    .map(id => PERMA_POOL.find(b => b.id === id))
+    .filter(b => b && isBuffActiveOnPlot(b, plot));
+}
+
+function getPermaYieldMultForPlot(plotId) {
+  let m = 1.0;
+  for (const b of getActivePerma(plotId)) {
+    if (b.yieldMult) m *= b.yieldMult;
+    if (b.custom === 'mastery_synergy') {
+      const totalMastered = Object.values(state.mastery).filter(c => c >= 5).length;
+      m *= (1 + 0.01 * totalMastered);
+    }
+  }
+  return m;
+}
+function getPermaTimeMultForPlot(plotId) {
+  let m = 1.0;
+  for (const b of getActivePerma(plotId)) {
+    if (b.timeMult) m *= b.timeMult;
+  }
+  return m;
+}
+function getPermaTapsBonusForPlot(plotId) {
+  let bonus = 0;
+  for (const b of getActivePerma(plotId)) {
+    if (b.custom === 'extra_taps') bonus += b.value || 0;
+  }
+  return bonus;
+}
+
+// ============ DRAFTING ============
+function getAvailableBuffs(cropType) {
+  return BUFF_POOL.filter(b => {
+    if (b.cropOnly && b.cropOnly !== cropType) return false;
+    if (b.unlockAt && state.mastery[b.cropOnly || cropType] < b.unlockAt) return false;
+    return true;
+  });
+}
+
+function draftN(cropType, n, rarityFloor = null) {
+  const pool = getAvailableBuffs(cropType);
+  const filtered = rarityFloor
+    ? pool.filter(b => RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor))
+    : pool;
+  const usePool = filtered.length >= n ? filtered : pool;
+  const weighted = usePool.map(b => ({ b, w: RARITY_WEIGHTS[b.rarity] }));
+  const picks = [];
+  const used = new Set();
+  for (let i = 0; i < n && picks.length < usePool.length; i++) {
+    const remaining = weighted.filter(x => !used.has(x.b.id));
+    const total = remaining.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of remaining) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
+    }
+  }
+  return picks;
+}
+
+function pickRandomFromPool(filterFn) {
+  const pool = BUFF_POOL.filter(filterFn);
+  return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+function draftPermaPack(n, rarityFloor = null) {
+  const filtered = rarityFloor
+    ? PERMA_POOL.filter(b => RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor))
+    : PERMA_POOL;
+  const weighted = filtered.map(b => ({ b, w: PERMA_RARITY_WEIGHTS[b.rarity] }));
+  const picks = [];
+  for (let i = 0; i < n; i++) {
+    const total = weighted.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of weighted) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); break; }
+    }
+  }
+  return picks;
+}
+
+// ============ ACTIONS ============
+function plant(plotId, cropType) {
+  const plot = state.plots[plotId];
+  const crop = CROPS[cropType];
+  if (!plot || plot.locked || plot.crop) return;
+  if (state.money < crop.plantCost) return;
+  if (activeCropsGrowing().has(cropType)) return;
+
+  state.money -= crop.plantCost;
+  const carryover = plot.flags.nextPenaltyMult || 1.0;
+  Object.assign(plot, makePlot(plotId));
+  plot.crop = cropType;
+  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId);
+  plot.totalPicks = crop.pickCount;
+  plot.yieldMult *= carryover;
+  plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
+  closeAllModals();
+  render();
+}
+
+function tapEffectiveReduction() {
+  // 1× → 2%, 60× → ~6%, 600× → ~11%, capped at 12%
+  const speed = Math.max(1, state.speed);
+  return Math.min(0.12, TAP_BASE_REDUCTION * (1 + Math.log10(speed) * 1.8));
+}
+
+function tapCrop(plotId) {
+  const plot = state.plots[plotId];
+  if (!plot.crop || plot.locked) return;
+  if (plot.tapsUsed >= plot.tapsMax) return;
+  if (isReady(plot)) return;
+  const now = performance.now();
+  if (now - plot.lastTapTime < TAP_COOLDOWN_MS) return;
+
+  const reduction = tapEffectiveReduction();
+  const wasNotExhausted = plot.tapsUsed < plot.tapsMax;
+  plot.tapsUsed += 1;
+  plot.lastTapTime = now;
+  plot.totalMs *= (1 - reduction);
+  const nowExhausted = plot.tapsUsed >= plot.tapsMax;
+
+  // animate the existing wrap (without destroying it via render)
+  const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${plotId}"]`);
+  if (wrap) {
+    wrap.classList.remove('tapped');
+    void wrap.offsetWidth;
+    wrap.classList.add('tapped');
+    const popup = document.createElement('div');
+    popup.className = 'tap-popup';
+    popup.textContent = `−${(reduction * 100).toFixed(0)}%`;
+    wrap.appendChild(popup);
+    setTimeout(() => popup.remove(), 700);
+  }
+
+  // update tap counter and progress without full DOM rebuild
+  const plotEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
+  if (plotEl) {
+    const counter = plotEl.querySelector('.tap-counter');
+    if (counter) {
+      counter.textContent = `⊹ ${plot.tapsUsed}/${plot.tapsMax}`;
+      counter.classList.toggle('full', nowExhausted);
+    }
+  }
+  updatePlotTick(plot);
+
+  // structural change: just exhausted taps → render to remove tap-hint
+  if (wasNotExhausted && nowExhausted) render();
+}
+
+function harvest(plotId, ev) {
+  const plot = state.plots[plotId];
+  if (!plot.crop || !isReady(plot)) return;
+  const crop = CROPS[plot.crop];
+  let mult = plot.yieldMult;
+
+  if (plot.flags.skillWindow10) {
+    const overripeMs = plot.elapsedMs - plot.totalMs;
+    const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+    if (overripeRealSec <= 10) mult *= 1.6;
+  }
+  if (plot.flags.skillFerment) {
+    const overripeMs = plot.elapsedMs - plot.totalMs;
+    const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+    const ticks = Math.max(0, Math.floor(overripeRealSec / 5));
+    mult *= (1 + 0.08 * ticks);
+  }
+  if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
+    mult *= 1.80;
+  }
+
+  mult *= getPermaYieldMultForPlot(plotId);
+
+  const yieldAmount = Math.floor(crop.baseYield * mult);
+  state.money += yieldAmount;
+  state.mastery[plot.crop] += 1;
+  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, t: Date.now() });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+
+  state.totalHarvests += 1;
+  if (state.totalHarvests % HARVESTS_PER_PACK === 0) {
+    state.pendingPacks += 1;
+  }
+
+  if (ev && ev.target) {
+    const r = ev.target.getBoundingClientRect();
+    addFloat('+' + yieldAmount, r.left + r.width / 2, r.top);
+  }
+
+  if (plot.flags.eternalActive && !plot.flags.eternalUsed) {
+    const savedBuffs = plot.activeBuffs.filter(b => b.id !== 'eternal');
+    const savedYieldMult = plot.yieldMult;
+    const savedTotalPicks = plot.totalPicks;
+    const savedFlags = { ...plot.flags, eternalUsed: true, eternalActive: false };
+    const cropType = plot.crop;
+    Object.assign(plot, makePlot(plotId));
+    plot.crop = cropType;
+    plot.totalMs = CROPS[cropType].growthMs * getPermaTimeMultForPlot(plotId);
+    plot.totalPicks = savedTotalPicks;
+    plot.picksTaken = savedTotalPicks;
+    plot.yieldMult = savedYieldMult;
+    plot.activeBuffs = savedBuffs;
+    plot.flags = { ...plot.flags, ...savedFlags };
+  } else {
+    const carry = plot.flags.nextPenaltyMult || 1.0;
+    Object.assign(plot, makePlot(plotId));
+    plot.flags.nextPenaltyMult = carry < 1 ? carry : 1.0;
+  }
+  render();
+}
+
+function applyBuff(plotId, buff) {
+  const plot = state.plots[plotId];
+  if (!plot.crop) return;
+  if (picksAvailable(plot) < 1) return;
+
+  // commit deferred draft modifiers (only when buff is actually picked)
+  if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) plot.flags.wishflowerLeft -= 1;
+  if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) plot.flags.wideDraftLeft -= 1;
+
+  const echoActive = plot.flags.echoLeft > 0 && buff.id !== 'echo';
+  if (echoActive) plot.flags.echoLeft -= 1;
+
+  if (buff.yieldMult) {
+    plot.yieldMult *= buff.yieldMult;
+    if (echoActive) plot.yieldMult *= buff.yieldMult;
+  }
+  if (buff.timeMult && !plot.flags.lockTime && !isReady(plot)) {
+    plot.totalMs *= buff.timeMult;
+    if (echoActive) plot.totalMs *= buff.timeMult;
+  }
+  if (buff.custom) handleCustom(plotId, buff, echoActive);
+
+  plot.activeBuffs.push(buff);
+  plot.picksTaken += 1;
+  closeAllModals();
+  render();
+}
+
+function handleCustom(plotId, buff, echo) {
+  const plot = state.plots[plotId];
+  const e = echo ? 2 : 1;
+  switch (buff.custom) {
+    case 'common_synergy': {
+      const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length + 1;
+      plot.yieldMult *= Math.pow(1 + 0.05 * commons, e);
+      break;
+    }
+    case 'symbiosis': {
+      const others = plot.activeBuffs.length;
+      plot.yieldMult *= Math.pow(1 + 0.08 * others, e);
+      break;
+    }
+    case 'coin_flip_17':
+      for (let i = 0; i < e; i++) if (Math.random() < 0.5) plot.yieldMult *= 1.7;
+      break;
+    case 'frost_gamble':
+      for (let i = 0; i < e; i++) plot.yieldMult *= (Math.random() < 0.7) ? 2.2 : 0.5;
+      break;
+    case 'echo':
+      plot.flags.echoLeft = (plot.flags.echoLeft || 0) + 1;
+      break;
+    case 'twofold': {
+      const random = pickRandomFromPool(b =>
+        ['common', 'uncommon'].includes(b.rarity) &&
+        b.id !== 'twofold' &&
+        (!b.cropOnly || b.cropOnly === plot.crop) &&
+        (!b.unlockAt || state.mastery[b.cropOnly || plot.crop] >= b.unlockAt) &&
+        !b.custom
+      );
+      if (random) {
+        if (random.yieldMult) plot.yieldMult *= random.yieldMult;
+        if (random.timeMult && !plot.flags.lockTime && !isReady(plot)) plot.totalMs *= random.timeMult;
+        plot.activeBuffs.push(random);
+      }
+      break;
+    }
+    case 'cornucopia':
+      plot.flags.wideDraftLeft = (plot.flags.wideDraftLeft || 0) + 1;
+      break;
+    case 'cascade_gold': {
+      const pool = BUFF_POOL.filter(b =>
+        b.rarity === 'rare' &&
+        b.id !== 'cascade_gold' &&
+        (!b.cropOnly || b.cropOnly === plot.crop) &&
+        (!b.unlockAt || state.mastery[b.cropOnly || plot.crop] >= b.unlockAt) &&
+        !b.custom
+      );
+      const used = new Set();
+      for (let i = 0; i < 2 && pool.length > 0; i++) {
+        const remaining = pool.filter(x => !used.has(x.id));
+        if (remaining.length === 0) break;
+        const random = remaining[Math.floor(Math.random() * remaining.length)];
+        used.add(random.id);
+        if (random.yieldMult) plot.yieldMult *= random.yieldMult;
+        if (random.timeMult && !plot.flags.lockTime && !isReady(plot)) plot.totalMs *= random.timeMult;
+        plot.activeBuffs.push(random);
+      }
+      break;
+    }
+    case 'cross_yield_15':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.15, e); });
+      break;
+    case 'cross_yield_50':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.50, e); });
+      break;
+    case 'cross_pick_1':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.totalPicks += e; });
+      break;
+    case 'lock_time': plot.flags.lockTime = true; break;
+    case 'next_penalty_20': plot.flags.nextPenaltyMult = 0.80; break;
+    case 'skill_window_10': plot.flags.skillWindow10 = true; break;
+    case 'ferment_5s_8': plot.flags.skillFerment = true; break;
+    case 'reroll_last': {
+      if (plot.activeBuffs.length > 0) {
+        const last = plot.activeBuffs[plot.activeBuffs.length - 1];
+        if (last.yieldMult) plot.yieldMult /= last.yieldMult;
+        plot.activeBuffs.pop();
+        plot.picksTaken -= 1;
+        plot.totalPicks += 1;
+      }
+      break;
+    }
+    case 'double_actives':
+      plot.activeBuffs.forEach(b => { if (b.yieldMult) plot.yieldMult *= b.yieldMult; });
+      break;
+    case 'no_more_picks_80':
+      plot.flags.noMorePicks = true;
+      plot.flags.committedNoMore = true;
+      plot.flags.picksAtCommit = plot.picksTaken + 1;
+      break;
+    case 'all_in': {
+      const others = plot.activeBuffs.filter(b => b.id !== 'all_in');
+      others.forEach(b => { if (b.yieldMult) plot.yieldMult /= b.yieldMult; });
+      plot.activeBuffs = [];
+      plot.yieldMult *= Math.pow(2.5, e);
+      break;
+    }
+    case 'wishflower':
+      plot.flags.wishflowerLeft = (plot.flags.wishflowerLeft || 0) + 3;
+      plot.totalPicks += 3;
+      break;
+    case 'world_tree':
+      plot.yieldMult *= Math.pow(3.5, e);
+      plot.flags.noMorePicks = true;
+      break;
+    case 'eternal':
+      plot.flags.eternalActive = true;
+      break;
+    case 'solstice':
+      plot.yieldMult *= Math.pow(2.5, e);
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.8, e); });
+      break;
+    case 'common_amp': {
+      const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length;
+      plot.yieldMult *= Math.pow(1 + 0.25 * commons, e);
+      break;
+    }
+  }
+}
+
+function buyPlot(plotId) {
+  const cost = PLOT_COSTS[plotId];
+  if (state.money < cost) return;
+  state.money -= cost;
+  state.plots[plotId] = makePlot(plotId);
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  const nextId = state.plots.length;
+  if (nextId < PLOT_COSTS.length) {
+    state.plots.push({ id: nextId, locked: true });
+    state.loadouts.push([]);
+  }
+  render();
+}
+
+// ============ COLLECTION & LOADOUT ============
+function addToCollection(buff) {
+  const existing = state.collection.find(c => c.id === buff.id);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    state.collection.push({ ...buff, count: 1 });
+  }
+}
+
+function isEquippedOnPlot(buffId, plotId) {
+  return (state.loadouts[plotId] || []).includes(buffId);
+}
+
+function equipToPlot(plotId, buffId) {
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  const loadout = state.loadouts[plotId];
+  if (loadout.includes(buffId)) return; // already equipped
+  if (loadout.length >= MAX_PERMA_SLOTS) {
+    loadout.shift(); // bump oldest
+  }
+  loadout.push(buffId);
+  // refresh tap cap if plot is growing
+  const plot = state.plots[plotId];
+  if (plot && !plot.locked && plot.crop) {
+    plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
+  }
+}
+function unequipFromPlot(plotId, buffId) {
+  if (!state.loadouts[plotId]) return;
+  const idx = state.loadouts[plotId].indexOf(buffId);
+  if (idx >= 0) state.loadouts[plotId].splice(idx, 1);
+  const plot = state.plots[plotId];
+  if (plot && !plot.locked && plot.crop) {
+    plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
+    plot.tapsUsed = Math.min(plot.tapsUsed, plot.tapsMax);
+  }
+}
+
+// ============ MODALS ============
+function openPlantModal(plotId) {
+  const opts = document.getElementById('plantOptions');
+  opts.innerHTML = '';
+  const busyTypes = activeCropsGrowing();
+  for (const [key, c] of Object.entries(CROPS)) {
+    const btn = document.createElement('button');
+    btn.className = 'plant-option';
+    const busy = busyTypes.has(key);
+    const tooExpensive = state.money < c.plantCost;
+    btn.disabled = busy || tooExpensive;
+    const adjustedTime = c.growthMs * getPermaTimeMultForPlot(plotId);
+    let reasonHtml = '';
+    if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
+    else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need ◉ ${c.plantCost - state.money}</span>`;
+    btn.innerHTML = `
+      ${reasonHtml}
+      <div class="po-emoji">${c.emoji}</div>
+      <div class="po-name">${c.name}</div>
+      <div class="po-stats">
+        <span>cost: ◉ ${c.plantCost}</span>
+        <span>yield: ◉ ${c.baseYield}</span>
+        <span>grows: ${fmtTimeRemaining(adjustedTime)}</span>
+        <span>picks: ${c.pickCount}</span>
+      </div>
+    `;
+    btn.onclick = () => plant(plotId, key);
+    opts.appendChild(btn);
+  }
+  document.getElementById('plantModal').hidden = false;
+}
+
+function openBuffModal(plotId) {
+  const plot = state.plots[plotId];
+  if (!plot.crop || picksAvailable(plot) < 1) return;
+  const crop = CROPS[plot.crop];
+
+  document.getElementById('bmEmoji').textContent = crop.emoji;
+  document.getElementById('bmTitle').textContent = crop.name;
+  document.getElementById('bmMeta').textContent = `Plot ${plot.id + 1} · ${picksAvailable(plot)} pick${picksAvailable(plot) > 1 ? 's' : ''} remaining`;
+
+  let floor = null;
+  // peek at flags but don't decrement yet — only commit if user actually picks
+  if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) {
+    floor = 'legendary';
+  }
+  let draftCount = 3;
+  if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) {
+    draftCount = 5;
+  }
+
+  const drafted = draftN(plot.crop, draftCount, floor);
+  const opts = document.getElementById('buffOptions');
+  opts.className = 'buff-options' + (draftCount > 3 ? ' wide' : '');
+  opts.innerHTML = '';
+
+  drafted.forEach(buff => {
+    const card = document.createElement('button');
+    card.className = `buff-card ${buff.rarity}`;
+    card.innerHTML = `
+      <div class="buff-rarity">
+        <span>${buff.rarity}</span>
+        <span class="buff-archetype">· ${buff.archetype}</span>
+      </div>
+      <div class="buff-name">${buff.name}</div>
+      <div class="buff-desc">${buff.desc}</div>
+      <div class="buff-flavor">${buff.flavor}</div>
+    `;
+    card.onclick = () => applyBuff(plotId, buff);
+    opts.appendChild(card);
+  });
+  document.getElementById('buffModal').hidden = false;
+}
+
+function openPackModal(rarityFloor = null, customTitle = null) {
+  if (!rarityFloor && state.pendingPacks < 1) return;
+  if (!rarityFloor) state.pendingPacks -= 1;
+
+  const cards = draftPermaPack(3, rarityFloor);
+  state.currentPackCards = cards;
+  state.adUsedForCurrentPack = false;
+
+  const titleEl = document.getElementById('packTitle');
+  titleEl.textContent = customTitle || (rarityFloor ? 'Premium Pack' : 'A New Pack');
+
+  renderPackCards();
+  renderPackActions();
+  document.getElementById('packModal').hidden = false;
+}
+
+function renderPackCards() {
+  const grid = document.getElementById('packCards');
+  grid.innerHTML = '';
+  grid.className = 'pack-cards' + (state.adUsedForCurrentPack ? ' has-bonus' : '');
+  state.currentPackCards.forEach((buff, idx) => {
+    const card = document.createElement('div');
+    const isBonus = state.adUsedForCurrentPack && idx === state.currentPackCards.length - 1 && state.currentPackCards.length === 4;
+    card.className = `pack-card ${buff.rarity} ${isBonus ? 'bonus' : ''}`;
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${CROPS[buff.cropOnly].name} only` : 'general';
+    card.innerHTML = `
+      <div class="pc-rarity">${buff.rarity}</div>
+      <div class="pc-name">${buff.name}</div>
+      <div class="pc-desc">${buff.desc}</div>
+      <div class="pc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}</div>
+      <div class="pc-flavor">${buff.flavor}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function renderPackActions() {
+  const actions = document.getElementById('packActions');
+  actions.innerHTML = '';
+
+  if (!state.adUsedForCurrentPack) {
+    const adBtn = document.createElement('button');
+    adBtn.className = 'shop-btn ad';
+    adBtn.innerHTML = `<span class="sb-title">▶ Watch Ad for Bonus Card</span><span class="sb-desc">adds a 4th boon (uncommon or higher)</span>`;
+    adBtn.onclick = watchAdForBonus;
+    actions.appendChild(adBtn);
+  }
+
+  const keepBtn = document.createElement('button');
+  keepBtn.className = 'btn btn-primary';
+  keepBtn.style.padding = '14px 24px';
+  keepBtn.style.fontSize = '14px';
+  keepBtn.textContent = 'Add all to Collection';
+  keepBtn.onclick = () => {
+    state.currentPackCards.forEach(b => addToCollection(b));
+    state.currentPackCards = [];
+    state.adUsedForCurrentPack = false;
+    closeAllModals();
+    render();
+  };
+  actions.appendChild(keepBtn);
+}
+
+function watchAdForBonus() {
+  if (state.adPlaying || state.adUsedForCurrentPack) return;
+  state.adPlaying = true;
+  const btn = document.querySelector('.shop-btn.ad');
+  if (!btn) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'ad-playing';
+  overlay.textContent = 'playing ad… 3';
+  btn.appendChild(overlay);
+  let count = 3;
+  const interval = setInterval(() => {
+    count -= 1;
+    if (count > 0) overlay.textContent = `playing ad… ${count}`;
+    else {
+      clearInterval(interval);
+      state.adPlaying = false;
+      state.adUsedForCurrentPack = true;
+      // add 4th card uncommon-or-higher
+      const bonus = draftPermaPack(1, 'uncommon')[0];
+      state.currentPackCards.push(bonus);
+      renderPackCards();
+      renderPackActions();
+    }
+  }, 1000);
+}
+
+function openCollectionModal() {
+  if (state.pendingPacks > 0) {
+    openPackModal();
+    return;
+  }
+  document.getElementById('collectionModal').hidden = false;
+  renderCollection();
+}
+
+function renderCollection() {
+  const grid = document.getElementById('collectionGrid');
+  grid.innerHTML = '';
+
+  if (state.collection.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons yet — earn packs by harvesting</div>';
+    return;
+  }
+
+  // sort: rarity desc, then name
+  const sorted = [...state.collection].sort((a, b) => {
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return br - ar;
+    return a.name.localeCompare(b.name);
+  });
+
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    // count how many plots have this equipped
+    const equippedOn = state.loadouts.reduce((acc, l, i) => acc + (l.includes(buff.id) ? 1 : 0), 0);
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    card.className = `lm-card ${buff.rarity}`;
+    card.innerHTML = `
+      <div class="lc-rarity">${buff.rarity}</div>
+      <div class="lc-name">${buff.name}</div>
+      <div class="lc-desc">${buff.desc}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedOn > 0 ? ` · equipped ×${equippedOn}` : ''}</div>
+      ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ============ LOADOUT MODAL ============
+function openLoadoutModal(plotId) {
+  state.loadoutModalPlotId = plotId;
+  const plot = state.plots[plotId];
+  const titleEl = document.getElementById('lmTitle');
+  const subEl = document.getElementById('lmSub');
+  titleEl.textContent = `Plot ${plotId + 1} Loadout`;
+  const filledCount = (state.loadouts[plotId] || []).length;
+  if (plot.crop) {
+    subEl.textContent = `${CROPS[plot.crop].emoji} ${CROPS[plot.crop].name} · ${filledCount}/${MAX_PERMA_SLOTS} slots filled`;
+  } else {
+    subEl.textContent = `(empty plot) · ${filledCount}/${MAX_PERMA_SLOTS} slots filled`;
+  }
+  renderLoadoutModal();
+  document.getElementById('loadoutModal').hidden = false;
+}
+
+function renderLoadoutModal() {
+  const plotId = state.loadoutModalPlotId;
+  const plot = state.plots[plotId];
+  const loadout = state.loadouts[plotId] || [];
+
+  // slots
+  const slotsEl = document.getElementById('lmSlots');
+  slotsEl.innerHTML = '';
+  for (let i = 0; i < MAX_PERMA_SLOTS; i++) {
+    const id = loadout[i];
+    const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+    const slot = document.createElement('div');
+    if (buff) {
+      const active = isBuffActiveOnPlot(buff, plot);
+      slot.className = `lm-slot filled ${buff.rarity} ${active ? '' : 'inactive'}`;
+      const cropTag = buff.cropOnly
+        ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}${!active ? ' (inactive)' : ''}`
+        : 'general';
+      slot.innerHTML = `
+        <div class="ls-rarity">${buff.rarity}</div>
+        <div class="ls-name">${buff.name}</div>
+        <div class="ls-desc">${buff.desc}</div>
+        <div class="ls-tag ${!active ? 'inactive-text' : ''}">${cropTag}</div>
+        <div class="ls-remove">tap to remove</div>
+      `;
+      slot.onclick = () => { unequipFromPlot(plotId, buff.id); renderLoadoutModal(); render(); };
+    } else {
+      slot.className = 'lm-slot';
+      slot.innerHTML = `slot ${i + 1}`;
+    }
+    slotsEl.appendChild(slot);
+  }
+
+  // collection metadata
+  const meta = document.getElementById('lmCollectionMeta');
+  meta.textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} owned`;
+
+  // collection grid (filtered/sorted: relevant first)
+  const grid = document.getElementById('lmGrid');
+  grid.innerHTML = '';
+  if (state.collection.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons yet — open a pack to start</div>';
+    return;
+  }
+
+  const currentCrop = plot.crop;
+  const sorted = [...state.collection].sort((a, b) => {
+    // priority 1: equipped here come first
+    const ae = isEquippedOnPlot(a.id, plotId) ? 0 : 1;
+    const be = isEquippedOnPlot(b.id, plotId) ? 0 : 1;
+    if (ae !== be) return ae - be;
+    // priority 2: active for current crop (general or matching) come before inactive
+    const aActive = !a.cropOnly || a.cropOnly === currentCrop ? 0 : 1;
+    const bActive = !b.cropOnly || b.cropOnly === currentCrop ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    // priority 3: rarity desc
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return br - ar;
+    return a.name.localeCompare(b.name);
+  });
+
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    const equipped = isEquippedOnPlot(buff.id, plotId);
+    const active = !buff.cropOnly || buff.cropOnly === currentCrop;
+    const equippedCount = state.loadouts.reduce((acc, l) => acc + (l.includes(buff.id) ? 1 : 0), 0);
+    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''}`;
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    card.innerHTML = `
+      <div class="lc-rarity">${buff.rarity}</div>
+      <div class="lc-name">${buff.name}</div>
+      <div class="lc-desc">${buff.desc}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedCount > 0 && !equipped ? ` · on ${equippedCount} plot${equippedCount > 1 ? 's' : ''}` : ''}</div>
+      ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
+    `;
+    card.onclick = () => {
+      if (equipped) unequipFromPlot(plotId, buff.id);
+      else equipToPlot(plotId, buff.id);
+      renderLoadoutModal();
+      render();
+    };
+    grid.appendChild(card);
+  });
+}
+
+function closeAllModals() {
+  document.getElementById('plantModal').hidden = true;
+  document.getElementById('buffModal').hidden = true;
+  document.getElementById('packModal').hidden = true;
+  document.getElementById('collectionModal').hidden = true;
+  document.getElementById('loadoutModal').hidden = true;
+}
+
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeAllModals);
+document.querySelectorAll('.modal').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) closeAllModals(); });
+});
+
+document.getElementById('globalPicksBtn').onclick = () => {
+  const p = firstPlotWithPicks();
+  if (p) openBuffModal(p.id);
+};
+document.getElementById('packsBtn').onclick = openCollectionModal;
+
+document.querySelectorAll('.speed-btn').forEach(b => {
+  b.onclick = () => {
+    state.speed = parseInt(b.dataset.speed);
+    document.querySelectorAll('.speed-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+  };
+});
+
+// ============ RENDER ============
+function visualScale(yieldMult) {
+  return 1.0 + Math.min(0.6, (yieldMult - 1) * 0.18);
+}
+
+function render() {
+  document.getElementById('moneyValue').textContent = fmtMoney(state.money);
+
+  const totalPicks = totalAvailablePicks();
+  const gpb = document.getElementById('globalPicksBtn');
+  document.getElementById('globalPicksBadge').textContent = totalPicks;
+  gpb.disabled = totalPicks === 0;
+  gpb.classList.toggle('has-attention', totalPicks > 0);
+
+  const packsBtn = document.getElementById('packsBtn');
+  packsBtn.querySelector('.badge').textContent = state.pendingPacks;
+  packsBtn.classList.toggle('has-attention', state.pendingPacks > 0);
+  if (state.pendingPacks > 0) packsBtn.firstChild.textContent = 'Open Pack ';
+  else packsBtn.firstChild.textContent = 'Collection ';
+
+  // pack progress sidebar
+  const harvestsThisCycle = state.totalHarvests % HARVESTS_PER_PACK;
+  document.getElementById('packProgress').textContent =
+    state.pendingPacks > 0
+      ? `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} ready · open from topbar`
+      : `${harvestsThisCycle}/${HARVESTS_PER_PACK} harvests until next pack`;
+  document.getElementById('packBarFill').style.width = (harvestsThisCycle / HARVESTS_PER_PACK * 100) + '%';
+  document.getElementById('totalCollected').textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} collected`;
+  document.getElementById('totalHarvestsStat').textContent = `${state.totalHarvests} harvest${state.totalHarvests === 1 ? '' : 's'}`;
+
+  // plots
+  const grid = document.getElementById('plotsGrid');
+  grid.innerHTML = '';
+  state.plots.forEach((plot, i) => {
+    const el = document.createElement('div');
+    el.className = 'plot';
+    el.setAttribute('data-plotid', i);
+
+    if (plot.locked) {
+      el.classList.add('locked');
+      const cost = PLOT_COSTS[i];
+      const canBuy = state.money >= cost;
+      el.innerHTML = `
+        <div class="plot-label"><span>plot ${i + 1}</span></div>
+        <div class="lock-icon">⌂ unclaimed</div>
+        <div class="lock-cost">◉ ${fmtMoney(cost)}</div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (canBuy ? 'btn-primary' : 'btn-secondary');
+      btn.textContent = canBuy ? 'Buy land' : 'not enough coin';
+      btn.disabled = !canBuy;
+      btn.onclick = () => canBuy && buyPlot(i);
+      el.appendChild(btn);
+    } else {
+      // loadout strip — always shown for unlocked plots
+      const loadout = state.loadouts[i] || [];
+
+      // Build top label
+      const labelHtml = `
+        <div class="plot-label">
+          <span>plot ${i + 1}</span>
+          ${plot.crop ? `<span class="tap-counter ${plot.tapsUsed >= (plot.tapsMax || TAP_LIMIT) ? 'full' : ''}">⊹ ${plot.tapsUsed}/${plot.tapsMax || TAP_LIMIT}</span>` : ''}
+        </div>
+      `;
+
+      // Build loadout strip
+      const loadoutHtml = '<div class="loadout-strip" data-plotid="' + i + '">' +
+        Array.from({length: MAX_PERMA_SLOTS}, (_, j) => {
+          const id = loadout[j];
+          const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+          if (!buff) return '<div class="loadout-strip-slot">·</div>';
+          const active = isBuffActiveOnPlot(buff, plot);
+          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}"><span class="slot-text">${buff.name}</span></div>`;
+        }).join('') +
+        '</div>';
+
+      if (!plot.crop) {
+        el.innerHTML = labelHtml + loadoutHtml + `
+          <div class="plot-empty">
+            <div class="soil-illustration"></div>
+            <div style="text-align:center; color: var(--moss); font-size: 13px;">tilled and waiting</div>
+          </div>
+        `;
+        const actions = document.createElement('div');
+        actions.className = 'plot-actions';
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary';
+        btn.textContent = 'Plant a Crop';
+        btn.onclick = () => openPlantModal(i);
+        actions.appendChild(btn);
+        const loadBtn = document.createElement('button');
+        loadBtn.className = 'btn btn-ghost';
+        loadBtn.textContent = `Edit Loadout (${loadout.length}/${MAX_PERMA_SLOTS})`;
+        loadBtn.onclick = () => openLoadoutModal(i);
+        actions.appendChild(loadBtn);
+        el.appendChild(actions);
+      } else {
+        const crop = CROPS[plot.crop];
+        const prog = progressOf(plot);
+        const ready = isReady(plot);
+        const picks = picksAvailable(plot);
+        const remain = plot.totalMs - plot.elapsedMs;
+        const tapsMax = plot.tapsMax || TAP_LIMIT;
+        const tapsExhausted = plot.tapsUsed >= tapsMax;
+
+        el.classList.add('growing');
+        if (ready) el.classList.add('ready');
+        const hasMythic = plot.activeBuffs.some(b => b.rarity === 'mythic');
+        const hasLegendary = plot.activeBuffs.some(b => b.rarity === 'legendary');
+        if (hasMythic) el.classList.add('mythic-active');
+        else if (hasLegendary) el.classList.add('legendary-active');
+
+        const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
+        const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+        const yScale = visualScale(effectiveYield);
+        const stageScale = prog < 0.25 ? 0.55 : (prog < 0.55 ? 0.75 : (prog < 0.85 ? 0.92 : 1.05));
+        const finalScale = yScale * stageScale;
+        const glowAmount = Math.max(0, effectiveYield - 1.5) * 6;
+
+        el.innerHTML = labelHtml + loadoutHtml + `
+          <div class="crop-header">
+            <div class="crop-name">${crop.name}</div>
+            <div class="yield-mult">×${effectiveYield.toFixed(2)}</div>
+          </div>
+          <div class="growth-display">
+            <div class="crop-visual-wrap ${tapsExhausted || ready ? 'exhausted' : ''}" data-plotid="${i}">
+              <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
+              ${!ready && !tapsExhausted ? '<div class="tap-hint">tap to grow</div>' : ''}
+            </div>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" style="width: ${prog * 100}%"></div>
+          </div>
+          <div class="plot-info">
+            <span>${ready ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left'}</span>
+            <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
+          </div>
+          <div class="active-buffs">
+            ${plot.activeBuffs.map(b => `<span class="buff-chip ${b.rarity}">${b.name}</span>`).join('')}
+          </div>
+        `;
+
+        const wrap = el.querySelector('.crop-visual-wrap');
+        if (wrap && !ready && !tapsExhausted) {
+          wrap.addEventListener('click', () => tapCrop(i));
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'plot-actions';
+
+        if (picks > 0) {
+          const pickBtn = document.createElement('button');
+          pickBtn.className = 'btn btn-pick pulse';
+          pickBtn.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+          pickBtn.onclick = () => openBuffModal(i);
+          actions.appendChild(pickBtn);
+        }
+
+        if (ready) {
+          const hb = document.createElement('button');
+          hb.className = 'btn btn-harvest';
+          const expectedYield = Math.floor(crop.baseYield * effectiveYield);
+          hb.textContent = `Harvest (◉ ${expectedYield})`;
+          hb.onclick = (ev) => harvest(i, ev);
+          actions.appendChild(hb);
+        }
+
+        const loadBtn = document.createElement('button');
+        loadBtn.className = 'btn btn-ghost';
+        loadBtn.textContent = `Loadout (${loadout.length}/${MAX_PERMA_SLOTS})`;
+        loadBtn.onclick = () => openLoadoutModal(i);
+        actions.appendChild(loadBtn);
+
+        el.appendChild(actions);
+      }
+
+      // attach handler to loadout strip synchronously
+      const strip = el.querySelector('.loadout-strip');
+      if (strip) strip.onclick = () => openLoadoutModal(i);
+    }
+    grid.appendChild(el);
+  });
+
+  // mastery
+  const mList = document.getElementById('masteryList');
+  mList.innerHTML = '';
+  for (const [key, c] of Object.entries(CROPS)) {
+    const count = state.mastery[key];
+    const milestones = [5, 20];
+    const next = milestones.find(m => m > count);
+    const row = document.createElement('div');
+    row.className = 'mastery-row';
+    row.innerHTML = `
+      <span class="name">${c.emoji} ${c.name}</span>
+      <span style="text-align:right;">
+        <div class="count">${count}</div>
+        <div class="next-unlock">${next ? `next at ${next}` : 'all unlocked'}</div>
+      </span>
+    `;
+    mList.appendChild(row);
+  }
+
+  // log
+  const log = document.getElementById('harvestLog');
+  log.innerHTML = '';
+  if (state.harvestLog.length === 0) {
+    log.innerHTML = '<div class="harvest-empty">no harvests yet</div>';
+  } else {
+    state.harvestLog.forEach(h => {
+      const e = document.createElement('div');
+      e.className = 'harvest-entry';
+      e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}</span><span class="amount">+${h.amount}</span>`;
+      log.appendChild(e);
+    });
+  }
+}
+
+// ============ TICK ============
+function updatePlotTick(plot) {
+  const plotEl = document.querySelector(`.plot[data-plotid="${plot.id}"]`);
+  if (!plotEl) return;
+  const fill = plotEl.querySelector('.progress-fill');
+  if (fill) fill.style.width = (progressOf(plot) * 100) + '%';
+  const info = plotEl.querySelector('.plot-info');
+  if (info && info.children.length >= 2) {
+    const remain = plot.totalMs - plot.elapsedMs;
+    info.children[0].textContent = isReady(plot) ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left';
+  }
+}
+
+function tick(now) {
+  const dt = now - state.lastTick;
+  state.lastTick = now;
+  let structuralChange = false;
+  for (const plot of state.plots) {
+    if (plot.locked || !plot.crop) continue;
+    const before = plot.elapsedMs;
+    const wasReady = plot.elapsedMs >= plot.totalMs;
+    const wasPicks = picksAvailable(plot);
+    if (plot.flags.skillFerment) {
+      plot.elapsedMs += dt * state.speed;
+    } else {
+      plot.elapsedMs = Math.min(plot.totalMs, plot.elapsedMs + dt * state.speed);
+    }
+    if (plot.elapsedMs === before) continue;
+    const isNowReady = plot.elapsedMs >= plot.totalMs;
+    const nowPicks = picksAvailable(plot);
+    if (wasReady !== isNowReady || wasPicks !== nowPicks) {
+      structuralChange = true;
+    } else {
+      updatePlotTick(plot);
+    }
+  }
+  if (structuralChange) render();
+  requestAnimationFrame(tick);
+}
+
+render();
+requestAnimationFrame(tick);
+</script>
+
+</body>
+</html>
