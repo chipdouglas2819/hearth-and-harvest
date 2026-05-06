@@ -1297,9 +1297,10 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-const TAP_LIMIT = 15;
 const TAP_COOLDOWN_MS = 200;
-const TAP_BASE_REDUCTION = 0.02;
+const TAP_BASE_REDUCTION = 0.005; // 0.5% per tap at 1x speed (Cookie Clicker tiny)
+// Mastery: each crop gains a small permanent yield bonus per harvests-of-that-crop.
+const MASTERY_BONUS_PER_5 = 0.001; // +0.1% per 5 harvests of the same crop
 
 const HARVESTS_PER_PACK = 10;
 const MAX_PERMA_SLOTS = 4;
@@ -1354,15 +1355,15 @@ const BUFF_POOL = [
   { id: 'sun_god',  name: 'Solstice',        desc: '×2.5 yield. ALL other plots: ×1.8 yield.', rarity: 'mythic',    archetype: 'cross',    custom: 'solstice', flavor: 'the day the sun stood still.' },
 
   // ============ CROP-SPECIFIC IN-RUN ============
-  { id: 'crunch',   name: 'Extra Crunch',    desc: '+30% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.30, cropOnly: 'radish',  unlockAt: 5,  flavor: 'snap heard from the fence.' },
-  { id: 'french',   name: 'French Breakfast', desc: '×2.4 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.85, cropOnly: 'radish', unlockAt: 20, flavor: 'served with butter and salt.' },
-  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+50% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'carrot', unlockAt: 5, flavor: 'purple, white, gold, deep red.' },
-  { id: 'heirloom', name: 'Heirloom Strain', desc: '+40% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.40, cropOnly: 'tomato',  unlockAt: 5, flavor: 'seeds saved for generations.' },
-  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.6 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, cropOnly: 'tomato', unlockAt: 20, flavor: 'one fruit fills both hands.' },
-  { id: 'golden',   name: 'Golden Field',    desc: '+45% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'wheat',   unlockAt: 5, flavor: 'the field hums in the breeze.' },
-  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.8 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, timeMult: 0.80, cropOnly: 'wheat', unlockAt: 20, flavor: 'sung at the close of summer.' },
-  { id: 'corn_silk', name: 'Silken Husk',    desc: '+50% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'corn',    unlockAt: 5, flavor: 'long fields, bowed by wind.' },
-  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+60% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.60, cropOnly: 'pumpkin', unlockAt: 5, flavor: 'big enough to hollow a kingdom.' },
+  { id: 'crunch',   name: 'Extra Crunch',    desc: '+30% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.30, cropOnly: 'radish', flavor: 'snap heard from the fence.' },
+  { id: 'french',   name: 'French Breakfast', desc: '×2.4 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.85, cropOnly: 'radish', flavor: 'served with butter and salt.' },
+  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+50% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
+  { id: 'heirloom', name: 'Heirloom Strain', desc: '+40% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.40, cropOnly: 'tomato', flavor: 'seeds saved for generations.' },
+  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.6 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.60, cropOnly: 'tomato', flavor: 'one fruit fills both hands.' },
+  { id: 'golden',   name: 'Golden Field',    desc: '+45% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.45, cropOnly: 'wheat', flavor: 'the field hums in the breeze.' },
+  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.8 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.80, timeMult: 0.80, cropOnly: 'wheat', flavor: 'sung at the close of summer.' },
+  { id: 'corn_silk', name: 'Silken Husk',    desc: '+50% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'corn', flavor: 'long fields, bowed by wind.' },
+  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+60% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.60, cropOnly: 'pumpkin', flavor: 'big enough to hollow a kingdom.' },
 ];
 
 // ============ PERMA-BUFF POOL ============
@@ -1376,12 +1377,10 @@ const PERMA_POOL = [
   // Uncommon
   { id: 'p_loyal_bee', name: 'Loyal Bee', desc: '+7% yield', rarity: 'uncommon', yieldMult: 1.07, flavor: 'returns each spring.' },
   { id: 'p_tractor', name: 'Ancient Tractor', desc: '−6% grow time', rarity: 'uncommon', timeMult: 0.94, flavor: 'still runs, still smokes.' },
-  { id: 'p_library', name: 'Heirloom Library', desc: '+1% yield per crop in mastery', rarity: 'uncommon', custom: 'mastery_synergy', flavor: 'old knowledge, new harvests.' },
-  { id: 'p_taps_3', name: 'Master Composter', desc: '+3 max taps per planting', rarity: 'uncommon', custom: 'extra_taps', value: 3, flavor: 'nothing wasted.' },
+  { id: 'p_library', name: 'Heirloom Library', desc: '+1% yield per crop with 5+ harvests', rarity: 'uncommon', custom: 'mastery_synergy', flavor: 'old knowledge, new harvests.' },
   // Rare
   { id: 'p_heritage', name: 'Heritage Strain', desc: '+10% yield', rarity: 'rare', yieldMult: 1.10, flavor: 'pure lineage.' },
   { id: 'p_spring', name: 'Spring Eternal', desc: '−10% grow time', rarity: 'rare', timeMult: 0.90, flavor: 'the season that never ends.' },
-  { id: 'p_taps_5', name: 'Master\'s Hand', desc: '+5 max taps per planting', rarity: 'rare', custom: 'extra_taps', value: 5, flavor: 'practice and patience.' },
   { id: 'p_balance', name: 'Balanced Plot', desc: '+8% yield, −5% time', rarity: 'rare', yieldMult: 1.08, timeMult: 0.95, flavor: 'every variable in its right place.' },
   // Legendary
   { id: 'p_crystal', name: 'Crystal Greenhouse', desc: '+15% yield', rarity: 'legendary', yieldMult: 1.15, flavor: 'sun made gentle.' },
@@ -1460,7 +1459,6 @@ function makePlot(id) {
     timeMult: 1.0,
     activeBuffs: [],
     tapsUsed: 0,
-    tapsMax: TAP_LIMIT,
     lastTapTime: 0,
     flags: {
       lockTime: false,
@@ -1551,21 +1549,17 @@ function getPermaTimeMultForPlot(plotId) {
   }
   return m;
 }
-function getPermaTapsBonusForPlot(plotId) {
-  let bonus = 0;
-  for (const b of getActivePerma(plotId)) {
-    if (b.custom === 'extra_taps') bonus += b.value || 0;
-  }
-  return bonus;
-}
-
 // ============ DRAFTING ============
 function getAvailableBuffs(cropType) {
   return BUFF_POOL.filter(b => {
     if (b.cropOnly && b.cropOnly !== cropType) return false;
-    if (b.unlockAt && state.mastery[b.cropOnly || cropType] < b.unlockAt) return false;
     return true;
   });
+}
+
+// Mastery: +0.1% permanent yield per 5 harvests of the same crop
+function getMasteryBonusForCrop(crop) {
+  return 1 + Math.floor((state.mastery[crop] || 0) / 5) * MASTERY_BONUS_PER_5;
 }
 
 function draftN(cropType, n, rarityFloor = null) {
@@ -1626,31 +1620,28 @@ function plant(plotId, cropType) {
   plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId);
   plot.totalPicks = crop.pickCount;
   plot.yieldMult *= carryover;
-  plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
   closeAllModals();
   render();
 }
 
 function tapEffectiveReduction() {
-  // 1× → 2%, 60× → ~6%, 600× → ~11%, capped at 12%
+  // Per-tap reduction at speed N matches what N taps at 1x would do.
+  // 1× → 0.5%, 60× → 26%, 600× → 95%
   const speed = Math.max(1, state.speed);
-  return Math.min(0.12, TAP_BASE_REDUCTION * (1 + Math.log10(speed) * 1.8));
+  return 1 - Math.pow(1 - TAP_BASE_REDUCTION, speed);
 }
 
 function tapCrop(plotId) {
   const plot = state.plots[plotId];
   if (!plot.crop || plot.locked) return;
-  if (plot.tapsUsed >= plot.tapsMax) return;
   if (isReady(plot)) return;
   const now = performance.now();
   if (now - plot.lastTapTime < TAP_COOLDOWN_MS) return;
 
   const reduction = tapEffectiveReduction();
-  const wasNotExhausted = plot.tapsUsed < plot.tapsMax;
   plot.tapsUsed += 1;
   plot.lastTapTime = now;
   plot.totalMs *= (1 - reduction);
-  const nowExhausted = plot.tapsUsed >= plot.tapsMax;
 
   // animate the existing wrap (without destroying it via render)
   const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${plotId}"]`);
@@ -1660,7 +1651,8 @@ function tapCrop(plotId) {
     wrap.classList.add('tapped');
     const popup = document.createElement('div');
     popup.className = 'tap-popup';
-    popup.textContent = `−${(reduction * 100).toFixed(0)}%`;
+    const pct = reduction * 100;
+    popup.textContent = pct < 1 ? `−${pct.toFixed(1)}%` : `−${pct.toFixed(0)}%`;
     wrap.appendChild(popup);
     setTimeout(() => popup.remove(), 700);
   }
@@ -1669,15 +1661,9 @@ function tapCrop(plotId) {
   const plotEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
   if (plotEl) {
     const counter = plotEl.querySelector('.tap-counter');
-    if (counter) {
-      counter.textContent = `⊹ ${plot.tapsUsed}/${plot.tapsMax}`;
-      counter.classList.toggle('full', nowExhausted);
-    }
+    if (counter) counter.textContent = `⊹ ${plot.tapsUsed}`;
   }
   updatePlotTick(plot);
-
-  // structural change: just exhausted taps → render to remove tap-hint
-  if (wasNotExhausted && nowExhausted) render();
 }
 
 function harvest(plotId, ev) {
@@ -1702,6 +1688,7 @@ function harvest(plotId, ev) {
   }
 
   mult *= getPermaYieldMultForPlot(plotId);
+  mult *= getMasteryBonusForCrop(plot.crop);
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
@@ -1797,7 +1784,6 @@ function handleCustom(plotId, buff, echo) {
         ['common', 'uncommon'].includes(b.rarity) &&
         b.id !== 'twofold' &&
         (!b.cropOnly || b.cropOnly === plot.crop) &&
-        (!b.unlockAt || state.mastery[b.cropOnly || plot.crop] >= b.unlockAt) &&
         !b.custom
       );
       if (random) {
@@ -1815,7 +1801,6 @@ function handleCustom(plotId, buff, echo) {
         b.rarity === 'rare' &&
         b.id !== 'cascade_gold' &&
         (!b.cropOnly || b.cropOnly === plot.crop) &&
-        (!b.unlockAt || state.mastery[b.cropOnly || plot.crop] >= b.unlockAt) &&
         !b.custom
       );
       const used = new Set();
@@ -1927,21 +1912,11 @@ function equipToPlot(plotId, buffId) {
     loadout.shift(); // bump oldest
   }
   loadout.push(buffId);
-  // refresh tap cap if plot is growing
-  const plot = state.plots[plotId];
-  if (plot && !plot.locked && plot.crop) {
-    plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
-  }
 }
 function unequipFromPlot(plotId, buffId) {
   if (!state.loadouts[plotId]) return;
   const idx = state.loadouts[plotId].indexOf(buffId);
   if (idx >= 0) state.loadouts[plotId].splice(idx, 1);
-  const plot = state.plots[plotId];
-  if (plot && !plot.locked && plot.crop) {
-    plot.tapsMax = TAP_LIMIT + getPermaTapsBonusForPlot(plotId);
-    plot.tapsUsed = Math.min(plot.tapsUsed, plot.tapsMax);
-  }
 }
 
 // ============ MODALS ============
@@ -2341,7 +2316,7 @@ function render() {
       const labelHtml = `
         <div class="plot-label">
           <span>plot ${i + 1}</span>
-          ${plot.crop ? `<span class="tap-counter ${plot.tapsUsed >= (plot.tapsMax || TAP_LIMIT) ? 'full' : ''}">⊹ ${plot.tapsUsed}/${plot.tapsMax || TAP_LIMIT}</span>` : ''}
+          ${plot.crop ? `<span class="tap-counter">⊹ ${plot.tapsUsed}</span>` : ''}
         </div>
       `;
 
@@ -2382,9 +2357,6 @@ function render() {
         const ready = isReady(plot);
         const picks = picksAvailable(plot);
         const remain = plot.totalMs - plot.elapsedMs;
-        const tapsMax = plot.tapsMax || TAP_LIMIT;
-        const tapsExhausted = plot.tapsUsed >= tapsMax;
-
         el.classList.add('growing');
         if (ready) el.classList.add('ready');
         const hasMythic = plot.activeBuffs.some(b => b.rarity === 'mythic');
@@ -2405,9 +2377,9 @@ function render() {
             <div class="yield-mult">×${effectiveYield.toFixed(2)}</div>
           </div>
           <div class="growth-display">
-            <div class="crop-visual-wrap ${tapsExhausted || ready ? 'exhausted' : ''}" data-plotid="${i}">
+            <div class="crop-visual-wrap ${ready ? 'exhausted' : ''}" data-plotid="${i}">
               <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
-              ${!ready && !tapsExhausted ? '<div class="tap-hint">tap to grow</div>' : ''}
+              ${!ready ? '<div class="tap-hint">tap to grow</div>' : ''}
             </div>
           </div>
           <div class="progress-track">
@@ -2423,7 +2395,7 @@ function render() {
         `;
 
         const wrap = el.querySelector('.crop-visual-wrap');
-        if (wrap && !ready && !tapsExhausted) {
+        if (wrap && !ready) {
           wrap.addEventListener('click', () => tapCrop(i));
         }
 
@@ -2463,20 +2435,20 @@ function render() {
     grid.appendChild(el);
   });
 
-  // mastery
+  // mastery — +0.1% yield per 5 harvests of the same crop
   const mList = document.getElementById('masteryList');
   mList.innerHTML = '';
   for (const [key, c] of Object.entries(CROPS)) {
     const count = state.mastery[key];
-    const milestones = [5, 20];
-    const next = milestones.find(m => m > count);
+    const bonusPct = (Math.floor(count / 5) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
+    const toNext = 5 - (count % 5);
     const row = document.createElement('div');
     row.className = 'mastery-row';
     row.innerHTML = `
       <span class="name">${c.emoji} ${c.name}</span>
       <span style="text-align:right;">
-        <div class="count">${count}</div>
-        <div class="next-unlock">${next ? `next at ${next}` : 'all unlocked'}</div>
+        <div class="count">${count} · +${bonusPct}%</div>
+        <div class="next-unlock">${toNext} to next +0.1%</div>
       </span>
     `;
     mList.appendChild(row);
