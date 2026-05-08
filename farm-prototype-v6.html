@@ -1561,15 +1561,12 @@ function bronzeCountForCrop(crop) {
   return 1;
 }
 
-function generateBronzeContract(excludeCrops = new Set()) {
+function generateBronzeContract() {
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= BRONZE_FAST_CROP_LIMIT_HOURS;
-  // Prefer crops the player has grown AND haven't been used in another slot
-  let pool = grown.filter(c => fastEnough(c) && !excludeCrops.has(c));
-  if (pool.length === 0) pool = unlocked.filter(c => fastEnough(c) && !excludeCrops.has(c));
-  // Fall back to repeats only if all unique fast crops are taken
-  if (pool.length === 0) pool = grown.filter(fastEnough);
+  // Prefer crops the player has actually grown; fall back to unlocked
+  let pool = grown.filter(fastEnough);
   if (pool.length === 0) pool = unlocked.filter(fastEnough);
   if (pool.length === 0) pool = ['radish'];
   const crop = pool[Math.floor(Math.random() * pool.length)];
@@ -1604,14 +1601,11 @@ function silverCountForCrop(crop) {
   return 2;                                                        // 2 strawberries (~36h deadline)
 }
 
-function generateSilverContract(excludeCrops = new Set()) {
+function generateSilverContract() {
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS;
-  // Eligible pool with the exclude filter applied
-  let availPool = (grown.length > 0 ? grown : unlocked).filter(c => fastEnough(c) && !excludeCrops.has(c));
-  // Fallback if exclusion empties the pool
-  if (availPool.length === 0) availPool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
+  let availPool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
   if (availPool.length === 0) availPool = ['radish'];
 
   // Need 2 different crops for mixed; otherwise force n_of_x
@@ -1650,22 +1644,15 @@ function generateSilverContract(excludeCrops = new Set()) {
   };
 }
 
-// Slot count scales with how many DIFFERENT crops are eligible — no point
-// offering 3 contracts that can only ask for radish/carrot. Tier mix layers
-// on top: Bronze always present, Silvers added with player progression.
+// Slot count scales with player progression by PLOT COUNT (not unique crops).
+// Slot 1 is always Bronze (the safe casual option); higher slots are Silver
+// once the player has expanded enough to handle them. Duplicate crops between
+// slots are allowed — each slot rolls independently.
 function offeredTiersForState() {
   const plotCount = state.plots.filter(p => !p.locked).length;
-  // Bronze pool determines the realistic max — Silver pool is wider but we
-  // gate slot count on the most-restrictive tier so all slots have a unique crop.
-  const fastUnlocked = Object.keys(CROPS).filter(c =>
-    isCropUnlocked(c) && CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS
-  );
-  const maxSlots = Math.min(3, Math.max(1, fastUnlocked.length));
-  let mix;
-  if (plotCount <= 2) mix = ['bronze', 'bronze', 'bronze'];
-  else if (plotCount <= 4) mix = ['bronze', 'bronze', 'silver'];
-  else mix = ['bronze', 'silver', 'silver'];
-  return mix.slice(0, maxSlots);
+  if (plotCount <= 2) return ['bronze'];
+  if (plotCount <= 4) return ['bronze', 'silver'];
+  return ['bronze', 'silver', 'silver'];
 }
 
 // One completion per day; the 3 offered slots refresh together at midnight.
@@ -1680,14 +1667,9 @@ function ensureContractOffered() {
   if (state.activeContract) return; // already accepted one
   if (state.offeredContracts.length === 0) {
     const tiers = offeredTiersForState();
-    const usedCrops = new Set();
-    state.offeredContracts = tiers.map(t => {
-      const c = (t === 'silver') ? generateSilverContract(usedCrops) : generateBronzeContract(usedCrops);
-      // Track every crop this contract uses so the next slot picks something different
-      if (c.template === 'deliver_n_of_x') usedCrops.add(c.params.crop);
-      else if (c.template === 'deliver_mixed') Object.keys(c.params.crops).forEach(cr => usedCrops.add(cr));
-      return c;
-    });
+    state.offeredContracts = tiers.map(t =>
+      t === 'silver' ? generateSilverContract() : generateBronzeContract()
+    );
   }
 }
 
