@@ -2435,7 +2435,6 @@ function renderCollection() {
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
       <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedOn > 0 ? ` · equipped ×${equippedOn}` : ''}</div>
-      ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
     `;
     grid.appendChild(card);
   });
@@ -2544,7 +2543,6 @@ function renderLoadoutModal() {
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
       <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedCount > 0 && !equipped ? ` · on ${equippedCount} plot${equippedCount > 1 ? 's' : ''}` : ''}</div>
-      ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
     `;
     card.onclick = () => {
       if (equipped) unequipFromPlot(plotId, buff.id);
