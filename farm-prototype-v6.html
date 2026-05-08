@@ -686,6 +686,7 @@ main {
 .contract-active.silver { background: rgba(74, 107, 79, 0.10); border-color: var(--moss); }
 .contract-offered.silver { background: rgba(74, 107, 79, 0.08); border-color: var(--moss); }
 .contract-offered + .contract-offered { margin-top: 8px; } /* spacing between stacked offers */
+.contract-pick-note { font-size: 10px; color: var(--sage); font-style: italic; text-align: center; margin-bottom: 6px; letter-spacing: 0.04em; }
 .contract-mixed { display: flex; flex-direction: column; gap: 5px; }
 .contract-mixed-row { display: flex; align-items: center; gap: 6px; }
 .contract-mixed-icon { font-size: 14px; line-height: 1; }
@@ -1560,14 +1561,17 @@ function bronzeCountForCrop(crop) {
   return 1;
 }
 
-function generateBronzeContract() {
+function generateBronzeContract(excludeCrops = new Set()) {
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= BRONZE_FAST_CROP_LIMIT_HOURS;
-  // Prefer crops the player has grown AND are fast enough for a 24h deadline.
-  let pool = grown.filter(fastEnough);
+  // Prefer crops the player has grown AND haven't been used in another slot
+  let pool = grown.filter(c => fastEnough(c) && !excludeCrops.has(c));
+  if (pool.length === 0) pool = unlocked.filter(c => fastEnough(c) && !excludeCrops.has(c));
+  // Fall back to repeats only if all unique fast crops are taken
+  if (pool.length === 0) pool = grown.filter(fastEnough);
   if (pool.length === 0) pool = unlocked.filter(fastEnough);
-  if (pool.length === 0) pool = ['radish']; // fallback for fresh game
+  if (pool.length === 0) pool = ['radish'];
   const crop = pool[Math.floor(Math.random() * pool.length)];
   const count = bronzeCountForCrop(crop);
   return {
@@ -1600,14 +1604,20 @@ function silverCountForCrop(crop) {
   return 2;                                                        // 2 strawberries (~36h deadline)
 }
 
-function generateSilverContract() {
+function generateSilverContract(excludeCrops = new Set()) {
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS;
-  const pool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
-  if (pool.length < 2) {
-    // Not enough unlocked-and-grown variety yet — fall back to a bigger n_of_x
-    const crop = pool[0] || 'radish';
+  // Eligible pool with the exclude filter applied
+  let availPool = (grown.length > 0 ? grown : unlocked).filter(c => fastEnough(c) && !excludeCrops.has(c));
+  // Fallback if exclusion empties the pool
+  if (availPool.length === 0) availPool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
+  if (availPool.length === 0) availPool = ['radish'];
+
+  // Need 2 different crops for mixed; otherwise force n_of_x
+  const canMix = availPool.length >= 2;
+  if (!canMix || Math.random() < 0.5) {
+    const crop = availPool[Math.floor(Math.random() * availPool.length)];
     const count = silverCountForCrop(crop);
     return {
       id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -1619,48 +1629,43 @@ function generateSilverContract() {
       progress: 0,
     };
   }
-  // 50/50: bigger n_of_x or mixed multi-crop delivery
-  if (Math.random() < 0.5) {
-    const crop = pool[Math.floor(Math.random() * pool.length)];
-    const count = silverCountForCrop(crop);
-    return {
-      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      tier: 'silver',
-      template: 'deliver_n_of_x',
-      params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
-      reward: { coins: 400 + count * 100, packs: 1 },
-      status: 'offered',
-      progress: 0,
-    };
-  } else {
-    // Mixed: pick 2 different crops, smaller counts each
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-    const cropA = shuffled[0];
-    const cropB = shuffled[1];
-    const countA = Math.max(2, Math.floor(silverCountForCrop(cropA) * 0.6));
-    const countB = Math.max(2, Math.floor(silverCountForCrop(cropB) * 0.6));
-    const totalCount = countA + countB;
-    return {
-      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      tier: 'silver',
-      template: 'deliver_mixed',
-      params: {
-        crops: { [cropA]: countA, [cropB]: countB },
-        deadlineHours: silverDeadlineFor([cropA, cropB]),
-      },
-      reward: { coins: 500 + totalCount * 100, packs: 1 },
-      status: 'offered',
-      progress: { [cropA]: 0, [cropB]: 0 },
-    };
-  }
+  // Mixed: pick 2 different crops, smaller counts each
+  const shuffled = [...availPool].sort(() => Math.random() - 0.5);
+  const cropA = shuffled[0];
+  const cropB = shuffled[1];
+  const countA = Math.max(2, Math.floor(silverCountForCrop(cropA) * 0.6));
+  const countB = Math.max(2, Math.floor(silverCountForCrop(cropB) * 0.6));
+  const totalCount = countA + countB;
+  return {
+    id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    tier: 'silver',
+    template: 'deliver_mixed',
+    params: {
+      crops: { [cropA]: countA, [cropB]: countB },
+      deadlineHours: silverDeadlineFor([cropA, cropB]),
+    },
+    reward: { coins: 500 + totalCount * 100, packs: 1 },
+    status: 'offered',
+    progress: { [cropA]: 0, [cropB]: 0 },
+  };
 }
 
-// Tier mix scales with player progression (plot count is a rough proxy)
+// Slot count scales with how many DIFFERENT crops are eligible — no point
+// offering 3 contracts that can only ask for radish/carrot. Tier mix layers
+// on top: Bronze always present, Silvers added with player progression.
 function offeredTiersForState() {
   const plotCount = state.plots.filter(p => !p.locked).length;
-  if (plotCount <= 2) return ['bronze', 'bronze', 'bronze'];
-  if (plotCount <= 4) return ['bronze', 'bronze', 'silver'];
-  return ['bronze', 'silver', 'silver'];
+  // Bronze pool determines the realistic max — Silver pool is wider but we
+  // gate slot count on the most-restrictive tier so all slots have a unique crop.
+  const fastUnlocked = Object.keys(CROPS).filter(c =>
+    isCropUnlocked(c) && CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS
+  );
+  const maxSlots = Math.min(3, Math.max(1, fastUnlocked.length));
+  let mix;
+  if (plotCount <= 2) mix = ['bronze', 'bronze', 'bronze'];
+  else if (plotCount <= 4) mix = ['bronze', 'bronze', 'silver'];
+  else mix = ['bronze', 'silver', 'silver'];
+  return mix.slice(0, maxSlots);
 }
 
 // One completion per day; the 3 offered slots refresh together at midnight.
@@ -1675,7 +1680,14 @@ function ensureContractOffered() {
   if (state.activeContract) return; // already accepted one
   if (state.offeredContracts.length === 0) {
     const tiers = offeredTiersForState();
-    state.offeredContracts = tiers.map(t => t === 'silver' ? generateSilverContract() : generateBronzeContract());
+    const usedCrops = new Set();
+    state.offeredContracts = tiers.map(t => {
+      const c = (t === 'silver') ? generateSilverContract(usedCrops) : generateBronzeContract(usedCrops);
+      // Track every crop this contract uses so the next slot picks something different
+      if (c.template === 'deliver_n_of_x') usedCrops.add(c.params.crop);
+      else if (c.template === 'deliver_mixed') Object.keys(c.params.crops).forEach(cr => usedCrops.add(cr));
+      return c;
+    });
   }
 }
 
@@ -2115,8 +2127,10 @@ function applyMasteryHoursMigration() {
 // ============ SAVE / LOAD ============
 const SAVE_KEY = 'hh_save_v1';
 const SAVE_VERSION = 2;
+let isResetting = false; // gate saveGame() so beforeunload doesn't undo a Reset Save
 
 function saveGame() {
+  if (isResetting) return;
   try {
     const snapshot = {
       version: SAVE_VERSION,
@@ -2221,6 +2235,9 @@ function loadGame() {
 
 function resetSave() {
   if (confirm('Wipe save and reset the game? This cannot be undone.')) {
+    // Gate saveGame() so the beforeunload handler doesn't re-write
+    // the in-memory state during reload and undo the wipe.
+    isResetting = true;
     localStorage.removeItem(SAVE_KEY);
     location.reload();
   }
@@ -3272,7 +3289,10 @@ function renderContract() {
   if (state.activeContract) {
     el.innerHTML = renderActiveContractHTML(state.activeContract);
   } else if (state.offeredContracts.length > 0) {
-    el.innerHTML = state.offeredContracts.map(c => renderOfferedContractHTML(c)).join('');
+    const note = state.offeredContracts.length > 1
+      ? '<div class="contract-pick-note">pick one — others vanish on accept</div>'
+      : '';
+    el.innerHTML = note + state.offeredContracts.map(c => renderOfferedContractHTML(c)).join('');
     state.offeredContracts.forEach(c => {
       const btn = document.getElementById('contractAcceptBtn_' + c.id);
       if (btn) btn.onclick = () => acceptContract(c.id);
