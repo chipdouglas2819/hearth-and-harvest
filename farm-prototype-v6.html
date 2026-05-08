@@ -612,6 +612,7 @@ main {
 .harvest-entry:last-child { border-bottom: none; }
 .harvest-entry .what { color: var(--moss); }
 .harvest-entry .amount { font-family: var(--mono); color: var(--terracotta); font-weight: 600; }
+.harvest-entry .amount.levelup { color: var(--gold); }
 .harvest-empty { font-size: 12px; color: var(--sage); font-style: italic; text-align: center; padding: 12px 0; }
 
 .modal {
@@ -1017,6 +1018,8 @@ main {
 .lm-slot.filled.legendary .ls-rarity { color: var(--rust); }
 .lm-slot.filled.mythic .ls-rarity { color: var(--mythic); }
 .lm-slot.filled .ls-name { font-family: var(--serif); font-size: 14px; font-weight: 600; font-style: italic; color: var(--forest); margin-top: 2px; line-height: 1.1; }
+.lm-slot.filled .ls-stars { font-size: 12px; color: var(--gold); letter-spacing: 1px; margin-top: 2px; }
+.lm-slot.filled .ls-stars .empty { color: var(--border); }
 .lm-slot.filled .ls-desc { font-size: 11px; color: var(--moss); margin-top: 4px; }
 .lm-slot.filled .ls-tag {
   font-family: var(--mono);
@@ -1106,6 +1109,15 @@ main {
   border-radius: 999px;
 }
 .lm-card.inactive { opacity: 0.55; }
+.lm-card .lc-stars {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; line-height: 1; color: var(--gold);
+  margin: 4px 0 6px;
+}
+.lm-card .lc-stars-glyphs { letter-spacing: 1px; }
+.lm-card .lc-stars-glyphs .empty { color: var(--border); }
+.lm-card .lc-progress { font-family: var(--mono); font-size: 9px; color: var(--sage); letter-spacing: 0.04em; }
+.lm-card .lc-progress.max { color: var(--gold); font-weight: 700; }
 .lm-card .lc-rarity {
   font-family: var(--mono);
   font-size: 8px;
@@ -1514,13 +1526,15 @@ const state = {
   harvestLog: [],
   totalHarvests: 0,
   pendingPacks: 0,
-  collection: [], // [{...buff, count}]
+  collection: [], // [{...buff, count, stars}]
   loadouts: [[], [], [], [], [], []], // 6 plots × up to 4 buff ids
   adPlaying: false,
   adUsedForCurrentPack: false,
   currentPackCards: [],
   loadoutModalPlotId: 0,
   packsOpened: 0,
+  migrationsApplied: [],
+  levelUpQueue: [], // pending level-up notifications to surface in the harvest log
 };
 
 function makePlot(id) {
@@ -1599,6 +1613,76 @@ function isBuffActiveOnPlot(buff, plot) {
   return plot && plot.crop === buff.cropOnly;
 }
 
+// ============ CARD STAR-LEVELING ============
+// Each card has 1-5 stars. Each dupe contributes toward the next star tier.
+// Cumulative dupes needed: ★1=0, ★2=1, ★3=3, ★4=7, ★5=14.
+// Each star adds 20% of the card's base effect (so ★5 = 1.8x original effect).
+const STAR_THRESHOLDS = [0, 1, 3, 7, 14]; // dupes needed to REACH that star tier (idx 0 = ★1)
+
+function starsFromCount(count) {
+  const dupes = Math.max(0, count - 1);
+  for (let s = STAR_THRESHOLDS.length; s >= 1; s--) {
+    if (dupes >= STAR_THRESHOLDS[s - 1]) return s;
+  }
+  return 1;
+}
+
+function getStarMultiplier(stars) {
+  return 1.0 + 0.2 * (stars - 1);
+}
+
+function getStarsForBuff(buffId) {
+  const c = state.collection.find(x => x.id === buffId);
+  return c?.stars || 1;
+}
+
+// Returns { current, needed, isMax } for showing "1/4 to ★4" style progress
+function dupesTowardNextStar(count, stars) {
+  if (stars >= 5) return { isMax: true };
+  const dupes = Math.max(0, count - 1);
+  const prev = STAR_THRESHOLDS[stars - 1];
+  const next = STAR_THRESHOLDS[stars];
+  return { current: dupes - prev, needed: next - prev, isMax: false };
+}
+
+// Compute the effective yield/time multipliers a card produces at its current star level
+function effectiveYieldMult(buff, stars) {
+  if (!buff.yieldMult) return 1.0;
+  const sm = getStarMultiplier(stars);
+  return 1 + (buff.yieldMult - 1) * sm;
+}
+function effectiveTimeMult(buff, stars) {
+  if (!buff.timeMult) return 1.0;
+  const sm = getStarMultiplier(stars);
+  return 1 - (1 - buff.timeMult) * sm;
+}
+
+// Human-readable description of a card's effect at a given star tier
+function effectiveDesc(buff, stars) {
+  const sm = getStarMultiplier(stars);
+  const parts = [];
+  if (buff.yieldMult) {
+    const eff = (buff.yieldMult - 1) * sm;
+    if (buff.yieldMult >= 1.9) parts.push(`×${(buff.yieldMult * sm).toFixed(2)} yield`); // mythic-style ×N
+    else parts.push(`+${(eff * 100).toFixed(1)}% yield`);
+  }
+  if (buff.timeMult) {
+    const eff = (1 - buff.timeMult) * sm;
+    if (eff > 0) parts.push(`−${(eff * 100).toFixed(1)}% time`);
+    else parts.push(`+${(-eff * 100).toFixed(1)}% time`);
+  }
+  return parts.join(', ');
+}
+
+// One-time migration: walk the collection on first load and assign stars from existing counts.
+function applyStarMigration() {
+  if (state.migrationsApplied.includes('stars_v1')) return;
+  for (const c of state.collection) {
+    c.stars = starsFromCount(c.count || 1);
+  }
+  state.migrationsApplied.push('stars_v1');
+}
+
 function getActivePerma(plotId) {
   const plot = state.plots[plotId];
   const loadout = state.loadouts[plotId] || [];
@@ -1610,10 +1694,12 @@ function getActivePerma(plotId) {
 function getPermaYieldMultForPlot(plotId) {
   let m = 1.0;
   for (const b of getActivePerma(plotId)) {
-    if (b.yieldMult) m *= b.yieldMult;
+    const stars = getStarsForBuff(b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.yieldMult) m *= 1 + (b.yieldMult - 1) * sm;
     if (b.custom === 'mastery_synergy') {
       const totalMastered = Object.values(state.mastery).filter(c => c >= 5).length;
-      m *= (1 + 0.01 * totalMastered);
+      m *= (1 + 0.01 * sm * totalMastered);
     }
   }
   return m;
@@ -1621,7 +1707,9 @@ function getPermaYieldMultForPlot(plotId) {
 function getPermaTimeMultForPlot(plotId) {
   let m = 1.0;
   for (const b of getActivePerma(plotId)) {
-    if (b.timeMult) m *= b.timeMult;
+    const stars = getStarsForBuff(b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.timeMult) m *= 1 - (1 - b.timeMult) * sm;
   }
   return m;
 }
@@ -2086,9 +2174,16 @@ function buyPlot(plotId) {
 function addToCollection(buff) {
   const existing = state.collection.find(c => c.id === buff.id);
   if (existing) {
+    const beforeStars = existing.stars || starsFromCount(existing.count);
     existing.count += 1;
+    existing.stars = starsFromCount(existing.count);
+    if (existing.stars > beforeStars) {
+      // Surface in the harvest log (most recent first)
+      state.harvestLog.unshift({ type: 'levelup', name: buff.name, stars: existing.stars, rarity: buff.rarity, t: Date.now() });
+      if (state.harvestLog.length > 6) state.harvestLog.pop();
+    }
   } else {
-    state.collection.push({ ...buff, count: 1 });
+    state.collection.push({ ...buff, count: 1, stars: 1 });
   }
 }
 
@@ -2327,10 +2422,18 @@ function renderCollection() {
     const equippedOn = state.loadouts.reduce((acc, l, i) => acc + (l.includes(buff.id) ? 1 : 0), 0);
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
     card.className = `lm-card ${buff.rarity}`;
+    const stars = buff.stars || 1;
+    const prog = dupesTowardNextStar(buff.count, stars);
+    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
+    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
     card.innerHTML = `
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
-      <div class="lc-desc">${buff.desc}</div>
+      <div class="lc-stars">
+        <span class="lc-stars-glyphs">${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span></span>
+        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
+      </div>
+      <div class="lc-desc">${dynamicDesc}</div>
       <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedOn > 0 ? ` · equipped ×${equippedOn}` : ''}</div>
       ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
     `;
@@ -2373,10 +2476,14 @@ function renderLoadoutModal() {
       const cropTag = buff.cropOnly
         ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}${!active ? ' (inactive)' : ''}`
         : 'general';
+      const stars = getStarsForBuff(buff.id);
+      const starGlyphs = `${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span>`;
+      const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
       slot.innerHTML = `
         <div class="ls-rarity">${buff.rarity}</div>
         <div class="ls-name">${buff.name}</div>
-        <div class="ls-desc">${buff.desc}</div>
+        <div class="ls-stars">${starGlyphs}</div>
+        <div class="ls-desc">${dynamicDesc}</div>
         <div class="ls-tag ${!active ? 'inactive-text' : ''}">${cropTag}</div>
         <div class="ls-remove">tap to remove</div>
       `;
@@ -2424,10 +2531,18 @@ function renderLoadoutModal() {
     const equippedCount = state.loadouts.reduce((acc, l) => acc + (l.includes(buff.id) ? 1 : 0), 0);
     card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''}`;
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    const stars = buff.stars || 1;
+    const prog = dupesTowardNextStar(buff.count, stars);
+    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
+    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
     card.innerHTML = `
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
-      <div class="lc-desc">${buff.desc}</div>
+      <div class="lc-stars">
+        <span class="lc-stars-glyphs">${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span></span>
+        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
+      </div>
+      <div class="lc-desc">${dynamicDesc}</div>
       <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedCount > 0 && !equipped ? ` · on ${equippedCount} plot${equippedCount > 1 ? 's' : ''}` : ''}</div>
       ${buff.count > 1 ? `<span class="lc-count">×${buff.count}</span>` : ''}
     `;
@@ -2760,7 +2875,11 @@ function render() {
     state.harvestLog.forEach(h => {
       const e = document.createElement('div');
       e.className = 'harvest-entry';
-      e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}</span><span class="amount">+${h.amount}</span>`;
+      if (h.type === 'levelup') {
+        e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
+      } else {
+        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}</span><span class="amount">+${h.amount}</span>`;
+      }
       log.appendChild(e);
     });
   }
@@ -2811,6 +2930,7 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
+applyStarMigration();
 render();
 requestAnimationFrame(tick);
 </script>

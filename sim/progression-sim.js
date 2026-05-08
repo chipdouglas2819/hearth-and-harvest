@@ -168,17 +168,35 @@ function getActivePerma(state, plotId) {
     .map(id => PERMA_POOL.find(b => b.id === id))
     .filter(b => b && (!b.cropOnly || b.cropOnly === plot.crop));
 }
+// Star-leveling: each card has 1-5 stars. Each star adds 20% of the base effect.
+const STAR_THRESHOLDS = [0, 1, 3, 7, 14];
+function starsFromCount(count) {
+  const dupes = Math.max(0, count - 1);
+  for (let s = STAR_THRESHOLDS.length; s >= 1; s--) {
+    if (dupes >= STAR_THRESHOLDS[s - 1]) return s;
+  }
+  return 1;
+}
+function getStarMultiplier(stars) { return 1.0 + 0.2 * (stars - 1); }
+function getStarsForBuff(state, buffId) {
+  const c = state.collection.find(x => x.id === buffId);
+  return c?.stars || 1;
+}
 function getPermaYieldMultForPlot(state, plotId) {
   let m = 1.0;
   for (const b of getActivePerma(state, plotId)) {
-    if (b.yieldMult) m *= b.yieldMult;
+    const stars = getStarsForBuff(state, b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.yieldMult) m *= 1 + (b.yieldMult - 1) * sm;
   }
   return m;
 }
 function getPermaTimeMultForPlot(state, plotId) {
   let m = 1.0;
   for (const b of getActivePerma(state, plotId)) {
-    if (b.timeMult) m *= b.timeMult;
+    const stars = getStarsForBuff(state, b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.timeMult) m *= 1 - (1 - b.timeMult) * sm;
   }
   return m;
 }
@@ -435,8 +453,12 @@ function draftPermaPack(state, n, rarityFloor = null) {
 
 function addToCollection(state, buff) {
   const existing = state.collection.find(c => c.id === buff.id);
-  if (existing) existing.count += 1;
-  else state.collection.push({ ...buff, count: 1 });
+  if (existing) {
+    existing.count += 1;
+    existing.stars = starsFromCount(existing.count);
+  } else {
+    state.collection.push({ ...buff, count: 1, stars: 1 });
+  }
 }
 
 function autoEquip(state, card) {
@@ -560,6 +582,9 @@ function runSim(daysMax = 60) {
 
 function snapshotState(state) {
   const unlockedPlots = state.plots.filter(p => !p.locked).length;
+  // Star distribution: how many cards at each star tier
+  const starDist = [0, 0, 0, 0, 0]; // index = stars - 1
+  for (const c of state.collection) starDist[(c.stars || 1) - 1] += 1;
   return {
     money: Math.floor(state.money),
     unlockedPlots,
@@ -571,6 +596,7 @@ function snapshotState(state) {
     uniqueCardsOwned: state.collection.length,
     mastery: { ...state.mastery },
     loadoutFill: state.loadouts.slice(0, unlockedPlots).map(l => l.length),
+    starDist, // [★1, ★2, ★3, ★4, ★5]
   };
 }
 
@@ -617,6 +643,8 @@ for (const snap of r0.snapshots) {
   console.log(`  Collection: ${snap.state.uniqueCardsOwned} unique (${snap.state.totalCardsOwned} total) — ${snap.state.legendariesOwned} legendaries, ${snap.state.mythicsOwned} mythics`);
   const loadoutStr = snap.state.loadoutFill.map((n, i) => `P${i+1}:${n}/4`).join(', ');
   console.log(`  Loadouts: ${loadoutStr}`);
+  const sd = snap.state.starDist;
+  console.log(`  Stars: ★1:${sd[0]}, ★2:${sd[1]}, ★3:${sd[2]}, ★4:${sd[3]}, ★5:${sd[4]}`);
   const top3 = Object.entries(snap.state.mastery).filter(([k, v]) => v > 0).sort((a,b) => b[1] - a[1]).slice(0, 3);
   if (top3.length > 0) console.log(`  Top mastery: ${top3.map(([k, v]) => `${k} ${v}`).join(', ')}`);
 }
@@ -629,6 +657,8 @@ console.log(`  Total harvests: ${pct(endStates.map(s => s.totalHarvests), 0.5)}`
 console.log(`  Packs opened: ${pct(endStates.map(s => s.packsOpened), 0.5)}`);
 console.log(`  Unique cards owned: ${pct(endStates.map(s => s.uniqueCardsOwned), 0.5)} / ${PERMA_POOL.length}`);
 console.log(`  Legendaries: ${pct(endStates.map(s => s.legendariesOwned), 0.5)}`);
+const sd = [0,1,2,3,4].map(i => pct(endStates.map(s => s.starDist[i]), 0.5));
+console.log(`  Star distribution (median): ★1:${sd[0]}, ★2:${sd[1]}, ★3:${sd[2]}, ★4:${sd[3]}, ★5:${sd[4]}`);
 
 // Mastery — median per crop
 console.log('  Mastery medians:');
