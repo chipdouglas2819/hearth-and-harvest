@@ -625,6 +625,62 @@ main {
 .harvest-entry .what { color: var(--moss); }
 .harvest-entry .amount { font-family: var(--mono); color: var(--terracotta); font-weight: 600; }
 .harvest-entry .amount.levelup { color: var(--gold); }
+.harvest-entry .amount.contract-good { color: var(--gold); }
+.harvest-entry .amount.contract-fail { color: var(--rust); opacity: 0.7; }
+
+/* === Contract panel === */
+.contract-active, .contract-offered {
+  padding: 10px;
+  border-radius: 8px;
+}
+.contract-offered {
+  background: rgba(143, 166, 142, 0.10);
+  border: 1px dashed var(--border);
+}
+.contract-active {
+  background: rgba(244, 193, 71, 0.08);
+  border: 1px solid var(--gold);
+}
+.contract-tier-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.contract-tier-tag.bronze { color: var(--terracotta); }
+.contract-task {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--forest);
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+.contract-progress { margin-bottom: 6px; }
+.contract-progress-bar {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.contract-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--butter), var(--gold));
+  transition: width 0.4s ease;
+}
+.contract-progress-text {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--moss);
+  margin-top: 3px;
+  text-align: right;
+}
+.contract-reward { font-size: 11px; color: var(--terracotta); font-weight: 600; margin-top: 4px; }
+.contract-time { font-family: var(--mono); font-size: 10px; color: var(--sage); margin-top: 4px; }
+.contract-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 8px 0; text-align: center; }
+.contract-accept-btn { margin-top: 8px; width: 100%; padding: 6px 12px !important; font-size: 13px !important; }
 @keyframes levelupFanfare {
   0% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
   15% { background: rgba(244, 193, 71, 0.30); transform: translateX(2px); }
@@ -1301,6 +1357,10 @@ main {
   <section class="plots-grid" id="plotsGrid"></section>
   <aside class="sidebar">
     <div class="panel">
+      <h3>Contract</h3>
+      <div id="contractContent"></div>
+    </div>
+    <div class="panel">
       <h3>Pack Progress</h3>
       <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
       <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
@@ -1427,6 +1487,84 @@ function isCropUnlocked(crop) {
   const c = CROPS[crop];
   if (!c.unlocksAt) return true;
   return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
+}
+
+// ============ CONTRACTS (Phase A: Bronze only, single slot) ============
+// Generate a Bronze contract scaled to the player's current state.
+// Picks a crop the player has actually grown when possible (so the ask is
+// achievable), and scales count gently with plot count (3 plots → ask 4,
+// 8 plots → ask 7).
+function generateBronzeContract() {
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
+  const pool = grown.length > 0 ? grown : unlocked;
+  const crop = pool[Math.floor(Math.random() * pool.length)];
+  const plotCount = state.plots.filter(p => !p.locked).length;
+  const baseN = 3 + Math.floor(plotCount / 2);
+  const count = baseN + Math.floor(Math.random() * 3);
+  return {
+    id: `bronze_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    tier: 'bronze',
+    template: 'deliver_n_of_x',
+    params: { crop, count, deadlineHours: 24 },
+    reward: { coins: 200 + count * 60, packs: 1 },
+    status: 'offered',
+    progress: 0,
+  };
+}
+
+// Make sure there's always a contract available to accept (when none is active)
+function ensureContractOffered() {
+  if (!state.activeContract && state.offeredContracts.length === 0) {
+    state.offeredContracts.push(generateBronzeContract());
+  }
+}
+
+function acceptContract(id) {
+  const c = state.offeredContracts.find(x => x.id === id);
+  if (!c || state.activeContract) return;
+  c.status = 'active';
+  c.acceptedAtMs = Date.now();
+  state.activeContract = c;
+  state.offeredContracts = state.offeredContracts.filter(x => x.id !== id);
+  render();
+}
+
+function checkContractExpiry() {
+  if (!state.activeContract) return false;
+  const c = state.activeContract;
+  const elapsed = Date.now() - c.acceptedAtMs;
+  if (elapsed > c.params.deadlineHours * 3600000) {
+    state.harvestLog.unshift({
+      type: 'contract_expired',
+      crop: c.params.crop,
+      progress: c.progress,
+      target: c.params.count,
+      t: Date.now(),
+    });
+    if (state.harvestLog.length > 6) state.harvestLog.pop();
+    state.activeContract = null;
+    return true;
+  }
+  return false;
+}
+
+function completeContract() {
+  const c = state.activeContract;
+  if (!c) return;
+  state.money += c.reward.coins;
+  state.pendingPacks += c.reward.packs || 0;
+  state.contractsCompleted += 1;
+  state.harvestLog.unshift({
+    type: 'contract_complete',
+    crop: c.params.crop,
+    target: c.params.count,
+    coins: c.reward.coins,
+    packs: c.reward.packs || 0,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+  state.activeContract = null;
 }
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
@@ -1605,6 +1743,10 @@ const state = {
   packsOpened: 0,
   migrationsApplied: [],
   levelUpQueue: [], // pending level-up notifications to surface in the harvest log
+  // Contract system (Phase A — single-slot Bronze contracts)
+  activeContract: null,        // { id, tier, params, reward, status, acceptedAtMs, progress }
+  offeredContracts: [],        // up to 1 offered contract waiting to be accepted
+  contractsCompleted: 0,
 };
 
 function makePlot(id) {
@@ -1831,6 +1973,9 @@ function saveGame() {
       loadouts: state.loadouts.map(l => [...l]),
       packsOpened: state.packsOpened,
       migrationsApplied: [...state.migrationsApplied],
+      activeContract: state.activeContract ? { ...state.activeContract, params: { ...state.activeContract.params }, reward: { ...state.activeContract.reward } } : null,
+      offeredContracts: state.offeredContracts.map(c => ({ ...c, params: { ...c.params }, reward: { ...c.reward } })),
+      contractsCompleted: state.contractsCompleted || 0,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -1860,6 +2005,9 @@ function loadGame() {
     state.adPlaying = false;
     state.adUsedForCurrentPack = false;
     state.currentPackCards = [];
+    state.activeContract = loaded.activeContract || null;
+    state.offeredContracts = loaded.offeredContracts || [];
+    state.contractsCompleted = loaded.contractsCompleted || 0;
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -2154,6 +2302,13 @@ function harvest(plotId, ev) {
   state.money += yieldAmount;
   // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes
   state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000);
+  // Contract progress: only player-driven harvests count (offline progression doesn't auto-complete)
+  if (state.activeContract && state.activeContract.params.crop === plot.crop) {
+    state.activeContract.progress += 1;
+    if (state.activeContract.progress >= state.activeContract.params.count) {
+      completeContract();
+    }
+  }
   state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, t: Date.now() });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
@@ -2906,6 +3061,53 @@ function visualScale(yieldMult) {
   return 1.0 + Math.min(0.6, (yieldMult - 1) * 0.18);
 }
 
+function renderContract() {
+  const el = document.getElementById('contractContent');
+  if (!el) return;
+
+  // Fail-and-clear if expired
+  if (checkContractExpiry()) {
+    // checkContractExpiry already mutated state and pushed log entry; render again next frame
+  }
+
+  if (!state.activeContract) ensureContractOffered();
+
+  if (state.activeContract) {
+    const c = state.activeContract;
+    const cropData = CROPS[c.params.crop];
+    const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
+    const pct = Math.min(100, Math.floor(c.progress / c.params.count * 100));
+    el.innerHTML = `
+      <div class="contract-active ${c.tier}">
+        <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+        <div class="contract-task">Deliver ${c.params.count} ${cropData.emoji} ${cropData.name}${c.params.count === 1 ? '' : 's'}</div>
+        <div class="contract-progress">
+          <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
+          <div class="contract-progress-text">${c.progress}/${c.params.count}</div>
+        </div>
+        <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
+        <div class="contract-time">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
+      </div>
+    `;
+  } else if (state.offeredContracts.length > 0) {
+    const c = state.offeredContracts[0];
+    const cropData = CROPS[c.params.crop];
+    el.innerHTML = `
+      <div class="contract-offered ${c.tier}">
+        <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+        <div class="contract-task">Deliver ${c.params.count} ${cropData.emoji} ${cropData.name}${c.params.count === 1 ? '' : 's'}</div>
+        <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
+        <div class="contract-time">${c.params.deadlineHours}h to complete after accepting</div>
+        <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn">Accept</button>
+      </div>
+    `;
+    const btn = document.getElementById('contractAcceptBtn');
+    if (btn) btn.onclick = () => acceptContract(c.id);
+  } else {
+    el.innerHTML = '<div class="contract-empty">no contract right now</div>';
+  }
+}
+
 // Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
 function getFermentBonusText(plot) {
   if (!plot || !plot.flags || !plot.flags.skillFerment) return '';
@@ -3091,6 +3293,9 @@ function render() {
     grid.appendChild(el);
   });
 
+  // contract panel
+  renderContract();
+
   // mastery — grow-hours invested per crop, +0.1% per 20 hours
   const mList = document.getElementById('masteryList');
   mList.innerHTML = '';
@@ -3126,10 +3331,16 @@ function render() {
   } else {
     state.harvestLog.forEach(h => {
       const e = document.createElement('div');
-      const isRecent = h.type === 'levelup' && (Date.now() - h.t) < 2500;
+      const isRecent = (h.type === 'levelup' || h.type === 'contract_complete') && (Date.now() - h.t) < 2500;
       e.className = `harvest-entry${isRecent ? ' levelup-fanfare' : ''}`;
       if (h.type === 'levelup') {
         e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
+      } else if (h.type === 'contract_complete') {
+        const c = CROPS[h.crop];
+        e.innerHTML = `<span class="what">📜 ${c ? c.name : 'Contract'} complete</span><span class="amount contract-good">+${h.coins}c</span>`;
+      } else if (h.type === 'contract_expired') {
+        const c = CROPS[h.crop];
+        e.innerHTML = `<span class="what">📜 ${c ? c.name : 'Contract'} expired</span><span class="amount contract-fail">${h.progress}/${h.target}</span>`;
       } else {
         e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}</span><span class="amount">+${h.amount}</span>`;
       }
