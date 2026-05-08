@@ -1556,6 +1556,7 @@ const PLOT_UPGRADES = {
   autoReplant:    { name: 'Auto-Replant',    cost: 10000,  desc: 'Plot replants the same crop after harvest', flavor: 'never let the soil rest.' },
   masterGardener: { name: 'Master Gardener', cost: 75000,  desc: '+25% mastery hours per harvest',            flavor: 'every season teaches.' },
   practicedSoil:  { name: 'Practiced Soil',  cost: 300000, desc: '−10% grow time on this plot',               flavor: 'roots find their way faster here.' },
+  bonusPick:      { name: 'Bonus Pick',      cost: 400000, desc: '+1 boon pick on this plot’s runs',     flavor: 'a deeper hand at the harvest.' },
 };
 
 function getPlotUpgrades(plotId) {
@@ -2621,7 +2622,7 @@ function plant(plotId, cropType) {
   // Plot upgrade "Practiced Soil" knocks 10% off grow time on this plot
   const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
   plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
-  plot.totalPicks = crop.pickCount;
+  plot.totalPicks = crop.pickCount + (plotHasUpgrade(plotId, 'bonusPick') ? 1 : 0);
   plot.yieldMult *= carryover;
   closeAllModals();
   render();
@@ -2644,7 +2645,7 @@ function tryAutoReplant(plotId, cropType) {
   plot.crop = cropType;
   const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
   plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
-  plot.totalPicks = crop.pickCount;
+  plot.totalPicks = crop.pickCount + (plotHasUpgrade(plotId, 'bonusPick') ? 1 : 0);
   plot.yieldMult *= carryover;
 }
 
