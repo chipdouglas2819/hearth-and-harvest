@@ -681,6 +681,25 @@ main {
 .contract-time { font-family: var(--mono); font-size: 10px; color: var(--sage); margin-top: 4px; }
 .contract-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 8px 0; text-align: center; }
 .contract-accept-btn { margin-top: 8px; width: 100%; padding: 6px 12px !important; font-size: 13px !important; }
+/* Phase B: Silver tier + mixed contracts + multi-slot offers */
+.contract-tier-tag.silver { color: var(--moss); }
+.contract-active.silver { background: rgba(74, 107, 79, 0.10); border-color: var(--moss); }
+.contract-offered.silver { background: rgba(74, 107, 79, 0.08); border-color: var(--moss); }
+.contract-offered + .contract-offered { margin-top: 8px; } /* spacing between stacked offers */
+.contract-mixed { display: flex; flex-direction: column; gap: 5px; }
+.contract-mixed-row { display: flex; align-items: center; gap: 6px; }
+.contract-mixed-icon { font-size: 14px; line-height: 1; }
+.contract-mixed-row .contract-progress-bar { flex: 1; }
+.contract-mixed-count { font-family: var(--mono); font-size: 10px; color: var(--moss); min-width: 36px; text-align: right; }
+.contract-mixed-count.done { color: var(--gold); font-weight: 700; }
+
+/* Today's Market panel */
+.market-featured { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.market-emoji { font-size: 28px; line-height: 1; }
+.market-info { flex: 1; }
+.market-crop-name { font-family: var(--serif); font-size: 14px; font-weight: 600; color: var(--forest); }
+.market-bonus { font-family: var(--mono); font-size: 11px; color: var(--gold); font-weight: 700; }
+.market-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 4px 0; text-align: center; }
 @keyframes levelupFanfare {
   0% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
   15% { background: rgba(244, 193, 71, 0.30); transform: translateX(2px); }
@@ -1356,6 +1375,10 @@ main {
 <main>
   <section class="plots-grid" id="plotsGrid"></section>
   <aside class="sidebar">
+    <div class="panel market-panel">
+      <h3>Today's Market</h3>
+      <div id="marketContent"></div>
+    </div>
     <div class="panel">
       <h3>Daily Contract</h3>
       <div id="contractContent"></div>
@@ -1489,12 +1512,37 @@ function isCropUnlocked(crop) {
   return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
 }
 
-// ============ CONTRACTS (Phase A: Bronze only, one per day) ============
-// Local-time day key so contracts reset at midnight in the player's timezone.
+// ============ DAILY MARKET ============
+// Featured crop rotates at local midnight. Harvesting that crop yields +40%.
+// Anti-repeat: avoid the last 2 featured crops if possible.
+const MARKET_FEATURED_BONUS = 1.4;
+
+// Local-time day key so contracts/market reset at midnight in the player's timezone.
 function getCurrentDayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
+
+function rotateMarketIfNewDay() {
+  const today = getCurrentDayKey();
+  if (state.marketDayKey === today) return;
+  // Push the old featured into history before picking a new one
+  if (state.marketFeaturedCrop) {
+    state.marketHistory = [state.marketFeaturedCrop, ...(state.marketHistory || [])].slice(0, 5);
+  }
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  const recent = new Set((state.marketHistory || []).slice(0, 2));
+  let pool = unlocked.filter(c => !recent.has(c));
+  if (pool.length === 0) pool = unlocked;
+  state.marketFeaturedCrop = pool[Math.floor(Math.random() * pool.length)];
+  state.marketDayKey = today;
+}
+
+function getMarketYieldMultiplier(crop) {
+  return crop === state.marketFeaturedCrop ? MARKET_FEATURED_BONUS : 1.0;
+}
+
+// ============ CONTRACTS (Phase B: 3 slots, Bronze + Silver, one completion per day) ============
 
 // Bronze contracts are casual: only fast crops (≤12h grow), counts tuned to
 // be comfortably completable inside 24h with plenty of sleep/work buffer.
@@ -1533,11 +1581,101 @@ function generateBronzeContract() {
   };
 }
 
-// One contract per day. After completion or expiry, lock new offers until midnight.
+// Silver tier: ambitious-but-casual. Bigger counts on fast crops, or mixed
+// multi-crop deliveries. Deadline scales with the slowest crop in the ask.
+const SILVER_FAST_CROP_LIMIT_HOURS = 18; // strawberry now eligible
+
+function silverDeadlineFor(crops) {
+  // Deadline = 1.5× the slowest crop's grow time, min 30h, max 48h
+  const slowestHrs = Math.max(...crops.map(c => CROPS[c].growthMs / 3600000));
+  return Math.max(30, Math.min(48, Math.ceil(slowestHrs * 1.5)));
+}
+
+function silverCountForCrop(crop) {
+  const growthHrs = CROPS[crop].growthMs / 3600000;
+  // Silver asks ~2× Bronze counts; deadlines stretch to fit
+  if (growthHrs <= 4) return 5 + Math.floor(Math.random() * 3);   // 5-7 radishes
+  if (growthHrs <= 8) return 3 + Math.floor(Math.random() * 2);   // 3-4 carrots
+  if (growthHrs <= 12) return 2 + Math.floor(Math.random() * 2);  // 2-3 tomatoes
+  return 2;                                                        // 2 strawberries (~36h deadline)
+}
+
+function generateSilverContract() {
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
+  const fastEnough = c => CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS;
+  const pool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
+  if (pool.length < 2) {
+    // Not enough unlocked-and-grown variety yet — fall back to a bigger n_of_x
+    const crop = pool[0] || 'radish';
+    const count = silverCountForCrop(crop);
+    return {
+      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tier: 'silver',
+      template: 'deliver_n_of_x',
+      params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
+      reward: { coins: 400 + count * 100, packs: 1 },
+      status: 'offered',
+      progress: 0,
+    };
+  }
+  // 50/50: bigger n_of_x or mixed multi-crop delivery
+  if (Math.random() < 0.5) {
+    const crop = pool[Math.floor(Math.random() * pool.length)];
+    const count = silverCountForCrop(crop);
+    return {
+      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tier: 'silver',
+      template: 'deliver_n_of_x',
+      params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
+      reward: { coins: 400 + count * 100, packs: 1 },
+      status: 'offered',
+      progress: 0,
+    };
+  } else {
+    // Mixed: pick 2 different crops, smaller counts each
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    const cropA = shuffled[0];
+    const cropB = shuffled[1];
+    const countA = Math.max(2, Math.floor(silverCountForCrop(cropA) * 0.6));
+    const countB = Math.max(2, Math.floor(silverCountForCrop(cropB) * 0.6));
+    const totalCount = countA + countB;
+    return {
+      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tier: 'silver',
+      template: 'deliver_mixed',
+      params: {
+        crops: { [cropA]: countA, [cropB]: countB },
+        deadlineHours: silverDeadlineFor([cropA, cropB]),
+      },
+      reward: { coins: 500 + totalCount * 100, packs: 1 },
+      status: 'offered',
+      progress: { [cropA]: 0, [cropB]: 0 },
+    };
+  }
+}
+
+// Tier mix scales with player progression (plot count is a rough proxy)
+function offeredTiersForState() {
+  const plotCount = state.plots.filter(p => !p.locked).length;
+  if (plotCount <= 2) return ['bronze', 'bronze', 'bronze'];
+  if (plotCount <= 4) return ['bronze', 'bronze', 'silver'];
+  return ['bronze', 'silver', 'silver'];
+}
+
+// One completion per day; the 3 offered slots refresh together at midnight.
 function ensureContractOffered() {
   if (state.lastContractCompletedDayKey === getCurrentDayKey()) return; // done today
-  if (!state.activeContract && state.offeredContracts.length === 0) {
-    state.offeredContracts.push(generateBronzeContract());
+  const today = getCurrentDayKey();
+  // Refresh offer pool at midnight if not already done today and no active contract
+  if (state.contractsOfferedDayKey !== today && !state.activeContract) {
+    state.offeredContracts = [];
+    state.contractsOfferedDayKey = today;
+  }
+  if (state.activeContract) return; // already accepted one
+  if (state.offeredContracts.length === 0) {
+    const tiers = offeredTiersForState();
+    state.offeredContracts = tiers.map(t => t === 'silver' ? generateSilverContract() : generateBronzeContract());
   }
 }
 
@@ -1547,7 +1685,8 @@ function acceptContract(id) {
   c.status = 'active';
   c.acceptedAtMs = Date.now();
   state.activeContract = c;
-  state.offeredContracts = state.offeredContracts.filter(x => x.id !== id);
+  // Accepting one commits — the other slots vanish (player chose their goal)
+  state.offeredContracts = [];
   render();
 }
 
@@ -1766,11 +1905,16 @@ const state = {
   packsOpened: 0,
   migrationsApplied: [],
   levelUpQueue: [], // pending level-up notifications to surface in the harvest log
-  // Contract system (Phase A — single-slot Bronze contracts, one per day)
-  activeContract: null,        // { id, tier, params, reward, status, acceptedAtMs, progress }
-  offeredContracts: [],        // up to 1 offered contract waiting to be accepted
+  // Contract system (Phase B — 3 slots, Bronze + Silver, one completion per day)
+  activeContract: null,        // { id, tier, template, params, reward, status, acceptedAtMs, progress }
+  offeredContracts: [],        // up to 3 offered contracts; player picks one
   contractsCompleted: 0,
-  lastContractCompletedDayKey: null, // 'YYYY-M-D' of the last completed/expired contract — locks new offers until tomorrow
+  lastContractCompletedDayKey: null, // 'YYYY-M-D' of the last completed/expired contract
+  contractsOfferedDayKey: null,      // 'YYYY-M-D' of when the current offer pool was generated
+  // Today's Market — featured crop gets +40% sell value, rotates at midnight
+  marketDayKey: null,
+  marketFeaturedCrop: null,
+  marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
 };
 
 function makePlot(id) {
@@ -1997,10 +2141,14 @@ function saveGame() {
       loadouts: state.loadouts.map(l => [...l]),
       packsOpened: state.packsOpened,
       migrationsApplied: [...state.migrationsApplied],
-      activeContract: state.activeContract ? { ...state.activeContract, params: { ...state.activeContract.params }, reward: { ...state.activeContract.reward } } : null,
-      offeredContracts: state.offeredContracts.map(c => ({ ...c, params: { ...c.params }, reward: { ...c.reward } })),
+      activeContract: state.activeContract ? JSON.parse(JSON.stringify(state.activeContract)) : null,
+      offeredContracts: JSON.parse(JSON.stringify(state.offeredContracts || [])),
       contractsCompleted: state.contractsCompleted || 0,
       lastContractCompletedDayKey: state.lastContractCompletedDayKey || null,
+      contractsOfferedDayKey: state.contractsOfferedDayKey || null,
+      marketDayKey: state.marketDayKey || null,
+      marketFeaturedCrop: state.marketFeaturedCrop || null,
+      marketHistory: state.marketHistory || [],
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -2034,6 +2182,10 @@ function loadGame() {
     state.offeredContracts = loaded.offeredContracts || [];
     state.contractsCompleted = loaded.contractsCompleted || 0;
     state.lastContractCompletedDayKey = loaded.lastContractCompletedDayKey || null;
+    state.contractsOfferedDayKey = loaded.contractsOfferedDayKey || null;
+    state.marketDayKey = loaded.marketDayKey || null;
+    state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
+    state.marketHistory = loaded.marketHistory || [];
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -2323,19 +2475,32 @@ function harvest(plotId, ev) {
 
   mult *= getPermaYieldMultForPlot(plotId);
   mult *= getMasteryBonusForCrop(plot.crop);
+  // Today's Market: featured crop gets +40% on sell
+  rotateMarketIfNewDay();
+  const marketMult = getMarketYieldMultiplier(plot.crop);
+  mult *= marketMult;
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
   // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes
   state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000);
-  // Contract progress: only player-driven harvests count (offline progression doesn't auto-complete)
-  if (state.activeContract && state.activeContract.params.crop === plot.crop) {
-    state.activeContract.progress += 1;
-    if (state.activeContract.progress >= state.activeContract.params.count) {
-      completeContract();
+
+  // Contract progress: handle both deliver_n_of_x and deliver_mixed templates.
+  // Only player-driven harvests count (offline progression doesn't auto-complete).
+  if (state.activeContract) {
+    const ac = state.activeContract;
+    if (ac.template === 'deliver_n_of_x' && ac.params.crop === plot.crop) {
+      ac.progress += 1;
+      if (ac.progress >= ac.params.count) completeContract();
+    } else if (ac.template === 'deliver_mixed' && ac.params.crops[plot.crop] !== undefined) {
+      ac.progress[plot.crop] = (ac.progress[plot.crop] || 0) + 1;
+      const allDone = Object.entries(ac.params.crops).every(
+        ([crop, target]) => (ac.progress[crop] || 0) >= target
+      );
+      if (allDone) completeContract();
     }
   }
-  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, t: Date.now() });
+  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, t: Date.now() });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
   state.totalHarvests += 1;
@@ -3105,39 +3270,101 @@ function renderContract() {
   if (!state.activeContract) ensureContractOffered();
 
   if (state.activeContract) {
-    const c = state.activeContract;
-    const cropData = CROPS[c.params.crop];
-    const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
-    const pct = Math.min(100, Math.floor(c.progress / c.params.count * 100));
-    el.innerHTML = `
-      <div class="contract-active ${c.tier}">
-        <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
-        <div class="contract-task">Deliver ${c.params.count} ${cropData.emoji} ${cropData.name}${c.params.count === 1 ? '' : 's'}</div>
-        <div class="contract-progress">
-          <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
-          <div class="contract-progress-text">${c.progress}/${c.params.count}</div>
-        </div>
-        <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
-        <div class="contract-time">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
-      </div>
-    `;
+    el.innerHTML = renderActiveContractHTML(state.activeContract);
   } else if (state.offeredContracts.length > 0) {
-    const c = state.offeredContracts[0];
-    const cropData = CROPS[c.params.crop];
-    el.innerHTML = `
-      <div class="contract-offered ${c.tier}">
-        <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
-        <div class="contract-task">Deliver ${c.params.count} ${cropData.emoji} ${cropData.name}${c.params.count === 1 ? '' : 's'}</div>
-        <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
-        <div class="contract-time">${c.params.deadlineHours}h to complete after accepting</div>
-        <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn">Accept</button>
-      </div>
-    `;
-    const btn = document.getElementById('contractAcceptBtn');
-    if (btn) btn.onclick = () => acceptContract(c.id);
+    el.innerHTML = state.offeredContracts.map(c => renderOfferedContractHTML(c)).join('');
+    state.offeredContracts.forEach(c => {
+      const btn = document.getElementById('contractAcceptBtn_' + c.id);
+      if (btn) btn.onclick = () => acceptContract(c.id);
+    });
   } else {
     el.innerHTML = '<div class="contract-empty">no contract right now</div>';
   }
+}
+
+function describeContract(c) {
+  if (c.template === 'deliver_n_of_x') {
+    const cd = CROPS[c.params.crop];
+    return `Deliver ${c.params.count} ${cd.emoji} ${cd.name}${c.params.count === 1 ? '' : 's'}`;
+  }
+  if (c.template === 'deliver_mixed') {
+    const parts = Object.entries(c.params.crops).map(([crop, n]) =>
+      `${n} ${CROPS[crop].emoji} ${CROPS[crop].name}${n === 1 ? '' : 's'}`
+    );
+    return `Deliver ${parts.join(' + ')}`;
+  }
+  return '';
+}
+
+function renderActiveContractHTML(c) {
+  const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
+  let progressBlock = '';
+  if (c.template === 'deliver_n_of_x') {
+    const pct = Math.min(100, Math.floor(c.progress / c.params.count * 100));
+    progressBlock = `
+      <div class="contract-progress">
+        <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
+        <div class="contract-progress-text">${c.progress}/${c.params.count}</div>
+      </div>`;
+  } else if (c.template === 'deliver_mixed') {
+    progressBlock = '<div class="contract-mixed">' + Object.entries(c.params.crops).map(([crop, target]) => {
+      const have = c.progress[crop] || 0;
+      const pct = Math.min(100, Math.floor(have / target * 100));
+      const done = have >= target;
+      return `
+        <div class="contract-mixed-row">
+          <span class="contract-mixed-icon">${CROPS[crop].emoji}</span>
+          <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
+          <span class="contract-mixed-count${done ? ' done' : ''}">${have}/${target}${done ? ' ✓' : ''}</span>
+        </div>`;
+    }).join('') + '</div>';
+  }
+  return `
+    <div class="contract-active ${c.tier}">
+      <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+      <div class="contract-task">${describeContract(c)}</div>
+      ${progressBlock}
+      <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
+      <div class="contract-time">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
+    </div>
+  `;
+}
+
+function renderOfferedContractHTML(c) {
+  return `
+    <div class="contract-offered ${c.tier}">
+      <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+      <div class="contract-task">${describeContract(c)}</div>
+      <div class="contract-reward">+${c.reward.coins}c · +${c.reward.packs} pack</div>
+      <div class="contract-time">${c.params.deadlineHours}h after accepting</div>
+      <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn_${c.id}">Accept</button>
+    </div>
+  `;
+}
+
+function renderMarket() {
+  const el = document.getElementById('marketContent');
+  if (!el) return;
+  rotateMarketIfNewDay();
+  if (!state.marketFeaturedCrop) {
+    el.innerHTML = '<div class="market-empty">no featured crop yet</div>';
+    return;
+  }
+  const c = CROPS[state.marketFeaturedCrop];
+  if (!c) {
+    el.innerHTML = '<div class="market-empty">market loading…</div>';
+    return;
+  }
+  const bonusPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+  el.innerHTML = `
+    <div class="market-featured">
+      <span class="market-emoji">${c.emoji}</span>
+      <div class="market-info">
+        <div class="market-crop-name">${c.name} in demand</div>
+        <div class="market-bonus">+${bonusPct}% sell value today</div>
+      </div>
+    </div>
+  `;
 }
 
 // Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
@@ -3325,7 +3552,8 @@ function render() {
     grid.appendChild(el);
   });
 
-  // contract panel
+  // market + contract panels
+  renderMarket();
   renderContract();
 
   // mastery — grow-hours invested per crop, +0.1% per 20 hours
