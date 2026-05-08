@@ -1357,7 +1357,7 @@ main {
   <section class="plots-grid" id="plotsGrid"></section>
   <aside class="sidebar">
     <div class="panel">
-      <h3>Contract</h3>
+      <h3>Daily Contract</h3>
       <div id="contractContent"></div>
     </div>
     <div class="panel">
@@ -1489,32 +1489,53 @@ function isCropUnlocked(crop) {
   return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
 }
 
-// ============ CONTRACTS (Phase A: Bronze only, single slot) ============
-// Generate a Bronze contract scaled to the player's current state.
-// Picks a crop the player has actually grown when possible (so the ask is
-// achievable), and scales count gently with plot count (3 plots → ask 4,
-// 8 plots → ask 7).
+// ============ CONTRACTS (Phase A: Bronze only, one per day) ============
+// Local-time day key so contracts reset at midnight in the player's timezone.
+function getCurrentDayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+// Bronze contracts are casual: only fast crops (≤12h grow), counts tuned to
+// be comfortably completable inside 24h with plenty of sleep/work buffer.
+// Math: a player who only checks the app a few times per day still finishes.
+const BRONZE_FAST_CROP_LIMIT_HOURS = 12;
+
+function bronzeCountForCrop(crop) {
+  const growthHrs = CROPS[crop].growthMs / 3600000;
+  // Hand-tuned for casual 24h play:
+  // - Radish (4h): 2-3 (max 6 in 24h, ask half)
+  // - Carrot (8h): 1-2 (max 3 in 24h)
+  // - Tomato (12h): 1 (max 2 in 24h, asking 1 leaves a full grow cycle of slack)
+  if (growthHrs <= 4) return 2 + Math.floor(Math.random() * 2);
+  if (growthHrs <= 8) return 1 + Math.floor(Math.random() * 2);
+  return 1;
+}
+
 function generateBronzeContract() {
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
-  const pool = grown.length > 0 ? grown : unlocked;
+  const fastEnough = c => CROPS[c].growthMs / 3600000 <= BRONZE_FAST_CROP_LIMIT_HOURS;
+  // Prefer crops the player has grown AND are fast enough for a 24h deadline.
+  let pool = grown.filter(fastEnough);
+  if (pool.length === 0) pool = unlocked.filter(fastEnough);
+  if (pool.length === 0) pool = ['radish']; // fallback for fresh game
   const crop = pool[Math.floor(Math.random() * pool.length)];
-  const plotCount = state.plots.filter(p => !p.locked).length;
-  const baseN = 3 + Math.floor(plotCount / 2);
-  const count = baseN + Math.floor(Math.random() * 3);
+  const count = bronzeCountForCrop(crop);
   return {
     id: `bronze_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     tier: 'bronze',
     template: 'deliver_n_of_x',
     params: { crop, count, deadlineHours: 24 },
-    reward: { coins: 200 + count * 60, packs: 1 },
+    reward: { coins: 150 + count * 80, packs: 1 },
     status: 'offered',
     progress: 0,
   };
 }
 
-// Make sure there's always a contract available to accept (when none is active)
+// One contract per day. After completion or expiry, lock new offers until midnight.
 function ensureContractOffered() {
+  if (state.lastContractCompletedDayKey === getCurrentDayKey()) return; // done today
   if (!state.activeContract && state.offeredContracts.length === 0) {
     state.offeredContracts.push(generateBronzeContract());
   }
@@ -1544,6 +1565,7 @@ function checkContractExpiry() {
     });
     if (state.harvestLog.length > 6) state.harvestLog.pop();
     state.activeContract = null;
+    state.lastContractCompletedDayKey = getCurrentDayKey(); // lock until tomorrow
     return true;
   }
   return false;
@@ -1565,6 +1587,7 @@ function completeContract() {
   });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
   state.activeContract = null;
+  state.lastContractCompletedDayKey = getCurrentDayKey(); // lock until tomorrow
 }
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
@@ -1743,10 +1766,11 @@ const state = {
   packsOpened: 0,
   migrationsApplied: [],
   levelUpQueue: [], // pending level-up notifications to surface in the harvest log
-  // Contract system (Phase A — single-slot Bronze contracts)
+  // Contract system (Phase A — single-slot Bronze contracts, one per day)
   activeContract: null,        // { id, tier, params, reward, status, acceptedAtMs, progress }
   offeredContracts: [],        // up to 1 offered contract waiting to be accepted
   contractsCompleted: 0,
+  lastContractCompletedDayKey: null, // 'YYYY-M-D' of the last completed/expired contract — locks new offers until tomorrow
 };
 
 function makePlot(id) {
@@ -1976,6 +2000,7 @@ function saveGame() {
       activeContract: state.activeContract ? { ...state.activeContract, params: { ...state.activeContract.params }, reward: { ...state.activeContract.reward } } : null,
       offeredContracts: state.offeredContracts.map(c => ({ ...c, params: { ...c.params }, reward: { ...c.reward } })),
       contractsCompleted: state.contractsCompleted || 0,
+      lastContractCompletedDayKey: state.lastContractCompletedDayKey || null,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -2008,6 +2033,7 @@ function loadGame() {
     state.activeContract = loaded.activeContract || null;
     state.offeredContracts = loaded.offeredContracts || [];
     state.contractsCompleted = loaded.contractsCompleted || 0;
+    state.lastContractCompletedDayKey = loaded.lastContractCompletedDayKey || null;
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -3068,6 +3094,12 @@ function renderContract() {
   // Fail-and-clear if expired
   if (checkContractExpiry()) {
     // checkContractExpiry already mutated state and pushed log entry; render again next frame
+  }
+
+  // Locked-out state: contract already completed/expired today
+  if (state.lastContractCompletedDayKey === getCurrentDayKey() && !state.activeContract) {
+    el.innerHTML = '<div class="contract-empty">today\'s contract is done · next at midnight</div>';
+    return;
   }
 
   if (!state.activeContract) ensureContractOffered();
