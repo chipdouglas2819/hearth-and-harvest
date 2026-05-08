@@ -867,6 +867,42 @@ main {
   font-weight: 700;
 }
 
+.pack-card { position: relative; }
+.pc-star-state {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 5px;
+  letter-spacing: 0.04em;
+  z-index: 2;
+  white-space: nowrap;
+}
+.pc-star-state.new {
+  background: var(--moss);
+  color: var(--cream);
+}
+.pc-star-state.levelup {
+  background: linear-gradient(135deg, var(--butter), var(--gold));
+  color: var(--rust);
+  animation: starUpPulse 1.4s ease-in-out infinite;
+}
+.pc-star-state.progress {
+  background: rgba(143, 166, 142, 0.18);
+  color: var(--moss);
+  font-weight: 500;
+}
+.pc-star-state.max {
+  background: linear-gradient(135deg, var(--gold), var(--terracotta));
+  color: var(--cream);
+}
+@keyframes starUpPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.4); }
+  50% { transform: scale(1.06); box-shadow: 0 0 14px 4px rgba(244, 193, 71, 0.55); }
+}
 .pack-card .pc-rarity {
   font-family: var(--mono);
   font-size: 10px;
@@ -2298,6 +2334,21 @@ function openPackModal(rarityFloor = null, customTitle = null) {
   document.getElementById('packModal').hidden = false;
 }
 
+// Preview the effect of adding this pack card to the player's collection,
+// so the pack-card UI can communicate "NEW" / "★ level-up!" / progress.
+function previewPackCardStarChange(buff) {
+  const existing = state.collection.find(c => c.id === buff.id);
+  if (!existing) return { type: 'new', label: '✨ NEW' };
+  const newCount = existing.count + 1;
+  const newStars = starsFromCount(newCount);
+  if (newStars > existing.stars) {
+    return { type: 'levelup', label: `★${existing.stars} → ★${newStars}!` };
+  }
+  const prog = dupesTowardNextStar(newCount, existing.stars);
+  if (prog.isMax) return { type: 'max', label: `★5 · MAX` };
+  return { type: 'progress', label: `★${existing.stars} · ${prog.current}/${prog.needed} → ★${existing.stars + 1}` };
+}
+
 function renderPackCards() {
   const grid = document.getElementById('packCards');
   grid.innerHTML = '';
@@ -2307,7 +2358,9 @@ function renderPackCards() {
     const isBonus = state.adUsedForCurrentPack && idx === state.currentPackCards.length - 1 && state.currentPackCards.length === 4;
     card.className = `pack-card ${buff.rarity} ${isBonus ? 'bonus' : ''}`;
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${CROPS[buff.cropOnly].name} only` : 'general';
+    const starState = previewPackCardStarChange(buff);
     card.innerHTML = `
+      <div class="pc-star-state ${starState.type}">${starState.label}</div>
       <div class="pc-rarity">${buff.rarity}</div>
       <div class="pc-name">${buff.name}</div>
       <div class="pc-desc">${buff.desc}</div>
