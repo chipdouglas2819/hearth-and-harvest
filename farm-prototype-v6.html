@@ -681,6 +681,9 @@ main {
 .contract-time { font-family: var(--mono); font-size: 10px; color: var(--sage); margin-top: 4px; }
 .contract-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 8px 0; text-align: center; }
 .contract-accept-btn { margin-top: 8px; width: 100%; padding: 6px 12px !important; font-size: 13px !important; }
+.contract-reroll-btn { margin-top: 4px; width: 100%; padding: 4px 8px !important; font-size: 10px !important; opacity: 0.75; }
+.contract-reroll-btn:hover { opacity: 1; }
+.reroll-ad-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); color: var(--cream); font-family: var(--mono); font-size: 13px; border-radius: 8px; z-index: 5; }
 /* Phase B: Silver tier + mixed contracts + multi-slot offers */
 .contract-tier-tag.silver { color: var(--moss); }
 .contract-active.silver { background: rgba(74, 107, 79, 0.10); border-color: var(--moss); }
@@ -710,6 +713,8 @@ main {
 .market-crop-name { font-family: var(--serif); font-size: 14px; font-weight: 600; color: var(--forest); }
 .market-bonus { font-family: var(--mono); font-size: 11px; color: var(--gold); font-weight: 700; }
 .market-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 4px 0; text-align: center; }
+.market-saturated { display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border); opacity: 0.85; }
+.market-penalty { font-family: var(--mono); font-size: 11px; color: var(--rust); font-weight: 700; }
 @keyframes levelupFanfare {
   0% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
   15% { background: rgba(244, 193, 71, 0.30); transform: translateX(2px); }
@@ -1199,6 +1204,14 @@ main {
   justify-content: space-between;
 }
 .lm-section-title .lm-sec-meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--sage); text-transform: uppercase; font-style: normal; }
+.lm-upgrades { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.lm-upgrade { padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--border); background: rgba(143, 166, 142, 0.04); display: flex; flex-direction: column; gap: 4px; }
+.lm-upgrade.owned { background: rgba(244, 193, 71, 0.10); border-color: var(--gold); border-style: solid; }
+.lm-upgrade.affordable { border-color: var(--moss); }
+.lm-upgrade .lu-name { font-family: var(--serif); font-weight: 600; font-style: italic; color: var(--forest); font-size: 14px; }
+.lm-upgrade .lu-desc { font-size: 11px; color: var(--moss); }
+.lm-upgrade .lu-flavor { font-size: 10px; color: var(--sage); font-style: italic; line-height: 1.3; }
+.lm-upgrade .lu-btn { margin-top: 6px; padding: 5px 10px !important; font-size: 12px !important; width: 100%; }
 
 .lm-grid {
   display: grid;
@@ -1461,6 +1474,10 @@ main {
     </div>
     <div class="lm-slots" id="lmSlots"></div>
     <div class="lm-section-title">
+      <span>Plot Upgrades</span>
+    </div>
+    <div class="lm-upgrades" id="lmUpgrades"></div>
+    <div class="lm-section-title">
       <span>Collection</span>
       <span class="lm-sec-meta" id="lmCollectionMeta"></span>
     </div>
@@ -1530,10 +1547,43 @@ function isCropUnlocked(crop) {
   return harvestsOf(c.unlocksAt.crop) >= c.unlocksAt.harvests;
 }
 
+// ============ PLOT UPGRADES ============
+// Per-plot upgrade tiers. Each tier is an independent purchase.
+// - Auto-Replant ($10K): replants the same crop after harvest if affordable
+// - Master Gardener ($75K): +25% mastery hours per harvest
+// - Practiced Soil ($300K): -10% grow time on this plot
+const PLOT_UPGRADES = {
+  autoReplant:    { name: 'Auto-Replant',    cost: 10000,  desc: 'Plot replants the same crop after harvest', flavor: 'never let the soil rest.' },
+  masterGardener: { name: 'Master Gardener', cost: 75000,  desc: '+25% mastery hours per harvest',            flavor: 'every season teaches.' },
+  practicedSoil:  { name: 'Practiced Soil',  cost: 300000, desc: '−10% grow time on this plot',               flavor: 'roots find their way faster here.' },
+};
+
+function getPlotUpgrades(plotId) {
+  if (!state.plotUpgrades) state.plotUpgrades = [];
+  return state.plotUpgrades[plotId] || {};
+}
+
+function plotHasUpgrade(plotId, key) {
+  const ups = getPlotUpgrades(plotId);
+  return ups[key] === true;
+}
+
+function buyPlotUpgrade(plotId, key) {
+  const def = PLOT_UPGRADES[key];
+  if (!def) return false;
+  if (plotHasUpgrade(plotId, key)) return false;
+  if (state.money < def.cost) return false;
+  state.money -= def.cost;
+  if (!state.plotUpgrades[plotId]) state.plotUpgrades[plotId] = {};
+  state.plotUpgrades[plotId][key] = true;
+  return true;
+}
+
 // ============ DAILY MARKET ============
-// Featured crop rotates at local midnight. Harvesting that crop yields +40%.
-// Anti-repeat: avoid the last 2 featured crops if possible.
+// Featured crop +40%, Saturated crop -30%. Both rotate at local midnight.
+// Anti-repeat: avoid the last 2 featured/saturated crops where possible.
 const MARKET_FEATURED_BONUS = 1.4;
+const MARKET_SATURATED_PENALTY = 0.7;
 
 // Local-time day key so contracts/market reset at midnight in the player's timezone.
 function getCurrentDayKey() {
@@ -1544,20 +1594,26 @@ function getCurrentDayKey() {
 function rotateMarketIfNewDay() {
   const today = getCurrentDayKey();
   if (state.marketDayKey === today) return;
-  // Push the old featured into history before picking a new one
-  if (state.marketFeaturedCrop) {
-    state.marketHistory = [state.marketFeaturedCrop, ...(state.marketHistory || [])].slice(0, 5);
+  // Track recent picks (both featured and saturated) so the daily market feels fresh
+  const oldPicks = [state.marketFeaturedCrop, state.marketSaturatedCrop].filter(Boolean);
+  if (oldPicks.length) {
+    state.marketHistory = [...oldPicks, ...(state.marketHistory || [])].slice(0, 6);
   }
   const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
-  const recent = new Set((state.marketHistory || []).slice(0, 2));
+  const recent = new Set((state.marketHistory || []).slice(0, 4));
   let pool = unlocked.filter(c => !recent.has(c));
-  if (pool.length === 0) pool = unlocked;
+  if (pool.length < 2) pool = unlocked;
   state.marketFeaturedCrop = pool[Math.floor(Math.random() * pool.length)];
+  // Pick a different crop for saturated; if only 1 unlocked, skip saturated
+  const remaining = pool.filter(c => c !== state.marketFeaturedCrop);
+  state.marketSaturatedCrop = remaining.length > 0 ? remaining[Math.floor(Math.random() * remaining.length)] : null;
   state.marketDayKey = today;
 }
 
 function getMarketYieldMultiplier(crop) {
-  return crop === state.marketFeaturedCrop ? MARKET_FEATURED_BONUS : 1.0;
+  if (crop === state.marketFeaturedCrop) return MARKET_FEATURED_BONUS;
+  if (crop === state.marketSaturatedCrop) return MARKET_SATURATED_PENALTY;
+  return 1.0;
 }
 
 // ============ CONTRACTS (Phase C: multi-active, tier-based pack rewards) ============
@@ -1620,6 +1676,13 @@ function generateBronzeContract() {
 // Silver tier: ambitious-but-casual. Bigger counts on fast crops, or mixed
 // multi-crop deliveries. Deadline scales with the slowest crop in the ask.
 const SILVER_FAST_CROP_LIMIT_HOURS = 18; // strawberry now eligible
+// Apply ±15% randomness to a contract's coin reward — adds slot-machine variance
+// without changing balance (a high or low roll just shifts around the mean).
+function withCoinVariance(baseCoins) {
+  const variance = baseCoins * 0.15;
+  const offset = (Math.random() * 2 - 1) * variance;
+  return Math.max(50, Math.round(baseCoins + offset));
+}
 
 function silverDeadlineFor(crops) {
   // Deadline = 1.5× the slowest crop's grow time, min 30h, max 48h
@@ -1653,7 +1716,7 @@ function generateSilverContract() {
       tier: 'silver',
       template: 'deliver_n_of_x',
       params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
-      reward: { coins: 300 + count * 70, packs: 0, packChance: SILVER_PACK_CHANCE },
+      reward: { coins: withCoinVariance(300 + count * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
       status: 'offered',
       progress: 0,
     };
@@ -1673,7 +1736,7 @@ function generateSilverContract() {
       crops: { [cropA]: countA, [cropB]: countB },
       deadlineHours: silverDeadlineFor([cropA, cropB]),
     },
-    reward: { coins: 400 + totalCount * 70, packs: 0, packChance: SILVER_PACK_CHANCE },
+    reward: { coins: withCoinVariance(400 + totalCount * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
     status: 'offered',
     progress: { [cropA]: 0, [cropB]: 0 },
   };
@@ -1710,7 +1773,7 @@ function generateGoldContract() {
     tier: 'gold',
     template: 'deliver_n_of_x',
     params: { crop, count, deadlineHours },
-    reward: { coins: 1500 + count * 70, packs: 1, packChance: 1.0 },
+    reward: { coins: withCoinVariance(1500 + count * 70), packs: 1, packChance: 1.0 },
     status: 'offered',
     progress: 0,
   };
@@ -1755,6 +1818,44 @@ function rotateContractOffersIfNewDay() {
   state.offeredContracts = [];
   state.contractsOfferedDayKey = today;
   state.contractsGeneratedToday = 0;
+  state.contractRerollsUsedToday = 0;
+}
+
+const MAX_DAILY_REROLLS = 2;
+function canRerollContract() {
+  return (state.contractRerollsUsedToday || 0) < MAX_DAILY_REROLLS && !state.adPlaying;
+}
+
+function rerollContractWithAd(id) {
+  if (!canRerollContract()) return;
+  const idx = state.offeredContracts.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  state.adPlaying = true;
+  // Show simple ad overlay on the slot
+  const slot = document.querySelector(`[data-reroll-slot="${id}"]`);
+  if (slot) {
+    const overlay = document.createElement('div');
+    overlay.className = 'reroll-ad-overlay';
+    overlay.textContent = 'playing ad… 3';
+    slot.appendChild(overlay);
+    let n = 3;
+    const interval = setInterval(() => {
+      n -= 1;
+      if (n > 0) overlay.textContent = `playing ad… ${n}`;
+      else {
+        clearInterval(interval);
+        state.adPlaying = false;
+        state.contractRerollsUsedToday = (state.contractRerollsUsedToday || 0) + 1;
+        // Replace the contract with a freshly generated one of the same tier
+        const oldTier = state.offeredContracts[idx].tier;
+        const replacement = oldTier === 'gold' ? generateGoldContract()
+                          : oldTier === 'silver' ? generateSilverContract()
+                          :                         generateBronzeContract();
+        state.offeredContracts[idx] = replacement;
+        render();
+      }
+    }, 1000);
+  }
 }
 
 function acceptContract(id) {
@@ -2001,6 +2102,10 @@ const state = {
   contractsCompleted: 0,
   contractsOfferedDayKey: null,      // 'YYYY-M-D' of when the current offer pool was generated
   contractsGeneratedToday: 0,        // how many slots have been generated today (caps daily generation)
+  contractRerollsUsedToday: 0,       // how many ad-rerolls used today (max 2)
+  // Plot upgrades — per-plot 3-tier QoL/buff system. Indexed by plot id.
+  // Each entry: { autoReplant: bool, masterGardener: bool, practicedSoil: bool }
+  plotUpgrades: [],
   // Today's Market — featured crop gets +40% sell value, rotates at midnight
   marketDayKey: null,
   marketFeaturedCrop: null,
@@ -2233,11 +2338,13 @@ function saveGame() {
       loadouts: state.loadouts.map(l => [...l]),
       packsOpened: state.packsOpened,
       migrationsApplied: [...state.migrationsApplied],
+      plotUpgrades: JSON.parse(JSON.stringify(state.plotUpgrades || [])),
       activeContracts: JSON.parse(JSON.stringify(state.activeContracts || [])),
       offeredContracts: JSON.parse(JSON.stringify(state.offeredContracts || [])),
       contractsCompleted: state.contractsCompleted || 0,
       contractsOfferedDayKey: state.contractsOfferedDayKey || null,
       contractsGeneratedToday: state.contractsGeneratedToday || 0,
+      contractRerollsUsedToday: state.contractRerollsUsedToday || 0,
       marketDayKey: state.marketDayKey || null,
       marketFeaturedCrop: state.marketFeaturedCrop || null,
       marketHistory: state.marketHistory || [],
@@ -2267,6 +2374,7 @@ function loadGame() {
     state.loadouts = loaded.loadouts || [[]];
     state.packsOpened = loaded.packsOpened || 0;
     state.migrationsApplied = loaded.migrationsApplied || [];
+    state.plotUpgrades = loaded.plotUpgrades || [];
     state.adPlaying = false;
     state.adUsedForCurrentPack = false;
     state.currentPackCards = [];
@@ -2282,6 +2390,7 @@ function loadGame() {
     state.contractsCompleted = loaded.contractsCompleted || 0;
     state.contractsOfferedDayKey = loaded.contractsOfferedDayKey || null;
     state.contractsGeneratedToday = loaded.contractsGeneratedToday || 0;
+    state.contractRerollsUsedToday = loaded.contractRerollsUsedToday || 0;
     state.marketDayKey = loaded.marketDayKey || null;
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
@@ -2488,11 +2597,34 @@ function plant(plotId, cropType) {
   const carryover = plot.flags.nextPenaltyMult || 1.0;
   Object.assign(plot, makePlot(plotId));
   plot.crop = cropType;
-  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId);
+  // Plot upgrade "Practiced Soil" knocks 10% off grow time on this plot
+  const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
+  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
   plot.totalPicks = crop.pickCount;
   plot.yieldMult *= carryover;
   closeAllModals();
   render();
+}
+
+// Auto-Replant: try to plant the same crop on the plot we just harvested.
+// Skips silently if the player can't afford it or the unique-crop rule is violated.
+function tryAutoReplant(plotId, cropType) {
+  if (!plotHasUpgrade(plotId, 'autoReplant')) return;
+  const crop = CROPS[cropType];
+  if (!crop) return;
+  if (state.money < crop.plantCost) return;            // can't afford → skip
+  if (activeCropsGrowing().has(cropType)) return;       // unique-crop rule → skip
+  const plot = state.plots[plotId];
+  if (!plot || plot.locked || plot.crop) return;        // sanity
+  // Inline plant (without modals/render so caller can render once at end)
+  state.money -= crop.plantCost;
+  const carryover = plot.flags?.nextPenaltyMult || 1.0;
+  Object.assign(plot, makePlot(plotId));
+  plot.crop = cropType;
+  const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
+  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
+  plot.totalPicks = crop.pickCount;
+  plot.yieldMult *= carryover;
 }
 
 function tapEffectiveReduction() {
@@ -2584,8 +2716,10 @@ function harvest(plotId, ev) {
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
-  // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes
-  state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000);
+  // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes.
+  // Plot upgrade "Master Gardener" adds +25% mastery hours per harvest on this plot.
+  const masteryBoost = plotHasUpgrade(plotId, 'masterGardener') ? 1.25 : 1.0;
+  state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000) * masteryBoost;
 
   // Contract progress: walk all active contracts (multi-active model).
   // A single harvest can advance multiple contracts that ask for this crop.
@@ -2604,7 +2738,7 @@ function harvest(plotId, ev) {
     }
   }
   for (const id of finishedIds) completeContractById(id);
-  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, t: Date.now() });
+  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, marketPenalty: marketMult < 1, t: Date.now() });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
   state.totalHarvests += 1;
@@ -2640,8 +2774,11 @@ function harvest(plotId, ev) {
     plot.flags = { ...plot.flags, ...savedFlags };
   } else {
     const carry = plot.flags.nextPenaltyMult || 1.0;
+    const cropJustHarvested = plot.crop;
     Object.assign(plot, makePlot(plotId));
     plot.flags.nextPenaltyMult = carry < 1 ? carry : 1.0;
+    // Auto-Replant: if upgrade is active, attempt to replant the same crop
+    tryAutoReplant(plotId, cropJustHarvested);
   }
   render();
 }
@@ -3193,6 +3330,32 @@ function renderLoadoutModal() {
     slotsEl.appendChild(slot);
   }
 
+  // plot upgrades
+  const upEl = document.getElementById('lmUpgrades');
+  if (upEl) {
+    upEl.innerHTML = '';
+    for (const [key, def] of Object.entries(PLOT_UPGRADES)) {
+      const owned = plotHasUpgrade(plotId, key);
+      const canAfford = state.money >= def.cost;
+      const card = document.createElement('div');
+      card.className = `lm-upgrade ${owned ? 'owned' : ''} ${(!owned && canAfford) ? 'affordable' : ''}`;
+      card.innerHTML = `
+        <div class="lu-name">${def.name}</div>
+        <div class="lu-desc">${def.desc}</div>
+        <div class="lu-flavor">${def.flavor}</div>
+        <button class="btn ${owned ? 'btn-ghost' : (canAfford ? 'btn-primary' : 'btn-secondary')} lu-btn" ${owned || !canAfford ? 'disabled' : ''}>
+          ${owned ? '✓ owned' : `◉ ${fmtMoney(def.cost)}`}
+        </button>
+      `;
+      if (!owned && canAfford) {
+        card.querySelector('.lu-btn').onclick = () => {
+          if (buyPlotUpgrade(plotId, key)) { renderLoadoutModal(); render(); }
+        };
+      }
+      upEl.appendChild(card);
+    }
+  }
+
   // collection metadata
   const meta = document.getElementById('lmCollectionMeta');
   meta.textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} owned`;
@@ -3381,10 +3544,12 @@ function renderContract() {
   if (!html) html = '<div class="contract-empty">no contracts right now · check back at midnight</div>';
   el.innerHTML = html;
 
-  // Wire accept buttons
+  // Wire accept + reroll buttons
   state.offeredContracts.forEach(c => {
     const btn = document.getElementById('contractAcceptBtn_' + c.id);
     if (btn && slotsLeft > 0) btn.onclick = () => acceptContract(c.id);
+    const rerollBtn = document.getElementById('contractRerollBtn_' + c.id);
+    if (rerollBtn) rerollBtn.onclick = () => rerollContractWithAd(c.id);
   });
 }
 
@@ -3446,13 +3611,16 @@ function renderActiveContractHTML(c) {
 }
 
 function renderOfferedContractHTML(c, locked) {
+  const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
+  const showReroll = rerollsLeft > 0;
   return `
-    <div class="contract-offered ${c.tier}${locked ? ' locked' : ''}">
+    <div class="contract-offered ${c.tier}${locked ? ' locked' : ''}" data-reroll-slot="${c.id}">
       <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
       <div class="contract-task">${describeContract(c)}</div>
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
       <div class="contract-time">${c.params.deadlineHours}h after accepting</div>
       <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn_${c.id}"${locked ? ' disabled' : ''}>${locked ? 'Slots full' : 'Accept'}</button>
+      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}" title="Watch an ad to swap this contract">🔄 reroll (${rerollsLeft} left)</button>` : ''}
     </div>
   `;
 }
@@ -3465,21 +3633,31 @@ function renderMarket() {
     el.innerHTML = '<div class="market-empty">no featured crop yet</div>';
     return;
   }
-  const c = CROPS[state.marketFeaturedCrop];
-  if (!c) {
-    el.innerHTML = '<div class="market-empty">market loading…</div>';
-    return;
-  }
+  const featured = CROPS[state.marketFeaturedCrop];
+  const saturated = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
   const bonusPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
-  el.innerHTML = `
+  const penaltyPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+  let html = `
     <div class="market-featured">
-      <span class="market-emoji">${c.emoji}</span>
+      <span class="market-emoji">${featured.emoji}</span>
       <div class="market-info">
-        <div class="market-crop-name">${c.name} in demand</div>
+        <div class="market-crop-name">${featured.name} in demand</div>
         <div class="market-bonus">+${bonusPct}% sell value today</div>
       </div>
     </div>
   `;
+  if (saturated) {
+    html += `
+      <div class="market-saturated">
+        <span class="market-emoji">${saturated.emoji}</span>
+        <div class="market-info">
+          <div class="market-crop-name">${saturated.name} saturated</div>
+          <div class="market-penalty">−${penaltyPct}% sell value today</div>
+        </div>
+      </div>
+    `;
+  }
+  el.innerHTML = html;
 }
 
 // Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
