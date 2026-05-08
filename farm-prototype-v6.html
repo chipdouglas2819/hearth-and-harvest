@@ -1591,14 +1591,27 @@ function generateBronzeContract() {
   if (pool.length === 0) pool = unlocked.filter(fastEnough);
   if (pool.length === 0) pool = ['radish'];
   const crop = pool[Math.floor(Math.random() * pool.length)];
-  const count = bronzeCountForCrop(crop);
+  // Bronze sub-style: 30% Quick (12h, smaller ask + reward), 70% Standard (24h)
+  const isQuick = Math.random() < 0.30;
+  const baseCnt = bronzeCountForCrop(crop);
+  let count, deadlineHours, coinBase, coinPer;
+  if (isQuick) {
+    count = Math.max(1, Math.floor(baseCnt * 0.6));
+    deadlineHours = 12;
+    coinBase = 100; coinPer = 35;
+  } else {
+    // Standard with light count randomness for variance
+    count = baseCnt + (Math.random() < 0.3 ? 1 : 0);
+    deadlineHours = 24;
+    coinBase = 150; coinPer = 40;
+  }
   return {
     id: `bronze_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     tier: 'bronze',
     template: 'deliver_n_of_x',
-    params: { crop, count, deadlineHours: 24 },
+    params: { crop, count, deadlineHours },
     // Bronze: coins only (no pack) — keeps casual pack inflation in check
-    reward: { coins: 150 + count * 40, packs: 0, packChance: 0 },
+    reward: { coins: coinBase + count * coinPer, packs: 0, packChance: 0 },
     status: 'offered',
     progress: 0,
   };
@@ -1717,27 +1730,31 @@ function offeredTiersForState() {
   return tiers;
 }
 
-// Multi-active model: offers refresh daily at midnight regardless of whether
-// the player accepted yesterday's. Active contracts persist independently.
+// Daily generation cap: only generate up to tiers.length total slots per day.
+// Once accepted slots free up, they DON'T refill until midnight — completing
+// a contract doesn't generate a replacement. Plot expansion within the day
+// can still grow the slot count (tiers.length increases monotonically).
 function ensureContractOffered() {
   rotateContractOffersIfNewDay();
-  if (state.offeredContracts.length === 0) {
-    const tiers = offeredTiersForState();
-    state.offeredContracts = tiers.map(t => {
-      if (t === 'gold') return generateGoldContract();
-      if (t === 'silver') return generateSilverContract();
-      return generateBronzeContract();
-    });
+  const tiers = offeredTiersForState();
+  while ((state.contractsGeneratedToday || 0) < tiers.length) {
+    const t = tiers[state.contractsGeneratedToday];
+    const c = (t === 'gold') ? generateGoldContract()
+            : (t === 'silver') ? generateSilverContract()
+            :                     generateBronzeContract();
+    state.offeredContracts.push(c);
+    state.contractsGeneratedToday = (state.contractsGeneratedToday || 0) + 1;
   }
 }
 
 // Daily reset: at local midnight, replace any remaining offered contracts
-// with a fresh batch. Active contracts (already accepted) are unaffected.
+// with a fresh batch and reset the daily generation counter.
 function rotateContractOffersIfNewDay() {
   const today = getCurrentDayKey();
   if (state.contractsOfferedDayKey === today) return;
   state.offeredContracts = [];
   state.contractsOfferedDayKey = today;
+  state.contractsGeneratedToday = 0;
 }
 
 function acceptContract(id) {
@@ -1983,6 +2000,7 @@ const state = {
   offeredContracts: [],        // up to 3 offered contracts; player picks any/all
   contractsCompleted: 0,
   contractsOfferedDayKey: null,      // 'YYYY-M-D' of when the current offer pool was generated
+  contractsGeneratedToday: 0,        // how many slots have been generated today (caps daily generation)
   // Today's Market — featured crop gets +40% sell value, rotates at midnight
   marketDayKey: null,
   marketFeaturedCrop: null,
@@ -2219,6 +2237,7 @@ function saveGame() {
       offeredContracts: JSON.parse(JSON.stringify(state.offeredContracts || [])),
       contractsCompleted: state.contractsCompleted || 0,
       contractsOfferedDayKey: state.contractsOfferedDayKey || null,
+      contractsGeneratedToday: state.contractsGeneratedToday || 0,
       marketDayKey: state.marketDayKey || null,
       marketFeaturedCrop: state.marketFeaturedCrop || null,
       marketHistory: state.marketHistory || [],
@@ -2262,6 +2281,7 @@ function loadGame() {
     state.offeredContracts = loaded.offeredContracts || [];
     state.contractsCompleted = loaded.contractsCompleted || 0;
     state.contractsOfferedDayKey = loaded.contractsOfferedDayKey || null;
+    state.contractsGeneratedToday = loaded.contractsGeneratedToday || 0;
     state.marketDayKey = loaded.marketDayKey || null;
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
