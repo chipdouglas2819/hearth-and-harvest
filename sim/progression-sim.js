@@ -5,15 +5,20 @@
 
 // ============ CONFIG (mirror of v6) ============
 const CROPS = {
-  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
-  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
-  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 280,  pickCount: 3 },
-  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 380,  pickCount: 4 },
-  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 450,  pickCount: 6 },
-  corn:       { growthHrs: 30, plantCost: 175, baseYield: 700,  pickCount: 5 },
-  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 800,  pickCount: 6 },
-  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1100, pickCount: 6 },
+  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 80,   pickCount: 1, unlocksAt: null },
+  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 175,  pickCount: 2, unlocksAt: { crop: 'radish',     hours: 4 } },
+  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 280,  pickCount: 3, unlocksAt: { crop: 'carrot',     hours: 8 } },
+  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 410,  pickCount: 4, unlocksAt: { crop: 'tomato',     hours: 12 } },
+  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 420,  pickCount: 6, unlocksAt: { crop: 'strawberry', hours: 18 } },
+  corn:       { growthHrs: 30, plantCost: 175, baseYield: 770,  pickCount: 5, unlocksAt: { crop: 'wheat',      hours: 24 } },
+  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 920,  pickCount: 6, unlocksAt: { crop: 'corn',       hours: 30 } },
+  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1280, pickCount: 6, unlocksAt: { crop: 'pumpkin',    hours: 40 } },
 };
+function isCropUnlocked(state, crop) {
+  const c = CROPS[crop];
+  if (!c.unlocksAt) return true;
+  return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
+}
 const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 const HARVESTS_PER_PACK = 10;
 const MAX_PERMA_SLOTS = 4;
@@ -405,12 +410,11 @@ function plant(state, plotId, crop) {
 }
 
 function pickBestCropToPlant(state) {
-  // Plant the best coin/hr crop the player can afford that isn't already growing
+  // Plant the best coin/hr crop the player can afford, that isn't already growing,
+  // AND that's unlocked (mastery-gated).
   const growing = activeCropsGrowing(state);
-  // Sort crops by yield/hr descending. Real coins/hr depends on buffs/permas, so we
-  // approximate by baseYield/growthHrs.
   const candidates = Object.entries(CROPS)
-    .filter(([k, c]) => !growing.has(k) && state.money >= c.plantCost)
+    .filter(([k, c]) => !growing.has(k) && state.money >= c.plantCost && isCropUnlocked(state, k))
     .sort((a, b) => (b[1].baseYield / b[1].growthHrs) - (a[1].baseYield / a[1].growthHrs));
   return candidates[0]?.[0];
 }

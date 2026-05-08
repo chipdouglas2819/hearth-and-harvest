@@ -748,6 +748,8 @@ main {
 }
 .plant-option .po-reason.busy { color: var(--rust); background: rgba(199, 93, 58, 0.12); }
 .plant-option .po-reason.broke { color: var(--moss); background: rgba(74, 107, 79, 0.12); }
+.plant-option .po-reason.locked { color: var(--sage); background: rgba(143, 166, 142, 0.18); font-style: italic; }
+.plant-option.locked { filter: grayscale(0.7); }
 
 .buff-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .buff-options.wide { grid-template-columns: repeat(5, 1fr); }
@@ -1408,16 +1410,24 @@ main {
 
 <script>
 // ============ CONFIG ============
+// Crop unlocks chain: each crop requires 1 prior-tier harvest worth of mastery to unlock.
+// This prevents leapfrogging the early-game progression once you have multiple plots.
 const CROPS = {
-  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
-  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
-  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3 },
-  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 380,  pickCount: 4 },
-  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 450,  pickCount: 6 },
-  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 700,  pickCount: 5 },
-  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 800,  pickCount: 6 },
-  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1100, pickCount: 6 },
+  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1, unlocksAt: null },
+  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2, unlocksAt: { crop: 'radish',     hours: 4 } },
+  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3, unlocksAt: { crop: 'carrot',     hours: 8 } },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 410,  pickCount: 4, unlocksAt: { crop: 'tomato',     hours: 12 } },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 420,  pickCount: 6, unlocksAt: { crop: 'strawberry', hours: 18 } },
+  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 770,  pickCount: 5, unlocksAt: { crop: 'wheat',      hours: 24 } },
+  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 920,  pickCount: 6, unlocksAt: { crop: 'corn',       hours: 30 } },
+  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1280, pickCount: 6, unlocksAt: { crop: 'pumpkin',    hours: 40 } },
 };
+
+function isCropUnlocked(crop) {
+  const c = CROPS[crop];
+  if (!c.unlocksAt) return true;
+  return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
+}
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
@@ -2430,10 +2440,17 @@ function openPlantModal(plotId) {
     btn.className = 'plant-option';
     const busy = busyTypes.has(key);
     const tooExpensive = state.money < c.plantCost;
-    btn.disabled = busy || tooExpensive;
+    const locked = !isCropUnlocked(key);
+    btn.disabled = busy || tooExpensive || locked;
+    if (locked) btn.classList.add('locked');
     const adjustedTime = c.growthMs * getPermaTimeMultForPlot(plotId);
     let reasonHtml = '';
-    if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
+    if (locked) {
+      const u = c.unlocksAt;
+      const have = state.mastery[u.crop] || 0;
+      const need = (u.hours - have).toFixed(1);
+      reasonHtml = `<span class="po-reason locked">🔒 grow ${need}h more ${CROPS[u.crop].name} to unlock</span>`;
+    } else if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
     else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need ◉ ${c.plantCost - state.money}</span>`;
     btn.innerHTML = `
       ${reasonHtml}
@@ -2446,7 +2463,7 @@ function openPlantModal(plotId) {
         <span>picks: ${c.pickCount}</span>
       </div>
     `;
-    btn.onclick = () => plant(plotId, key);
+    btn.onclick = () => !locked && plant(plotId, key);
     opts.appendChild(btn);
   }
   document.getElementById('plantModal').hidden = false;
