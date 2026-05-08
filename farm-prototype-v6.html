@@ -3643,7 +3643,7 @@ function renderOfferedContractHTML(c, locked) {
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
       <div class="contract-time">${c.params.deadlineHours}h after accepting</div>
       <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn_${c.id}"${locked ? ' disabled' : ''}>${locked ? 'Slots full' : 'Accept'}</button>
-      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}" title="Watch an ad to swap this contract">🔄 reroll (${rerollsLeft} left)</button>` : ''}
+      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}">▶ Watch Ad to Reroll · ${rerollsLeft} left</button>` : ''}
     </div>
   `;
 }

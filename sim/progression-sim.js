@@ -116,6 +116,24 @@ for (const crop of cropList) {
   PERMA_POOL.push({ id: `p_${crop}_l`, rarity: 'legendary', yieldMult: 1.28, cropOnly: crop });
 }
 
+// ============ PLOT UPGRADES (mirror of game) ============
+const PLOT_UPGRADES = {
+  autoReplant:    { cost: 10000  },
+  masterGardener: { cost: 75000  },
+  practicedSoil:  { cost: 300000 },
+  bonusPick:      { cost: 400000 },
+};
+function plotUpgradeMultiplier(plotId) {
+  const t = plotId / 7;
+  return 0.5 + (3.0 - 0.5) * t;
+}
+function plotUpgradeCost(plotId, key) {
+  return Math.round(PLOT_UPGRADES[key].cost * plotUpgradeMultiplier(plotId) / 100) * 100;
+}
+function plotHasUpgrade(state, plotId, key) {
+  return state.plotUpgrades && state.plotUpgrades[plotId] && state.plotUpgrades[plotId][key] === true;
+}
+
 // ============ STATE ============
 function initState() {
   const state = {
@@ -127,9 +145,16 @@ function initState() {
     totalHarvests: 0,
     pendingPacks: 0,
     packsOpened: 0,
-    contractCoins: 0,        // tracker: total coins from contracts
-    contractPacks: 0,        // tracker: total packs from contracts
+    contractCoins: 0,
+    contractPacks: 0,
     lastContractRewardDay: -1,
+    // Phase D additions
+    plotUpgrades: [],
+    totalPicksTaken: 0,        // every applyBuff increments this
+    upgradeSpend: 0,           // total coins sunk into upgrades
+    perDayPicks: [],           // picks taken in each simulated day (for fatigue analysis)
+    lastPickSampleDay: 0,
+    lastPickSampleTotal: 0,
   };
   state.plots.push(makePlot(0));
   state.loadouts.push([]);
@@ -279,7 +304,10 @@ function draftN(plot, state, n, rarityFloor = null) {
   return picks;
 }
 
+function _trackPick(state) { state.totalPicksTaken = (state.totalPicksTaken || 0) + 1; }
+
 function applyBuff(state, plotId, buff) {
+  _trackPick(state);
   const plot = state.plots[plotId];
   if (plot.flags.wishflowerLeft > 0) plot.flags.wishflowerLeft -= 1;
   if (plot.flags.wideDraftLeft > 0) plot.flags.wideDraftLeft -= 1;
@@ -409,8 +437,10 @@ function plant(state, plotId, crop) {
   const carryover = plot.flags?.nextPenaltyMult || 1.0;
   Object.assign(plot, makePlot(plotId));
   plot.crop = crop;
-  plot.totalMs = CROPS[crop].growthHrs * 3600 * 1000 * getPermaTimeMultForPlot(state, plotId);
-  plot.totalPicks = CROPS[crop].pickCount;
+  // Plot upgrades affect time and pick count
+  const practicedSoilMult = plotHasUpgrade(state, plotId, 'practicedSoil') ? 0.9 : 1.0;
+  plot.totalMs = CROPS[crop].growthHrs * 3600 * 1000 * getPermaTimeMultForPlot(state, plotId) * practicedSoilMult;
+  plot.totalPicks = CROPS[crop].pickCount + (plotHasUpgrade(state, plotId, 'bonusPick') ? 1 : 0);
   plot.yieldMult *= carryover;
 }
 
@@ -521,6 +551,31 @@ function buyPlot(state, plotId) {
   }
 }
 
+// AI buys upgrades when plots aren't affordable. Cheapest unowned upgrade first.
+function tryBuyCheapestUpgrade(state) {
+  const lockedIdx = state.plots.findIndex(p => p.locked);
+  if (lockedIdx >= 0 && state.money >= PLOT_COSTS[lockedIdx]) return false; // save for plot
+  let cheapest = null;
+  for (const plot of state.plots) {
+    if (plot.locked) continue;
+    for (const key of Object.keys(PLOT_UPGRADES)) {
+      if (plotHasUpgrade(state, plot.id, key)) continue;
+      const cost = plotUpgradeCost(plot.id, key);
+      if (state.money >= cost && (!cheapest || cost < cheapest.cost)) {
+        cheapest = { plotId: plot.id, key, cost };
+      }
+    }
+  }
+  if (cheapest) {
+    state.money -= cheapest.cost;
+    if (!state.plotUpgrades[cheapest.plotId]) state.plotUpgrades[cheapest.plotId] = {};
+    state.plotUpgrades[cheapest.plotId][cheapest.key] = true;
+    state.upgradeSpend = (state.upgradeSpend || 0) + cheapest.cost;
+    return true;
+  }
+  return false;
+}
+
 // ============ TICK ============
 function tickSim(state, dtSec) {
   for (const p of state.plots) {
@@ -603,6 +658,18 @@ function playerActions(state, milestones, simSec) {
     milestones[`plot${lockedIdx + 1}_unlocked`] = simSec;
   }
 
+  // 4.5 Once plot saving isn't an immediate goal, sink coins into upgrades
+  tryBuyCheapestUpgrade(state);
+
+  // Sample picks-per-day (for fatigue analysis)
+  const dayNow = Math.floor(simSec / 86400);
+  if (dayNow > state.lastPickSampleDay) {
+    const picksThisDay = (state.totalPicksTaken || 0) - (state.lastPickSampleTotal || 0);
+    state.perDayPicks.push(picksThisDay);
+    state.lastPickSampleDay = dayNow;
+    state.lastPickSampleTotal = state.totalPicksTaken || 0;
+  }
+
   // 5. Open packs
   while (state.pendingPacks > 0) {
     const cards = draftPermaPack(state, 3);
@@ -647,9 +714,13 @@ function runSim(daysMax = 60) {
 
 function snapshotState(state) {
   const unlockedPlots = state.plots.filter(p => !p.locked).length;
-  // Star distribution: how many cards at each star tier
-  const starDist = [0, 0, 0, 0, 0]; // index = stars - 1
+  const starDist = [0, 0, 0, 0, 0];
   for (const c of state.collection) starDist[(c.stars || 1) - 1] += 1;
+  // Count plot upgrades owned
+  let upgradesOwned = 0;
+  for (const ups of (state.plotUpgrades || [])) {
+    for (const k in (ups || {})) if (ups[k]) upgradesOwned += 1;
+  }
   return {
     money: Math.floor(state.money),
     unlockedPlots,
@@ -661,9 +732,13 @@ function snapshotState(state) {
     uniqueCardsOwned: state.collection.length,
     mastery: { ...state.mastery },
     loadoutFill: state.loadouts.slice(0, unlockedPlots).map(l => l.length),
-    starDist, // [★1, ★2, ★3, ★4, ★5]
+    starDist,
     contractCoins: state.contractCoins || 0,
     contractPacks: state.contractPacks || 0,
+    totalPicksTaken: state.totalPicksTaken || 0,
+    upgradeSpend: state.upgradeSpend || 0,
+    upgradesOwned,
+    avgPicksPerDay: state.perDayPicks.length ? state.perDayPicks.reduce((a, b) => a + b, 0) / state.perDayPicks.length : 0,
   };
 }
 
@@ -726,6 +801,11 @@ console.log(`  Unique cards owned: ${pct(endStates.map(s => s.uniqueCardsOwned),
 console.log(`  Legendaries: ${pct(endStates.map(s => s.legendariesOwned), 0.5)}`);
 const sd = [0,1,2,3,4].map(i => pct(endStates.map(s => s.starDist[i]), 0.5));
 console.log(`  Star distribution (median): ★1:${sd[0]}, ★2:${sd[1]}, ★3:${sd[2]}, ★4:${sd[3]}, ★5:${sd[4]}`);
+console.log(`  Plot upgrades owned: ${pct(endStates.map(s => s.upgradesOwned), 0.5)} / ${8 * Object.keys(PLOT_UPGRADES).length}`);
+console.log(`  Spent on upgrades: $${pct(endStates.map(s => s.upgradeSpend), 0.5)}`);
+console.log(`  Total boon picks taken: ${pct(endStates.map(s => s.totalPicksTaken), 0.5)}`);
+console.log(`  Avg picks per simulated day: ${pct(endStates.map(s => s.avgPicksPerDay), 0.5).toFixed(1)}`);
+const peakDayPicks = pct(endStates.map(s => Math.max(...s.starDist.length ? [s.totalPicksTaken / Math.max(1, DAYS)] : [0])), 0.5);
 
 // Mastery — median grow-hours invested per crop
 console.log('  Mastery medians (grow-hours invested):');
