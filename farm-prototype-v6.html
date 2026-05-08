@@ -1503,23 +1503,31 @@ main {
 
 <script>
 // ============ CONFIG ============
-// Crop unlocks chain: each crop requires 1 prior-tier harvest worth of mastery to unlock.
-// This prevents leapfrogging the early-game progression once you have multiple plots.
+// Crop unlocks chain: each crop requires 1 prior-tier harvest to unlock.
+// Stored as `harvests` (clearer than the old `hours` field — same gating since
+// 1 prior-tier harvest covers all current thresholds).
+// baseYields trimmed -10% from earlier tuning to ease coin-pile inflation.
 const CROPS = {
-  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 80,   pickCount: 1, unlocksAt: null },
-  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 175,  pickCount: 2, unlocksAt: { crop: 'radish',     hours: 4 } },
-  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 280,  pickCount: 3, unlocksAt: { crop: 'carrot',     hours: 8 } },
-  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 410,  pickCount: 4, unlocksAt: { crop: 'tomato',     hours: 12 } },
-  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 420,  pickCount: 6, unlocksAt: { crop: 'strawberry', hours: 18 } },
-  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 770,  pickCount: 5, unlocksAt: { crop: 'wheat',      hours: 24 } },
-  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 920,  pickCount: 6, unlocksAt: { crop: 'corn',       hours: 30 } },
-  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1280, pickCount: 6, unlocksAt: { crop: 'pumpkin',    hours: 40 } },
+  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
+  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
+  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 3, unlocksAt: { crop: 'carrot',     harvests: 1 } },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 370,  pickCount: 4, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 380,  pickCount: 6, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
+  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 830,  pickCount: 6, unlocksAt: { crop: 'corn',       harvests: 1 } },
+  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1150, pickCount: 6, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
 };
+
+// Derive harvests-of-a-crop from grow-hour mastery (1 harvest = growthHrs of mastery)
+function harvestsOf(crop) {
+  const growHrs = CROPS[crop].growthMs / 3600000;
+  return Math.floor((state.mastery[crop] || 0) / growHrs);
+}
 
 function isCropUnlocked(crop) {
   const c = CROPS[crop];
   if (!c.unlocksAt) return true;
-  return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
+  return harvestsOf(c.unlocksAt.crop) >= c.unlocksAt.harvests;
 }
 
 // ============ DAILY MARKET ============
@@ -1590,7 +1598,7 @@ function generateBronzeContract() {
     template: 'deliver_n_of_x',
     params: { crop, count, deadlineHours: 24 },
     // Bronze: coins only (no pack) — keeps casual pack inflation in check
-    reward: { coins: 200 + count * 60, packs: 0, packChance: 0 },
+    reward: { coins: 150 + count * 40, packs: 0, packChance: 0 },
     status: 'offered',
     progress: 0,
   };
@@ -1632,7 +1640,7 @@ function generateSilverContract() {
       tier: 'silver',
       template: 'deliver_n_of_x',
       params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
-      reward: { coins: 400 + count * 100, packs: 0, packChance: SILVER_PACK_CHANCE },
+      reward: { coins: 300 + count * 70, packs: 0, packChance: SILVER_PACK_CHANCE },
       status: 'offered',
       progress: 0,
     };
@@ -1652,7 +1660,7 @@ function generateSilverContract() {
       crops: { [cropA]: countA, [cropB]: countB },
       deadlineHours: silverDeadlineFor([cropA, cropB]),
     },
-    reward: { coins: 500 + totalCount * 100, packs: 0, packChance: SILVER_PACK_CHANCE },
+    reward: { coins: 400 + totalCount * 70, packs: 0, packChance: SILVER_PACK_CHANCE },
     status: 'offered',
     progress: { [cropA]: 0, [cropB]: 0 },
   };
@@ -1689,7 +1697,7 @@ function generateGoldContract() {
     tier: 'gold',
     template: 'deliver_n_of_x',
     params: { crop, count, deadlineHours },
-    reward: { coins: 2000 + count * 100, packs: 1, packChance: 1.0 },
+    reward: { coins: 1500 + count * 70, packs: 1, packChance: 1.0 },
     status: 'offered',
     progress: 0,
   };
@@ -2869,9 +2877,10 @@ function openPlantModal(plotId) {
     let reasonHtml = '';
     if (locked) {
       const u = c.unlocksAt;
-      const have = state.mastery[u.crop] || 0;
-      const need = (u.hours - have).toFixed(1);
-      reasonHtml = `<span class="po-reason locked">🔒 grow ${need}h more ${CROPS[u.crop].name} to unlock</span>`;
+      const have = harvestsOf(u.crop);
+      const need = Math.max(0, u.harvests - have);
+      const noun = `${CROPS[u.crop].name}${need === 1 ? '' : 's'}`;
+      reasonHtml = `<span class="po-reason locked">🔒 harvest ${need} more ${noun} to unlock</span>`;
     } else if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
     else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need ◉ ${c.plantCost - state.money}</span>`;
     btn.innerHTML = `

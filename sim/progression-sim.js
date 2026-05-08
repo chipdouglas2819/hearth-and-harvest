@@ -5,19 +5,21 @@
 
 // ============ CONFIG (mirror of v6) ============
 const CROPS = {
-  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 80,   pickCount: 1, unlocksAt: null },
-  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 175,  pickCount: 2, unlocksAt: { crop: 'radish',     hours: 4 } },
-  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 280,  pickCount: 3, unlocksAt: { crop: 'carrot',     hours: 8 } },
-  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 410,  pickCount: 4, unlocksAt: { crop: 'tomato',     hours: 12 } },
-  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 420,  pickCount: 6, unlocksAt: { crop: 'strawberry', hours: 18 } },
-  corn:       { growthHrs: 30, plantCost: 175, baseYield: 770,  pickCount: 5, unlocksAt: { crop: 'wheat',      hours: 24 } },
-  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 920,  pickCount: 6, unlocksAt: { crop: 'corn',       hours: 30 } },
-  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1280, pickCount: 6, unlocksAt: { crop: 'pumpkin',    hours: 40 } },
+  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
+  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
+  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 3, unlocksAt: { crop: 'carrot',     harvests: 1 } },
+  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 4, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 6, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  corn:       { growthHrs: 30, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
+  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 830,  pickCount: 6, unlocksAt: { crop: 'corn',       harvests: 1 } },
+  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1150, pickCount: 6, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
 };
 function isCropUnlocked(state, crop) {
   const c = CROPS[crop];
   if (!c.unlocksAt) return true;
-  return (state.mastery[c.unlocksAt.crop] || 0) >= c.unlocksAt.hours;
+  const u = c.unlocksAt;
+  const harvests = Math.floor((state.mastery[u.crop] || 0) / CROPS[u.crop].growthHrs);
+  return harvests >= u.harvests;
 }
 const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 const HARVESTS_PER_PACK = 10;
@@ -125,6 +127,9 @@ function initState() {
     totalHarvests: 0,
     pendingPacks: 0,
     packsOpened: 0,
+    contractCoins: 0,        // tracker: total coins from contracts
+    contractPacks: 0,        // tracker: total packs from contracts
+    lastContractRewardDay: -1,
   };
   state.plots.push(makePlot(0));
   state.loadouts.push([]);
@@ -524,7 +529,45 @@ function tickSim(state, dtSec) {
   }
 }
 
+// Approximate Phase C contract rewards once per simulated day.
+// Models the expected behaviour of a player who accepts what they can finish.
+function awardDailyContracts(state, simSec) {
+  const day = Math.floor(simSec / 86400);
+  if (day === state.lastContractRewardDay) return;
+  state.lastContractRewardDay = day;
+  if (day === 0) return; // no time to complete on day 0
+
+  const plotCount = state.plots.filter(p => !p.locked).length;
+  let coins = 0, packs = 0;
+
+  // Bronze: 150 + count*40, ~90% completion. count 2-3 → 230-270
+  if (Math.random() < 0.90) {
+    coins += 180 + Math.floor(Math.random() * 90);
+  }
+  // Silver: 300 + count*70, ~80% completion. count 5-7 → 650-790
+  if (plotCount >= 3 && Math.random() < 0.80) {
+    coins += 500 + Math.floor(Math.random() * 300);
+    if (Math.random() < 0.30) packs += 1;
+  }
+  // 2nd Silver at 5+ plots, ~70% completion
+  if (plotCount >= 5 && Math.random() < 0.70) {
+    coins += 500 + Math.floor(Math.random() * 300);
+    if (Math.random() < 0.30) packs += 1;
+  }
+  // Gold: 1500 + count*70, 25% offered × 80% complete. count ~12 → 2340
+  if (plotCount >= 5 && Math.random() < 0.25 * 0.80) {
+    coins += 2000 + Math.floor(Math.random() * 1300);
+    packs += 1;
+  }
+
+  state.money += coins;
+  state.pendingPacks += packs;
+  state.contractCoins += coins;
+  state.contractPacks += packs;
+}
+
 function playerActions(state, milestones, simSec) {
+  awardDailyContracts(state, simSec);
   // 1. Harvest ready
   state.plots.forEach((p, i) => {
     if (p.locked || !p.crop || !isReady(p)) return;
@@ -619,6 +662,8 @@ function snapshotState(state) {
     mastery: { ...state.mastery },
     loadoutFill: state.loadouts.slice(0, unlockedPlots).map(l => l.length),
     starDist, // [★1, ★2, ★3, ★4, ★5]
+    contractCoins: state.contractCoins || 0,
+    contractPacks: state.contractPacks || 0,
   };
 }
 

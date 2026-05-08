@@ -6,14 +6,14 @@
 // Pass --proposed to use the rebalance values; default = current v6 values.
 const USE_PROPOSED = process.argv.includes('--proposed');
 const CROPS = USE_PROPOSED ? {
-  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 80,   pickCount: 1 },
-  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 175,  pickCount: 2 },
-  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 280,  pickCount: 3 },
-  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 410,  pickCount: 4 },
-  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 420,  pickCount: 6 },
-  corn:       { growthHrs: 30, plantCost: 175, baseYield: 770,  pickCount: 5 },
-  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 920,  pickCount: 6 },
-  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1280, pickCount: 6 },
+  radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 70,   pickCount: 1 },
+  carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 160,  pickCount: 2 },
+  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 3 },
+  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 4 },
+  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 6 },
+  corn:       { growthHrs: 30, plantCost: 175, baseYield: 690,  pickCount: 5 },
+  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 830,  pickCount: 6 },
+  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1150, pickCount: 6 },
 } : {
   radish:  { growthHrs: 4,  plantCost: 20,  baseYield: 60,   pickCount: 2 },
   carrot:  { growthHrs: 8,  plantCost: 35,  baseYield: 130,  pickCount: 3 },
