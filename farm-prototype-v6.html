@@ -289,6 +289,18 @@ main {
   font-size: 16px;
   line-height: 1;
 }
+.loadout-strip-slot .slot-stars {
+  position: absolute;
+  bottom: 1px;
+  right: 3px;
+  font-size: 8px;
+  font-family: var(--mono);
+  color: var(--gold);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  text-shadow: 0 0 2px rgba(0,0,0,0.3);
+}
 .loadout-strip-slot .slot-text {
   font-family: var(--serif);
   font-style: italic;
@@ -613,6 +625,16 @@ main {
 .harvest-entry .what { color: var(--moss); }
 .harvest-entry .amount { font-family: var(--mono); color: var(--terracotta); font-weight: 600; }
 .harvest-entry .amount.levelup { color: var(--gold); }
+@keyframes levelupFanfare {
+  0% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
+  15% { background: rgba(244, 193, 71, 0.30); transform: translateX(2px); }
+  35% { background: rgba(244, 193, 71, 0.20); transform: translateX(0); }
+  100% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
+}
+.harvest-entry.levelup-fanfare {
+  animation: levelupFanfare 1.8s ease-out;
+  border-radius: 4px;
+}
 .harvest-empty { font-size: 12px; color: var(--sage); font-style: italic; text-align: center; padding: 12px 0; }
 
 .modal {
@@ -1362,6 +1384,7 @@ main {
       <button class="btn btn-ghost" id="dbgMakeReady">Make all plots ready</button>
       <button class="btn btn-ghost" id="dbgPlantAll">Plant all empty plots (radish)</button>
       <button class="btn btn-ghost" id="dbgGiveAllPermas">Add every perma to collection</button>
+      <button class="btn btn-ghost" id="dbgResetSave" style="border-color: var(--terracotta); color: var(--terracotta);">⚠ Reset Save</button>
     </div>
     <div class="debug-target">
       <label>Apply boon to plot:
@@ -1719,6 +1742,122 @@ function applyStarMigration() {
   state.migrationsApplied.push('stars_v1');
 }
 
+// Mastery v2: store grow-hours invested (not harvest count). +0.1% per 20 grow-hours.
+const MASTERY_HOURS_PER_TICK = 20;
+function applyMasteryHoursMigration() {
+  if (state.migrationsApplied.includes('mastery_hours_v1')) return;
+  for (const crop of Object.keys(state.mastery)) {
+    const c = CROPS[crop];
+    if (!c) continue;
+    state.mastery[crop] = (state.mastery[crop] || 0) * (c.growthMs / 3600000);
+  }
+  state.migrationsApplied.push('mastery_hours_v1');
+}
+
+// ============ SAVE / LOAD ============
+const SAVE_KEY = 'hh_save_v1';
+const SAVE_VERSION = 2;
+
+function saveGame() {
+  try {
+    const snapshot = {
+      version: SAVE_VERSION,
+      money: state.money,
+      speed: state.speed,
+      plots: state.plots.map(p => p.locked
+        ? { id: p.id, locked: true }
+        : {
+            id: p.id, locked: false, crop: p.crop,
+            elapsedMs: p.elapsedMs, totalMs: p.totalMs,
+            totalPicks: p.totalPicks, picksTaken: p.picksTaken,
+            yieldMult: p.yieldMult,
+            activeBuffs: p.activeBuffs.map(b => ({ ...b, _snapshot: undefined })),
+            tapsUsed: p.tapsUsed,
+            flags: { ...p.flags },
+          }),
+      mastery: { ...state.mastery },
+      harvestLog: [...state.harvestLog],
+      totalHarvests: state.totalHarvests,
+      pendingPacks: state.pendingPacks,
+      collection: state.collection.map(c => ({ ...c })),
+      loadouts: state.loadouts.map(l => [...l]),
+      packsOpened: state.packsOpened,
+      migrationsApplied: [...state.migrationsApplied],
+      savedAtMs: Date.now(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
+  } catch (e) {
+    console.warn('Save failed:', e);
+  }
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const loaded = JSON.parse(raw);
+    if (!loaded || loaded.version > SAVE_VERSION) return false;
+
+    state.money = loaded.money;
+    state.speed = loaded.speed || 1;
+    state.lastTick = performance.now();
+    state.mastery = loaded.mastery || state.mastery;
+    state.harvestLog = loaded.harvestLog || [];
+    state.totalHarvests = loaded.totalHarvests || 0;
+    state.pendingPacks = loaded.pendingPacks || 0;
+    state.collection = loaded.collection || [];
+    state.loadouts = loaded.loadouts || [[]];
+    state.packsOpened = loaded.packsOpened || 0;
+    state.migrationsApplied = loaded.migrationsApplied || [];
+    state.adPlaying = false;
+    state.adUsedForCurrentPack = false;
+    state.currentPackCards = [];
+
+    state.plots = loaded.plots.map(p => p.locked
+      ? { id: p.id, locked: true }
+      : {
+          id: p.id, locked: false, crop: p.crop,
+          elapsedMs: p.elapsedMs, totalMs: p.totalMs,
+          totalPicks: p.totalPicks, picksTaken: p.picksTaken,
+          yieldMult: p.yieldMult,
+          activeBuffs: p.activeBuffs || [],
+          tapsUsed: p.tapsUsed || 0,
+          lastTapTime: 0,
+          flags: p.flags || {},
+        });
+
+    // Offline progression: advance growing plots by real-world time at 1× speed
+    // (regardless of what speed setting was when player closed the tab)
+    if (loaded.savedAtMs) {
+      const offlineMs = Math.max(0, Date.now() - loaded.savedAtMs);
+      if (offlineMs > 0) {
+        for (const p of state.plots) {
+          if (p.locked || !p.crop) continue;
+          if (p.flags.skillFerment) p.elapsedMs += offlineMs;
+          else p.elapsedMs = Math.min(p.totalMs, p.elapsedMs + offlineMs);
+        }
+      }
+    }
+    return true;
+  } catch (e) {
+    console.warn('Load failed:', e);
+    return false;
+  }
+}
+
+function resetSave() {
+  if (confirm('Wipe save and reset the game? This cannot be undone.')) {
+    localStorage.removeItem(SAVE_KEY);
+    location.reload();
+  }
+}
+
+function refreshSpeedButtons() {
+  document.querySelectorAll('.speed-btn').forEach(x => {
+    x.classList.toggle('active', parseInt(x.dataset.speed) === state.speed);
+  });
+}
+
 function getActivePerma(plotId) {
   const plot = state.plots[plotId];
   const loadout = state.loadouts[plotId] || [];
@@ -1795,9 +1934,9 @@ function getAvailableBuffs(cropType, plot = null) {
   });
 }
 
-// Mastery: +0.1% permanent yield per 5 harvests of the same crop
+// Mastery: +0.1% permanent yield per 20 grow-hours invested in this crop
 function getMasteryBonusForCrop(crop) {
-  return 1 + Math.floor((state.mastery[crop] || 0) / 5) * MASTERY_BONUS_PER_5;
+  return 1 + Math.floor((state.mastery[crop] || 0) / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5;
 }
 
 function draftN(cropType, n, rarityFloor = null, plot = null) {
@@ -1965,7 +2104,8 @@ function harvest(plotId, ev) {
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
-  state.mastery[plot.crop] += 1;
+  // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes
+  state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000);
   state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, t: Date.now() });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
@@ -2685,6 +2825,7 @@ document.getElementById('dbgGiveAllPermas').onclick = () => {
   PERMA_POOL.forEach(b => addToCollection(b));
   render();
 };
+document.getElementById('dbgResetSave').onclick = resetSave;
 
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeAllModals);
 document.querySelectorAll('.modal').forEach(m => {
@@ -2792,7 +2933,9 @@ function render() {
           const active = isBuffActiveOnPlot(buff, plot);
           const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
           const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
-          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label}"><span class="slot-icon">${icon}</span></div>`;
+          const stars = getStarsForBuff(buff.id);
+          const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
+          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label} · ★${stars}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
         }).join('') +
         '</div>';
 
@@ -2893,7 +3036,7 @@ function render() {
     grid.appendChild(el);
   });
 
-  // mastery — only show crops the player has actually grown
+  // mastery — grow-hours invested per crop, +0.1% per 20 hours
   const mList = document.getElementById('masteryList');
   mList.innerHTML = '';
   const grownEntries = Object.entries(CROPS).filter(([key]) => state.mastery[key] > 0);
@@ -2901,21 +3044,24 @@ function render() {
     mList.innerHTML = '<div class="harvest-empty">harvest a crop to begin mastery</div>';
   } else {
     for (const [key, c] of grownEntries) {
-      const count = state.mastery[key];
-      const bonusPct = (Math.floor(count / 5) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
-      const toNext = 5 - (count % 5);
+      const hours = state.mastery[key];
+      const bonusPct = (Math.floor(hours / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
+      const toNextHrs = MASTERY_HOURS_PER_TICK - (hours % MASTERY_HOURS_PER_TICK);
       const row = document.createElement('div');
       row.className = 'mastery-row';
       row.innerHTML = `
         <span class="name">${c.emoji} ${c.name}</span>
         <span style="text-align:right;">
-          <div class="count">${count} · +${bonusPct}%</div>
-          <div class="next-unlock">${toNext} to next +0.1%</div>
+          <div class="count">${Math.floor(hours)}h · +${bonusPct}%</div>
+          <div class="next-unlock">${Math.ceil(toNextHrs)}h to next +0.1%</div>
         </span>
       `;
       mList.appendChild(row);
     }
   }
+
+  // Persist state after every meaningful render
+  saveGame();
 
   // log
   const log = document.getElementById('harvestLog');
@@ -2925,7 +3071,8 @@ function render() {
   } else {
     state.harvestLog.forEach(h => {
       const e = document.createElement('div');
-      e.className = 'harvest-entry';
+      const isRecent = h.type === 'levelup' && (Date.now() - h.t) < 2500;
+      e.className = `harvest-entry${isRecent ? ' levelup-fanfare' : ''}`;
       if (h.type === 'levelup') {
         e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
       } else {
@@ -2981,7 +3128,15 @@ function tick(now) {
   requestAnimationFrame(tick);
 }
 
+// Load saved game (if any), then apply any pending migrations
+loadGame();
 applyStarMigration();
+applyMasteryHoursMigration();
+refreshSpeedButtons();
+
+// Save before tab close
+window.addEventListener('beforeunload', saveGame);
+
 render();
 requestAnimationFrame(tick);
 </script>

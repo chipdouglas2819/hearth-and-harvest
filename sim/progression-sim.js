@@ -200,8 +200,9 @@ function getPermaTimeMultForPlot(state, plotId) {
   }
   return m;
 }
+const MASTERY_HOURS_PER_TICK = 20;
 function getMasteryBonusForCrop(state, crop) {
-  return 1 + Math.floor((state.mastery[crop] || 0) / 5) * MASTERY_BONUS_PER_5;
+  return 1 + Math.floor((state.mastery[crop] || 0) / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5;
 }
 
 // ============ DRAFT/APPLY ============
@@ -408,7 +409,8 @@ function harvest(state, plotId) {
   mult *= getMasteryBonusForCrop(state, plot.crop);
   const yieldAmount = Math.floor(CROPS[plot.crop].baseYield * mult);
   state.money += yieldAmount;
-  state.mastery[plot.crop] += 1;
+  // Mastery now in grow-hours invested
+  state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + CROPS[plot.crop].growthHrs;
   state.totalHarvests += 1;
   if (state.totalHarvests % HARVESTS_PER_PACK === 0) state.pendingPacks += 1;
   // skill_window_10: skill check assumed missed in sim (player won't catch every 10s window)
@@ -660,11 +662,11 @@ console.log(`  Legendaries: ${pct(endStates.map(s => s.legendariesOwned), 0.5)}`
 const sd = [0,1,2,3,4].map(i => pct(endStates.map(s => s.starDist[i]), 0.5));
 console.log(`  Star distribution (median): ★1:${sd[0]}, ★2:${sd[1]}, ★3:${sd[2]}, ★4:${sd[3]}, ★5:${sd[4]}`);
 
-// Mastery — median per crop
-console.log('  Mastery medians:');
+// Mastery — median grow-hours invested per crop
+console.log('  Mastery medians (grow-hours invested):');
 for (const crop of cropList) {
-  const counts = endStates.map(s => s.mastery[crop]);
-  const median = pct(counts, 0.5);
-  const bonusPct = (Math.floor(median / 5) * 0.1).toFixed(1);
-  console.log(`    ${crop.padEnd(11)} ${String(median).padStart(4)} harvests  →  +${bonusPct}% mastery bonus`);
+  const hours = endStates.map(s => s.mastery[crop]);
+  const median = pct(hours, 0.5);
+  const bonusPct = (Math.floor(median / MASTERY_HOURS_PER_TICK) * 0.1).toFixed(1);
+  console.log(`    ${crop.padEnd(11)} ${String(Math.floor(median)).padStart(5)}h  →  +${bonusPct}% mastery bonus`);
 }
