@@ -1573,7 +1573,8 @@ const PERMA_POOL = [
   { id: 'p_pu_court', name: 'Autumn Court', desc: '+28% pumpkin yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'pumpkin', flavor: 'the crowned harvest.' },
 ];
 
-const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000, 70000, 175000];
+// Plot costs: clean ~×4 exponential. Plot 8 = $1.25M is multi-month aspirational.
+const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 
 // ============ STATE ============
 const state = {
@@ -1742,8 +1743,45 @@ function applyStarMigration() {
   state.migrationsApplied.push('stars_v1');
 }
 
-// Mastery v2: store grow-hours invested (not harvest count). +0.1% per 20 grow-hours.
-const MASTERY_HOURS_PER_TICK = 20;
+// Mastery v3: tiered curve so early hours give visible feedback, late hours slow down.
+// Tier 1 (0-50h):    +0.1% per  5 hours invested  (fast onboarding feedback)
+// Tier 2 (50-200h):  +0.1% per 10 hours
+// Tier 3 (200h+):    +0.1% per 20 hours            (long-term grind)
+const MASTERY_TIERS = [
+  { upTo: 50,       hoursPerTick: 5  },
+  { upTo: 200,      hoursPerTick: 10 },
+  { upTo: Infinity, hoursPerTick: 20 },
+];
+function masteryTicksAtHours(hours) {
+  let ticks = 0;
+  let tierStart = 0;
+  for (const tier of MASTERY_TIERS) {
+    const tierEnd = Math.min(tier.upTo, hours);
+    if (tierEnd > tierStart) ticks += Math.floor((tierEnd - tierStart) / tier.hoursPerTick);
+    if (hours <= tier.upTo) break;
+    tierStart = tier.upTo;
+  }
+  return ticks;
+}
+function masteryBonusForHours(hours) {
+  return 1 + masteryTicksAtHours(hours) * MASTERY_BONUS_PER_5;
+}
+function hoursToNextMasteryTick(hours) {
+  let tierStart = 0;
+  for (const tier of MASTERY_TIERS) {
+    if (hours < tier.upTo) {
+      const intoTier = hours - tierStart;
+      const ticksInTier = Math.floor(intoTier / tier.hoursPerTick);
+      return tierStart + (ticksInTier + 1) * tier.hoursPerTick - hours;
+    }
+    tierStart = tier.upTo;
+  }
+  // last tier (Infinity upTo)
+  const last = MASTERY_TIERS[MASTERY_TIERS.length - 1];
+  const intoTier = hours - tierStart;
+  return last.hoursPerTick - (intoTier % last.hoursPerTick);
+}
+
 function applyMasteryHoursMigration() {
   if (state.migrationsApplied.includes('mastery_hours_v1')) return;
   for (const crop of Object.keys(state.mastery)) {
@@ -1934,9 +1972,9 @@ function getAvailableBuffs(cropType, plot = null) {
   });
 }
 
-// Mastery: +0.1% permanent yield per 20 grow-hours invested in this crop
+// Mastery: tiered curve, see MASTERY_TIERS above
 function getMasteryBonusForCrop(crop) {
-  return 1 + Math.floor((state.mastery[crop] || 0) / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5;
+  return masteryBonusForHours(state.mastery[crop] || 0);
 }
 
 function draftN(cropType, n, rarityFloor = null, plot = null) {
@@ -3045,15 +3083,15 @@ function render() {
   } else {
     for (const [key, c] of grownEntries) {
       const hours = state.mastery[key];
-      const bonusPct = (Math.floor(hours / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5 * 100).toFixed(1);
-      const toNextHrs = MASTERY_HOURS_PER_TICK - (hours % MASTERY_HOURS_PER_TICK);
+      const bonusPct = ((masteryBonusForHours(hours) - 1) * 100).toFixed(1);
+      const toNext = hoursToNextMasteryTick(hours);
       const row = document.createElement('div');
       row.className = 'mastery-row';
       row.innerHTML = `
         <span class="name">${c.emoji} ${c.name}</span>
         <span style="text-align:right;">
           <div class="count">${Math.floor(hours)}h · +${bonusPct}%</div>
-          <div class="next-unlock">${Math.ceil(toNextHrs)}h to next +0.1%</div>
+          <div class="next-unlock">${toNext.toFixed(1)}h to next +0.1%</div>
         </span>
       `;
       mList.appendChild(row);

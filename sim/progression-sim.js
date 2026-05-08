@@ -14,7 +14,7 @@ const CROPS = {
   pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 800,  pickCount: 6 },
   sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1100, pickCount: 6 },
 };
-const PLOT_COSTS = [0, 300, 1000, 3000, 9000, 25000, 70000, 175000];
+const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 const HARVESTS_PER_PACK = 10;
 const MAX_PERMA_SLOTS = 4;
 const MASTERY_BONUS_PER_5 = 0.001;
@@ -200,9 +200,25 @@ function getPermaTimeMultForPlot(state, plotId) {
   }
   return m;
 }
-const MASTERY_HOURS_PER_TICK = 20;
+// Tiered mastery curve (mirror of HTML)
+const MASTERY_TIERS = [
+  { upTo: 50,       hoursPerTick: 5  },
+  { upTo: 200,      hoursPerTick: 10 },
+  { upTo: Infinity, hoursPerTick: 20 },
+];
+function masteryTicksAtHours(hours) {
+  let ticks = 0;
+  let tierStart = 0;
+  for (const tier of MASTERY_TIERS) {
+    const tierEnd = Math.min(tier.upTo, hours);
+    if (tierEnd > tierStart) ticks += Math.floor((tierEnd - tierStart) / tier.hoursPerTick);
+    if (hours <= tier.upTo) break;
+    tierStart = tier.upTo;
+  }
+  return ticks;
+}
 function getMasteryBonusForCrop(state, crop) {
-  return 1 + Math.floor((state.mastery[crop] || 0) / MASTERY_HOURS_PER_TICK) * MASTERY_BONUS_PER_5;
+  return 1 + masteryTicksAtHours(state.mastery[crop] || 0) * MASTERY_BONUS_PER_5;
 }
 
 // ============ DRAFT/APPLY ============
@@ -667,6 +683,6 @@ console.log('  Mastery medians (grow-hours invested):');
 for (const crop of cropList) {
   const hours = endStates.map(s => s.mastery[crop]);
   const median = pct(hours, 0.5);
-  const bonusPct = (Math.floor(median / MASTERY_HOURS_PER_TICK) * 0.1).toFixed(1);
+  const bonusPct = (masteryTicksAtHours(median) * 0.1).toFixed(1);
   console.log(`    ${crop.padEnd(11)} ${String(Math.floor(median)).padStart(5)}h  →  +${bonusPct}% mastery bonus`);
 }
