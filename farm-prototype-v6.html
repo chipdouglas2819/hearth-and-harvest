@@ -1568,12 +1568,31 @@ function plotHasUpgrade(plotId, key) {
   return ups[key] === true;
 }
 
+// Plot-index cost scaling: plot 1 = 0.5×, plot 8 = 3.0×, linear in between.
+// This gives players agency — upgrade your starter plots cheaply early game,
+// or save up for the premium plot upgrades late game.
+function plotUpgradeMultiplier(plotId) {
+  const PLOT_COUNT = 8;
+  const MIN = 0.5, MAX = 3.0;
+  const t = plotId / (PLOT_COUNT - 1); // 0 for plot 1 (id=0), 1 for plot 8 (id=7)
+  return MIN + (MAX - MIN) * t;
+}
+
+function plotUpgradeCost(plotId, key) {
+  const def = PLOT_UPGRADES[key];
+  if (!def) return Infinity;
+  const scaled = def.cost * plotUpgradeMultiplier(plotId);
+  // Round to nearest 100 for cleaner display
+  return Math.round(scaled / 100) * 100;
+}
+
 function buyPlotUpgrade(plotId, key) {
   const def = PLOT_UPGRADES[key];
   if (!def) return false;
   if (plotHasUpgrade(plotId, key)) return false;
-  if (state.money < def.cost) return false;
-  state.money -= def.cost;
+  const cost = plotUpgradeCost(plotId, key);
+  if (state.money < cost) return false;
+  state.money -= cost;
   if (!state.plotUpgrades[plotId]) state.plotUpgrades[plotId] = {};
   state.plotUpgrades[plotId][key] = true;
   return true;
@@ -1604,9 +1623,11 @@ function rotateMarketIfNewDay() {
   let pool = unlocked.filter(c => !recent.has(c));
   if (pool.length < 2) pool = unlocked;
   state.marketFeaturedCrop = pool[Math.floor(Math.random() * pool.length)];
-  // Pick a different crop for saturated; if only 1 unlocked, skip saturated
+  // Pick a different crop for saturated; if only 1 unlocked, skip saturated.
+  // Defensive: explicitly null out if it ever ends up matching the featured.
   const remaining = pool.filter(c => c !== state.marketFeaturedCrop);
   state.marketSaturatedCrop = remaining.length > 0 ? remaining[Math.floor(Math.random() * remaining.length)] : null;
+  if (state.marketSaturatedCrop === state.marketFeaturedCrop) state.marketSaturatedCrop = null;
   state.marketDayKey = today;
 }
 
@@ -3336,7 +3357,8 @@ function renderLoadoutModal() {
     upEl.innerHTML = '';
     for (const [key, def] of Object.entries(PLOT_UPGRADES)) {
       const owned = plotHasUpgrade(plotId, key);
-      const canAfford = state.money >= def.cost;
+      const cost = plotUpgradeCost(plotId, key);
+      const canAfford = state.money >= cost;
       const card = document.createElement('div');
       card.className = `lm-upgrade ${owned ? 'owned' : ''} ${(!owned && canAfford) ? 'affordable' : ''}`;
       card.innerHTML = `
@@ -3344,7 +3366,7 @@ function renderLoadoutModal() {
         <div class="lu-desc">${def.desc}</div>
         <div class="lu-flavor">${def.flavor}</div>
         <button class="btn ${owned ? 'btn-ghost' : (canAfford ? 'btn-primary' : 'btn-secondary')} lu-btn" ${owned || !canAfford ? 'disabled' : ''}>
-          ${owned ? '✓ owned' : `◉ ${fmtMoney(def.cost)}`}
+          ${owned ? '✓ owned' : `◉ ${fmtMoney(cost)}`}
         </button>
       `;
       if (!owned && canAfford) {
