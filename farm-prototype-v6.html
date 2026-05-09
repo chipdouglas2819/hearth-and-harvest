@@ -767,15 +767,6 @@ main {
 .contract-mixed-count { font-family: var(--mono); font-size: 10px; color: var(--moss); min-width: 36px; text-align: right; }
 .contract-mixed-count.done { color: var(--gold); font-weight: 700; }
 
-/* Today's Market panel */
-.market-featured { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.market-emoji { font-size: 28px; line-height: 1; }
-.market-info { flex: 1; }
-.market-crop-name { font-family: var(--serif); font-size: 14px; font-weight: 600; color: var(--forest); }
-.market-bonus { font-family: var(--mono); font-size: 11px; color: var(--gold); font-weight: 700; }
-.market-empty { color: var(--sage); font-style: italic; font-size: 12px; padding: 4px 0; text-align: center; }
-.market-saturated { display: flex; align-items: center; gap: 10px; padding: 4px 0; margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border); opacity: 0.85; }
-.market-penalty { font-family: var(--mono); font-size: 11px; color: var(--rust); font-weight: 700; }
 @keyframes levelupFanfare {
   0% { background: rgba(244, 193, 71, 0); transform: translateX(0); }
   15% { background: rgba(244, 193, 71, 0.30); transform: translateX(2px); }
@@ -857,6 +848,29 @@ main {
 }
 
 .modal-subtitle { color: var(--moss); font-size: 13px; margin-bottom: 24px; }
+
+/* "More" overlay — settings & dev tools */
+.more-list { display: flex; flex-direction: column; gap: 10px; }
+.more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.more-row-label { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.more-row-title {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--forest);
+  font-style: italic;
+}
+.more-row-sub { font-size: 11px; color: var(--moss); letter-spacing: 0.04em; }
+.more-row-btn { white-space: nowrap; padding: 8px 14px; font-size: 13px; }
 .modal-close {
   display: block;
   margin: 20px auto 0;
@@ -1413,7 +1427,6 @@ main {
 <header class="topbar">
   <div class="brand">
     <h1>Hearth & Harvest</h1>
-    <span class="subtitle">a cozy farming roguelike</span>
   </div>
   <div class="stats">
     <div class="topbar-btn">
@@ -1441,12 +1454,8 @@ main {
       </div>
     </div>
     <div class="topbar-btn">
-      <span class="label-tiny">sound</span>
-      <button class="btn-pill debug-btn" id="muteBtn" title="Toggle sound">🔊</button>
-    </div>
-    <div class="topbar-btn">
-      <span class="label-tiny">debug</span>
-      <button class="btn-pill debug-btn" id="debugBtn" title="Test boons / dev shortcuts">🔧</button>
+      <span class="label-tiny">more</span>
+      <button class="btn-pill debug-btn" id="moreBtn" title="Settings &amp; tools">⋯</button>
     </div>
   </div>
 </header>
@@ -1533,6 +1542,30 @@ main {
     </div>
     <div class="lm-grid" id="lmGrid"></div>
     <button class="modal-close" data-close>done</button>
+  </div>
+</div>
+
+<div class="modal" id="moreModal" hidden>
+  <div class="modal-content">
+    <h2>Settings</h2>
+    <p class="modal-subtitle">tweak preferences and dev shortcuts</p>
+    <div class="more-list">
+      <div class="more-row">
+        <div class="more-row-label">
+          <div class="more-row-title">Sound</div>
+          <div class="more-row-sub">tap, harvest, pack, level-up chimes</div>
+        </div>
+        <button class="btn btn-ghost more-row-btn" id="moreMuteBtn">🔊 On</button>
+      </div>
+      <div class="more-row">
+        <div class="more-row-label">
+          <div class="more-row-title">Debug Panel</div>
+          <div class="more-row-sub">force-apply boons, dev shortcuts</div>
+        </div>
+        <button class="btn btn-ghost more-row-btn" id="moreDebugBtn">🔧 Open</button>
+      </div>
+    </div>
+    <button class="modal-close" data-close>close</button>
   </div>
 </div>
 
@@ -3691,6 +3724,7 @@ function closeAllModals() {
   document.getElementById('collectionModal').hidden = true;
   document.getElementById('loadoutModal').hidden = true;
   document.getElementById('debugModal').hidden = true;
+  document.getElementById('moreModal').hidden = true;
 }
 
 // ============ DEBUG PANEL ============
@@ -3743,12 +3777,26 @@ function openDebugModal() {
   document.getElementById('debugModal').hidden = false;
 }
 
-document.getElementById('debugBtn').onclick = openDebugModal;
-document.getElementById('muteBtn').onclick = () => {
+function syncMoreModalLabels() {
+  const mb = document.getElementById('moreMuteBtn');
+  if (mb) mb.textContent = state.soundEnabled === false ? '🔇 Off' : '🔊 On';
+}
+
+function openMoreModal() {
+  syncMoreModalLabels();
+  document.getElementById('moreModal').hidden = false;
+}
+
+document.getElementById('moreBtn').onclick = openMoreModal;
+document.getElementById('moreMuteBtn').onclick = () => {
   state.soundEnabled = !state.soundEnabled;
-  document.getElementById('muteBtn').textContent = state.soundEnabled ? '🔊' : '🔇';
+  syncMoreModalLabels();
   if (state.soundEnabled) sndUiClick();
   saveGame();
+};
+document.getElementById('moreDebugBtn').onclick = () => {
+  document.getElementById('moreModal').hidden = true;
+  openDebugModal();
 };
 document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
 document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
@@ -3966,40 +4014,6 @@ function renderDashboard() {
   }
 }
 
-function renderMarket() {
-  const el = document.getElementById('marketContent');
-  if (!el) return;
-  rotateMarketIfNewDay();
-  if (!state.marketFeaturedCrop) {
-    el.innerHTML = '<div class="market-empty">no featured crop yet</div>';
-    return;
-  }
-  const featured = CROPS[state.marketFeaturedCrop];
-  const saturated = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
-  const bonusPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
-  const penaltyPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
-  let html = `
-    <div class="market-featured">
-      <span class="market-emoji">${featured.emoji}</span>
-      <div class="market-info">
-        <div class="market-crop-name">${featured.name} in demand</div>
-        <div class="market-bonus">+${bonusPct}% sell value today</div>
-      </div>
-    </div>
-  `;
-  if (saturated) {
-    html += `
-      <div class="market-saturated">
-        <span class="market-emoji">${saturated.emoji}</span>
-        <div class="market-info">
-          <div class="market-crop-name">${saturated.name} saturated</div>
-          <div class="market-penalty">−${penaltyPct}% sell value today</div>
-        </div>
-      </div>
-    `;
-  }
-  el.innerHTML = html;
-}
 
 // Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
 function getFermentBonusText(plot) {
@@ -4305,11 +4319,6 @@ applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
-// Sync mute button label to loaded preference
-{
-  const mb = document.getElementById('muteBtn');
-  if (mb) mb.textContent = state.soundEnabled === false ? '🔇' : '🔊';
-}
 
 // Save before tab close
 window.addEventListener('beforeunload', saveGame);
