@@ -488,11 +488,26 @@ function pickCropFocused(picks) {
   }
   return pickGreedy(picks);
 }
+// Strategy: optimal — uses coin/hour ratio (yield ÷ time) instead of raw yield.
+// This is what a player optimizing for long-term coins/hr should do.
+// Captures the insight that time-stretching boons hurt over a campaign.
+function expectedTimeMult(buff) {
+  if (buff.timeMult) return buff.timeMult;
+  return 1.0;
+}
+function expectedCoinPerHrRatio(buff) {
+  // Returns yieldMult / timeMult. >1 means coin/hr improves; <1 means it hurts.
+  return expectedYieldMult(buff) / expectedTimeMult(buff);
+}
+function pickOptimal(picks) {
+  return picks.reduce((best, b) => expectedCoinPerHrRatio(b) > expectedCoinPerHrRatio(best) ? b : best);
+}
 const STRATEGIES = {
   greedy:      pickGreedy,
   conservative:pickConservative,
   novice:      pickNovice,
   cropFocused: pickCropFocused,
+  optimal:     pickOptimal,
 };
 
 function plant(state, plotId, crop) {
@@ -773,13 +788,13 @@ function fmtTime(sec) {
 
 function runSim(daysMax = 60, opts = {}) {
   const pickStrategy = opts.pickStrategy || pickGreedy;
-  const dailySnapshots = !!opts.dailySnapshots;
+  // Default to daily snapshots — they're cheap and useful for stuck-point analysis.
+  const dailySnapshots = opts.dailySnapshots !== false;
   const state = initState();
   const milestones = {};
   const TICK_SEC = 60; // simulate 1 minute increments
   const totalSec = daysMax * 24 * 3600;
   const snapshots = [];
-  // Pre-build snapshot day-set: either every day (CSV) or sparse (default).
   const snapshotDays = dailySnapshots
     ? Array.from({ length: daysMax + 1 }, (_, d) => d)
     : [1, 7, 14, 30, 60].filter(d => d <= daysMax);
@@ -792,6 +807,48 @@ function runSim(daysMax = 60, opts = {}) {
     }
   }
   return { state, milestones, snapshots };
+}
+
+// Detects stuck points in a single run's day-by-day curve.
+// A "stuck region" is a stretch of >= minDays where money-growth-per-day
+// drops below a threshold, signalling progression flatlines (player feels grindy).
+function detectStuckPoints(snapshots, opts = {}) {
+  const minDays = opts.minDays || 3;
+  const growthThreshold = opts.growthThreshold || 0.05; // 5%/day
+  if (snapshots.length < minDays + 1) return [];
+  const stuckRegions = [];
+  let regionStart = -1;
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1].state.money;
+    const curr = snapshots[i].state.money;
+    const growth = prev > 0 ? (curr - prev) / prev : 1; // first day = always "fast"
+    const isStuck = growth < growthThreshold;
+    if (isStuck) {
+      if (regionStart < 0) regionStart = i - 1;
+    } else {
+      if (regionStart >= 0 && i - regionStart >= minDays) {
+        stuckRegions.push({
+          startDay: snapshots[regionStart].day,
+          endDay: snapshots[i - 1].day,
+          startMoney: snapshots[regionStart].state.money,
+          endMoney: snapshots[i - 1].state.money,
+          length: i - regionStart,
+        });
+      }
+      regionStart = -1;
+    }
+  }
+  // Tail: if still stuck at end-of-run
+  if (regionStart >= 0 && snapshots.length - regionStart >= minDays) {
+    stuckRegions.push({
+      startDay: snapshots[regionStart].day,
+      endDay: snapshots[snapshots.length - 1].day,
+      startMoney: snapshots[regionStart].state.money,
+      endMoney: snapshots[snapshots.length - 1].state.money,
+      length: snapshots.length - regionStart,
+    });
+  }
+  return stuckRegions;
 }
 
 function snapshotState(state) {
@@ -832,9 +889,9 @@ if (typeof module !== 'undefined') {
     RARITY_WEIGHTS, PERMA_RARITY_WEIGHTS, RARITY_ORDER,
     HARVESTS_PER_PACK, MAX_PERMA_SLOTS, MASTERY_BONUS_PER_5,
     cropList,
-    initState, makePlot, runSim, snapshotState,
-    pickGreedy, pickConservative, pickNovice, pickCropFocused, STRATEGIES,
-    expectedYieldMult, riskAdjustedYieldMult,
+    initState, makePlot, runSim, snapshotState, detectStuckPoints,
+    pickGreedy, pickConservative, pickNovice, pickCropFocused, pickOptimal, STRATEGIES,
+    expectedYieldMult, riskAdjustedYieldMult, expectedCoinPerHrRatio,
     draftPermaPack, addToCollection,
     masteryTicksAtHours,
   };

@@ -274,8 +274,11 @@ function strategyGreedy(picks) {
 }
 
 // ============ RUN A SIMULATION ============
-function simulateRun(crop, strategy) {
+// boonStats (when passed) accumulates per-buff analytics:
+//   { offered, chosen, sumYieldWhenChosen, sumMultWhenChosen, runFinalYields[] }
+function simulateRun(crop, strategy, boonStats = null) {
   const plot = makePlot(crop);
+  const myPicks = []; // [{ offered: [ids], chosen: id, picksTaken: n }]
   for (let pick = 0; pick < plot.totalPicks; pick++) {
     if (plot.flags.noMorePicks) break;
     const draftSize = plot.flags.wideDraftLeft > 0 ? 5 : 3;
@@ -283,15 +286,31 @@ function simulateRun(crop, strategy) {
     const draftedPicks = draftN(draftSize, rarityFloor, plot);
     if (draftedPicks.length === 0) break;
     const chosen = strategy(draftedPicks);
+    if (boonStats) {
+      myPicks.push({ offered: draftedPicks.map(p => p.id), chosen: chosen.id });
+      for (const b of draftedPicks) {
+        const s = boonStats[b.id] = boonStats[b.id] || { offered: 0, chosen: 0, sumYieldWhenChosen: 0, sumMultWhenChosen: 0 };
+        s.offered += 1;
+      }
+    }
     applyBuff(plot, chosen);
   }
   // committedNoMore final-multiplier check
   if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
-    plot.yieldMult *= 1.60; // Devoted Tending bonus (already 1.60 after earlier change)
+    plot.yieldMult *= 1.60; // Devoted Tending bonus
   }
   const baseYield = CROPS[crop].baseYield;
   const yieldAmount = Math.floor(baseYield * plot.yieldMult);
   const hours = plot.totalMs / 3600 / 1000;
+  // Attribute the run's final yield to every boon that was chosen.
+  if (boonStats) {
+    for (const id of plot.activeBuffs.map(b => b.id)) {
+      const s = boonStats[id] = boonStats[id] || { offered: 0, chosen: 0, sumYieldWhenChosen: 0, sumMultWhenChosen: 0 };
+      s.chosen += 1;
+      s.sumYieldWhenChosen += yieldAmount;
+      s.sumMultWhenChosen += plot.yieldMult;
+    }
+  }
   return {
     yield: yieldAmount,
     yieldMult: plot.yieldMult,
@@ -301,10 +320,10 @@ function simulateRun(crop, strategy) {
   };
 }
 
-function runMonteCarlo(crop, strategy, n) {
+function runMonteCarlo(crop, strategy, n, boonStats = null) {
   const results = [];
   for (let i = 0; i < n; i++) {
-    results.push(simulateRun(crop, strategy));
+    results.push(simulateRun(crop, strategy, boonStats));
   }
   results.sort((a, b) => a.yield - b.yield);
   const median = results[Math.floor(n / 2)].yield;
@@ -317,15 +336,19 @@ function runMonteCarlo(crop, strategy, n) {
 }
 
 // ============ REPORT ============
-const N = 20000;
-const STRATEGY_NAME = process.argv[2] || 'greedy';
+const args = process.argv.slice(2);
+const STRATEGY_NAME = args.find(a => !a.startsWith('--') && !/^\d/.test(a)) || 'greedy';
+const N_ARG = args.find(a => /^\d+$/.test(a));
+const N = N_ARG ? parseInt(N_ARG) : 20000;
+const SHOW_BOON_STATS = args.includes('--boon-stats');
 const strategy = STRATEGY_NAME === 'random' ? strategyRandom : strategyGreedy;
 
 console.log(`\nHearth & Harvest balance simulation`);
-console.log(`Strategy: ${STRATEGY_NAME}, runs/crop: ${N}\n`);
+console.log(`Strategy: ${STRATEGY_NAME}, runs/crop: ${N}${SHOW_BOON_STATS ? ' [boon stats ON]' : ''}\n`);
 
 const crops = ['radish', 'carrot', 'tomato', 'strawberry', 'wheat', 'corn', 'pumpkin', 'sunflower'];
-const stats = crops.map(c => runMonteCarlo(c, strategy, N));
+const boonStats = SHOW_BOON_STATS ? {} : null;
+const stats = crops.map(c => runMonteCarlo(c, strategy, N, boonStats));
 
 console.log('Crop      base    median    mean      p95       p99       max         coins/hr');
 console.log('-------   ------- --------  --------  --------  --------  --------    --------');
@@ -353,4 +376,62 @@ for (const s of stats) {
   const cph = s.meanPerHour;
   const hrs = PLOT_COSTS.slice(1).map(c => (c / cph).toFixed(1));
   console.log(`${s.crop.padEnd(8)}  ${String(Math.floor(cph)).padStart(7)}    ${hrs.join('  ')}`);
+}
+
+// ============ PER-BOON ANALYTICS (when --boon-stats) ============
+if (SHOW_BOON_STATS && boonStats) {
+  console.log('\n--- PER-BOON ANALYTICS ---');
+  console.log(`Strategy: ${STRATEGY_NAME}. Aggregated across all crops × ${N} runs.`);
+  console.log(`Pick rate = chosen / offered. Avg yield/mult = run outcome when this boon was selected.\n`);
+
+  // Compute baseline yield (the "average run" yield) for comparison
+  const allRunYields = stats.flatMap(s => [s.mean]); // use mean per crop
+  const overallMeanYield = allRunYields.reduce((a, b) => a + b, 0) / allRunYields.length;
+
+  const rows = BUFF_POOL.map(b => {
+    const s = boonStats[b.id];
+    if (!s) return null;
+    const pickRate = s.offered > 0 ? s.chosen / s.offered : 0;
+    const avgYield = s.chosen > 0 ? s.sumYieldWhenChosen / s.chosen : 0;
+    const avgMult = s.chosen > 0 ? s.sumMultWhenChosen / s.chosen : 0;
+    return {
+      id: b.id,
+      name: b.name || b.id,
+      rarity: b.rarity,
+      cropOnly: b.cropOnly || '',
+      offered: s.offered,
+      chosen: s.chosen,
+      pickRate,
+      avgYield,
+      avgMult,
+    };
+  }).filter(Boolean);
+
+  // Sort by rarity (asc) then pick rate (desc)
+  rows.sort((a, b) => {
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return ar - br;
+    return b.pickRate - a.pickRate;
+  });
+
+  // Headers
+  console.log('id              rarity     crop      offered  chosen  pick%   avg yield  avg mult  flag');
+  console.log('-'.repeat(105));
+  for (const r of rows) {
+    const flags = [];
+    // Flag potentially OP boons: high pick rate + above-average yield
+    if (r.pickRate > 0.85 && r.avgYield > overallMeanYield * 1.5) flags.push('🔥OP');
+    // Flag potentially dead boons: low pick rate when offered
+    if (r.pickRate < 0.15 && r.offered > 100) flags.push('💀dead');
+    // Flag boons that "win" but never offered (rare effect)
+    if (r.offered < 50) flags.push('🌱rare');
+    // Flag low-yield-when-chosen — picker is wrong about value, OR boon is weak
+    if (r.chosen > 100 && r.avgYield < overallMeanYield * 0.85) flags.push('⚠weak');
+
+    console.log(
+      `${r.id.padEnd(15)} ${r.rarity.padEnd(10)} ${r.cropOnly.padEnd(9)} ${String(r.offered).padStart(7)} ${String(r.chosen).padStart(7)} ${(r.pickRate * 100).toFixed(1).padStart(5)}%  ${String(Math.floor(r.avgYield)).padStart(8)}  ${r.avgMult.toFixed(2).padStart(7)}×  ${flags.join(' ')}`
+    );
+  }
+  console.log('\nLegend: 🔥OP = high pick rate + above-avg yield · 💀dead = rarely picked when offered · ⚠weak = picked but underperforms · 🌱rare = barely seen');
 }
