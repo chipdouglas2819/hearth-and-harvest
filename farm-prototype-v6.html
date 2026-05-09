@@ -1973,7 +1973,7 @@ main {
       <div id="masteryList"></div>
     </div>
     <div class="panel">
-      <h3>Recent Harvests</h3>
+      <h3>Activity</h3>
       <div id="harvestLog"></div>
     </div>
   </div>
@@ -3595,6 +3595,10 @@ function tapCrop(plotId) {
     render();
   } else {
     updatePlotTick(plot);
+    // If the player is on the Journal tab while tapping (e.g., a long-grow
+    // crop), keep the lifetime "Total taps" counter in sync without firing a
+    // full render. Cheap targeted update.
+    if (state.activeTab === 'journal') renderLifetimeStats();
   }
 }
 
@@ -4405,9 +4409,20 @@ function renderLoadoutModal() {
 }
 
 function closeAllModals() {
+  // If the pack modal is closing with unclaimed cards (e.g., player tapped the
+  // close button or backdrop instead of "Add all to Collection"), auto-claim
+  // them so the pack isn't lost and packsOpened reflects reality.
+  const packModal = document.getElementById('packModal');
+  if (packModal && !packModal.hidden && state.currentPackCards && state.currentPackCards.length > 0) {
+    state.currentPackCards.forEach(b => addToCollection(b));
+    state.currentPackCards = [];
+    state.adUsedForCurrentPack = false;
+    state.packsOpened += 1;
+    checkAchievements();
+  }
   document.getElementById('plantModal').hidden = true;
   document.getElementById('buffModal').hidden = true;
-  document.getElementById('packModal').hidden = true;
+  packModal.hidden = true;
   document.getElementById('loadoutModal').hidden = true;
   document.getElementById('debugModal').hidden = true;
 }
@@ -4765,7 +4780,9 @@ function renderLifetimeStats() {
   const setsComplete = CARD_SETS.filter(s => s.cardIds.every(id => state.collection.some(c => c.id === id))).length;
   const plotsUnlocked = state.plots.filter(p => !p.locked).length;
   const upgradesOwned = (state.plotUpgrades || []).reduce((sum, ups) => sum + Object.values(ups || {}).filter(Boolean).length, 0);
-  const upgradesMax = state.plots.length * 4; // 4 upgrade types per plot
+  // Aspirational max: 8 plots × 4 upgrade types = 32. Stays constant so the
+  // ratio doesn't visibly shrink/grow as the player buys plots.
+  const upgradesMax = PLOT_COSTS.length * Object.keys(PLOT_UPGRADES).length;
   let timePlayed = '—';
   if (state.firstPlayedAt) {
     const ms = Date.now() - state.firstPlayedAt;
