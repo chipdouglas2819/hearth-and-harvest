@@ -2139,6 +2139,13 @@ main {
       </div>
       <div class="more-row">
         <div class="more-row-label">
+          <div class="more-row-title">Ambient</div>
+          <div class="more-row-sub">soft background drone for cozy atmosphere</div>
+        </div>
+        <button class="btn btn-ghost more-row-btn" id="settingsAmbientBtn">🎵 On</button>
+      </div>
+      <div class="more-row">
+        <div class="more-row-label">
           <div class="more-row-title">Debug Panel</div>
           <div class="more-row-sub">force-apply boons, dev shortcuts</div>
         </div>
@@ -2801,6 +2808,9 @@ function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
   if (state && state.soundEnabled === false) return;
   const ctx = audioCtx();
   if (!ctx) return;
+  // Browser autoplay policy unlocks audio on the first user gesture. Use
+  // that moment to also kick off the ambient drone if it's enabled.
+  if (typeof ensureAmbient === 'function' && !_ambientNodes) ensureAmbient();
   const t0 = ctx.currentTime + delayMs / 1000;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -2821,10 +2831,38 @@ function sndTap() {
   _lastTapSoundMs = now;
   playTone(660, 0.04, 0.025, 'triangle');
 }
-function sndHarvest() {
-  playTone(523, 0.10, 0.05);              // C5
-  playTone(659, 0.14, 0.05, 'sine', 60);  // E5
-  playTone(784, 0.20, 0.06, 'sine', 130); // G5
+
+// Per-crop harvest variations grouped into three tonal "weights" so each
+// crop tier feels distinct without writing 8 unique chimes:
+//  - light:   small fast crops (radish, carrot)         → bright high arpeggio
+//  - medium:  staple mid-tier  (tomato, strawberry, wheat) → warm middle (default)
+//  - heavy:   slow big crops   (corn, pumpkin, sunflower)  → deep grounded
+const HARVEST_TONES = {
+  light: [
+    { f: 659, d: 0.10, t: 0 },     // E5
+    { f: 784, d: 0.14, t: 60 },    // G5
+    { f: 988, d: 0.18, t: 130 },   // B5
+  ],
+  medium: [
+    { f: 523, d: 0.10, t: 0 },     // C5
+    { f: 659, d: 0.14, t: 60 },    // E5
+    { f: 784, d: 0.20, t: 130 },   // G5
+  ],
+  heavy: [
+    { f: 392, d: 0.12, t: 0 },     // G4
+    { f: 523, d: 0.16, t: 80 },    // C5
+    { f: 659, d: 0.22, t: 170 },   // E5
+  ],
+};
+const CROP_HARVEST_TIER = {
+  radish: 'light', carrot: 'light',
+  tomato: 'medium', strawberry: 'medium', wheat: 'medium',
+  corn: 'heavy', pumpkin: 'heavy', sunflower: 'heavy',
+};
+function sndHarvest(crop) {
+  const tier = CROP_HARVEST_TIER[crop] || 'medium';
+  const tones = HARVEST_TONES[tier];
+  for (const t of tones) playTone(t.f, t.d, 0.05, 'sine', t.t);
 }
 function sndLucky() {
   playTone(523, 0.08, 0.05);
@@ -2844,6 +2882,75 @@ function sndLevelUp() {
 }
 function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
 function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
+
+// ============ AMBIENT DRONE ============
+// A soft procedural pad — three slightly-detuned sines through a lowpass +
+// slow gain LFO for a "breathing" effect. Master volume is very low so it
+// sits behind sound effects without competing. Auto-stops when the tab is
+// hidden so the player isn't humming at music in another tab.
+let _ambientNodes = null;
+function startAmbient() {
+  if (_ambientNodes) return;
+  if (state && (state.soundEnabled === false || state.ambientEnabled === false)) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  // Three sines with slight detune — warm root + gentle harmonics.
+  const oscs = [110, 165, 220].map((f, i) => {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f + (Math.random() - 0.5) * 1.5;
+    return o;
+  });
+  // Lowpass takes the edge off — silky pad rather than bright drone.
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 600;
+  filter.Q.value = 0.5;
+  // Master gain (very quiet)
+  const master = ctx.createGain();
+  master.gain.value = 0.012;
+  // Slow LFO modulating master gain ±20% for subtle "breathing"
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 0.06;             // ~16-second period
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.003;
+  lfo.connect(lfoGain);
+  lfoGain.connect(master.gain);
+  // Wire the chain
+  for (const o of oscs) { o.connect(filter); o.start(); }
+  filter.connect(master);
+  master.connect(ctx.destination);
+  lfo.start();
+  _ambientNodes = { oscs, filter, lfo, master };
+}
+function stopAmbient() {
+  if (!_ambientNodes) return;
+  const ctx = audioCtx();
+  const nodes = _ambientNodes;
+  _ambientNodes = null;
+  if (ctx) {
+    nodes.master.gain.cancelScheduledValues(ctx.currentTime);
+    nodes.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+  }
+  setTimeout(() => {
+    try {
+      nodes.oscs.forEach(o => o.stop());
+      nodes.lfo.stop();
+    } catch (e) { /* ignore */ }
+  }, 450);
+}
+function ensureAmbient() {
+  if (state && state.soundEnabled !== false && state.ambientEnabled !== false) {
+    startAmbient();
+  } else {
+    stopAmbient();
+  }
+}
+// Auto-pause when the tab is hidden — no soundscape humming in a background tab.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopAmbient();
+  else ensureAmbient();
+});
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
@@ -3215,6 +3322,7 @@ const state = {
   marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
   // Audio
   soundEnabled: true,
+  ambientEnabled: true,        // procedural soft drone in the background
   // UI
   activeTab: 'farm',
   // Achievements + counters
@@ -3501,6 +3609,7 @@ function saveGame() {
       marketSaturatedCrop: state.marketSaturatedCrop || null,
       marketHistory: state.marketHistory || [],
       soundEnabled: state.soundEnabled !== false,
+      ambientEnabled: state.ambientEnabled !== false,
       activeTab: state.activeTab || 'farm',
       achievements: { ...(state.achievements || {}) },
       luckyHarvests: state.luckyHarvests || 0,
@@ -3563,6 +3672,7 @@ function loadGame() {
     state.marketSaturatedCrop = loaded.marketSaturatedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
     state.soundEnabled = loaded.soundEnabled !== false;
+    state.ambientEnabled = loaded.ambientEnabled !== false;
     state.achievements = loaded.achievements || {};
     state.luckyHarvests = loaded.luckyHarvests || 0;
     state.totalPicksTaken = loaded.totalPicksTaken || 0;
@@ -3925,7 +4035,7 @@ function harvest(plotId, ev) {
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
   state.lifetimeCoins = (state.lifetimeCoins || 0) + yieldAmount;
-  if (isLucky) sndLucky(); else sndHarvest();
+  if (isLucky) sndLucky(); else sndHarvest(plot.crop);
   // Today's stats — for the dashboard
   rotateTodayIfNewDay();
   state.todayHarvests = (state.todayHarvests || 0) + 1;
@@ -4767,12 +4877,22 @@ function openDebugModal() {
 function syncSettingsLabels() {
   const mb = document.getElementById('settingsMuteBtn');
   if (mb) mb.textContent = state.soundEnabled === false ? '🔇 Off' : '🔊 On';
+  const ab = document.getElementById('settingsAmbientBtn');
+  if (ab) ab.textContent = state.ambientEnabled === false ? '🎵 Off' : '🎵 On';
 }
 
 document.getElementById('settingsMuteBtn').onclick = () => {
   state.soundEnabled = !state.soundEnabled;
   syncSettingsLabels();
-  if (state.soundEnabled) sndUiClick();
+  if (state.soundEnabled) { sndUiClick(); ensureAmbient(); }
+  else stopAmbient();
+  saveGame();
+};
+document.getElementById('settingsAmbientBtn').onclick = () => {
+  state.ambientEnabled = !state.ambientEnabled;
+  syncSettingsLabels();
+  if (state.ambientEnabled) ensureAmbient();
+  else stopAmbient();
   saveGame();
 };
 document.getElementById('settingsDebugBtn').onclick = openDebugModal;
