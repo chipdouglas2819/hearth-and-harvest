@@ -2985,8 +2985,17 @@ function applyBuff(plotId, buff) {
 
   plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
   plot.picksTaken += 1;
-  closeAllModals();
-  render();
+  // Auto-advance: if there are still picks pending anywhere, refresh the modal
+  // for the next plot so the player can blast through batch decisions in one
+  // continuous flow. Tap-outside-modal still closes (manual stop).
+  const nextPlot = firstPlotWithPicks();
+  if (nextPlot) {
+    render();
+    openBuffModal(nextPlot.id);
+  } else {
+    closeAllModals();
+    render();
+  }
 }
 
 function handleCustom(plotId, buff, echo) {
