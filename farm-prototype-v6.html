@@ -95,6 +95,10 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .money .value::before { content: '◉ '; color: var(--butter); font-size: 14px; vertical-align: 1px; }
 
+/* Reusable coin icon — apply this class to a <span> wrapping the ◉ glyph
+   anywhere we want the same gold color used in the topbar coin display. */
+.coin-icon { color: var(--butter); font-weight: 700; }
+
 .topbar-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .btn-pill {
   font-family: var(--serif);
@@ -3994,14 +3998,14 @@ function openPlantModal(plotId) {
       const noun = `${CROPS[u.crop].name}${need === 1 ? '' : 's'}`;
       reasonHtml = `<span class="po-reason locked">🔒 harvest ${need} more ${noun} to unlock</span>`;
     } else if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
-    else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need ◉ ${c.plantCost - state.money}</span>`;
+    else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need <span class="coin-icon">◉</span> ${c.plantCost - state.money}</span>`;
     btn.innerHTML = `
       ${reasonHtml}
       <div class="po-emoji">${c.emoji}</div>
       <div class="po-name">${c.name}</div>
       <div class="po-stats">
-        <span>cost: ◉ ${c.plantCost}</span>
-        <span>yield: ◉ ${c.baseYield}</span>
+        <span>cost: <span class="coin-icon">◉</span> ${c.plantCost}</span>
+        <span>yield: <span class="coin-icon">◉</span> ${c.baseYield}</span>
         <span>grows: ${fmtTimeRemaining(adjustedTime)}</span>
         <span>picks: ${c.pickCount}</span>
       </div>
@@ -4321,7 +4325,7 @@ function renderLoadoutModal() {
         <div class="lu-desc">${def.desc}</div>
         <div class="lu-flavor">${def.flavor}</div>
         <button class="btn ${owned ? 'btn-ghost' : (canAfford ? 'btn-primary' : 'btn-secondary')} lu-btn" ${owned || !canAfford ? 'disabled' : ''}>
-          ${owned ? '✓ owned' : `◉ ${fmtMoney(cost)}`}
+          ${owned ? '✓ owned' : `<span class="coin-icon">◉</span> ${fmtMoney(cost)}`}
         </button>
       `;
       if (!owned && canAfford) {
@@ -4628,7 +4632,7 @@ function describeContract(c) {
 }
 
 function rewardLabel(reward) {
-  const parts = [`+${reward.coins}c`];
+  const parts = [`<span class="coin-icon">◉</span> +${reward.coins}`];
   if (reward.packs > 0) parts.push(`+${reward.packs} pack`);
   if (reward.packChance > 0 && reward.packs === 0) {
     parts.push(`${Math.round(reward.packChance * 100)}% pack`);
@@ -4759,7 +4763,6 @@ function renderLifetimeStats() {
   const plotsUnlocked = state.plots.filter(p => !p.locked).length;
   const upgradesOwned = (state.plotUpgrades || []).reduce((sum, ups) => sum + Object.values(ups || {}).filter(Boolean).length, 0);
   const upgradesMax = state.plots.length * 4; // 4 upgrade types per plot
-  const achCount = Object.keys(state.achievements || {}).filter(id => ACHIEVEMENTS.some(a => a.id === id)).length;
   let timePlayed = '—';
   if (state.firstPlayedAt) {
     const ms = Date.now() - state.firstPlayedAt;
@@ -4769,7 +4772,7 @@ function renderLifetimeStats() {
   const stats = [
     { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
     { label: 'Total taps',        value: (state.totalTaps || 0).toLocaleString() },
-    { label: 'Lifetime coins',    value: '◉ ' + (state.lifetimeCoins || 0).toLocaleString() },
+    { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
     { label: 'Boon picks taken',  value: (state.totalPicksTaken || 0).toLocaleString() },
     { label: 'Lucky harvests',    value: (state.luckyHarvests || 0).toLocaleString() },
     { label: 'Time played',       value: timePlayed },
@@ -4783,7 +4786,6 @@ function renderLifetimeStats() {
     { label: 'Plot upgrades',     value: `${upgradesOwned} / ${upgradesMax}` },
     { label: 'Packs opened',      value: (state.packsOpened || 0).toLocaleString() },
     { label: 'Contracts done',    value: (state.contractsCompleted || 0).toLocaleString() },
-    { label: 'Achievements',      value: `${achCount} / ${ACHIEVEMENTS.length}` },
   ];
   el.innerHTML = stats.map(s =>
     `<div class="lifetime-cell"><span class="lifetime-label">${s.label}</span><span class="lifetime-value">${s.value}</span></div>`
@@ -4923,7 +4925,7 @@ function render() {
       el.innerHTML = `
         <div class="plot-label"><span>plot ${i + 1}</span></div>
         <div class="lock-icon">⌂ unclaimed</div>
-        <div class="lock-cost">◉ ${fmtMoney(cost)}</div>
+        <div class="lock-cost"><span class="coin-icon">◉</span> ${fmtMoney(cost)}</div>
       `;
       const btn = document.createElement('button');
       btn.className = 'btn ' + (canBuy ? 'btn-primary' : 'btn-secondary');
@@ -5044,7 +5046,7 @@ function render() {
           const hb = document.createElement('button');
           hb.className = 'btn btn-harvest';
           const expectedYield = Math.floor(crop.baseYield * effectiveYield);
-          hb.textContent = `Harvest (◉ ${expectedYield})`;
+          hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expectedYield})`;
           hb.onclick = (ev) => harvest(i, ev);
           actions.appendChild(hb);
         }
