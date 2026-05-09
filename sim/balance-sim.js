@@ -3,9 +3,8 @@
 // over many planted runs to surface OP combos and check the plot-cost economy.
 
 // ============ DATA (mirror of v6 BUFF_POOL) ============
-// Pass --proposed to use the rebalance values; default = current v6 values.
-const USE_PROPOSED = process.argv.includes('--proposed');
-const CROPS = USE_PROPOSED ? {
+// Values mirror the current farm-prototype-v6.html. Update both together when tuning.
+const CROPS = {
   radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 70,   pickCount: 1 },
   carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 160,  pickCount: 2 },
   tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 2 },
@@ -14,13 +13,6 @@ const CROPS = USE_PROPOSED ? {
   corn:       { growthHrs: 30, plantCost: 175, baseYield: 690,  pickCount: 5 },
   pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 950,  pickCount: 5 },
   sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1300, pickCount: 5 },
-} : {
-  radish:  { growthHrs: 4,  plantCost: 20,  baseYield: 60,   pickCount: 2 },
-  carrot:  { growthHrs: 8,  plantCost: 35,  baseYield: 130,  pickCount: 3 },
-  tomato:  { growthHrs: 12, plantCost: 60,  baseYield: 240,  pickCount: 3 },
-  wheat:   { growthHrs: 24, plantCost: 150, baseYield: 800,  pickCount: 5 },
-  corn:    { growthHrs: 30, plantCost: 250, baseYield: 1500, pickCount: 5 },
-  pumpkin: { growthHrs: 40, plantCost: 350, baseYield: 2200, pickCount: 6 },
 };
 
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
@@ -354,9 +346,7 @@ for (const s of stats) {
 
 // ============ PLOT ECONOMY ============
 console.log('\n--- PLOT ECONOMY (assumes endless single-crop greedy run, no taps) ---');
-const PLOT_COSTS = USE_PROPOSED
-  ? [0, 300, 1000, 3000, 9000, 25000, 70000, 175000]
-  : [0, 250, 700, 1700, 4000, 9000, 19000, 40000];
+const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 const costStr = PLOT_COSTS.slice(1).map(c => '$' + c).join('/');
 console.log(`Crop      coins/hr   hrs to next plot at ${costStr}`);
 for (const s of stats) {

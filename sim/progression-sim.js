@@ -427,9 +427,43 @@ function expectedYieldMult(buff) {
   if (buff.custom === 'wishflower') return 2.0;
   return 1.0;
 }
+// Risk-adjusted version: discounts high-variance buffs.
+// Used by the conservative strategy — they prefer steady gains over gambles.
+function riskAdjustedYieldMult(buff) {
+  const base = expectedYieldMult(buff);
+  if (buff.custom === 'frost_gamble') return base * 0.6;     // 30% chance of −50%
+  if (buff.custom === 'coin_flip_17') return base * 0.85;     // 50% chance of nothing
+  if (buff.custom === 'all_in') return base * 0.5;           // wipes prior buffs
+  if (buff.custom === 'no_more_picks_80') return base * 0.85; // commits early
+  if (buff.timeMult && buff.timeMult > 1.10) return base * 0.9; // slow growth
+  return base;
+}
+// Strategy: pick the buff with the highest expected yield mult.
 function pickGreedy(picks) {
   return picks.reduce((best, b) => expectedYieldMult(b) > expectedYieldMult(best) ? b : best);
 }
+// Strategy: like greedy, but risk-averse (discounts variance and commit/lose buffs).
+function pickConservative(picks) {
+  return picks.reduce((best, b) => riskAdjustedYieldMult(b) > riskAdjustedYieldMult(best) ? b : best);
+}
+// Strategy: novice player picks at random — establishes a floor for "what if you don't optimize".
+function pickNovice(picks) {
+  return picks[Math.floor(Math.random() * picks.length)];
+}
+// Strategy: prefers crop-specific cards (best long-term value via star-leveling).
+function pickCropFocused(picks) {
+  const cropPicks = picks.filter(p => p.cropOnly);
+  if (cropPicks.length > 0) {
+    return cropPicks.reduce((best, b) => expectedYieldMult(b) > expectedYieldMult(best) ? b : best);
+  }
+  return pickGreedy(picks);
+}
+const STRATEGIES = {
+  greedy:      pickGreedy,
+  conservative:pickConservative,
+  novice:      pickNovice,
+  cropFocused: pickCropFocused,
+};
 
 function plant(state, plotId, crop) {
   const plot = state.plots[plotId];
@@ -621,7 +655,7 @@ function awardDailyContracts(state, simSec) {
   state.contractPacks += packs;
 }
 
-function playerActions(state, milestones, simSec) {
+function playerActions(state, milestones, simSec, pickStrategy = pickGreedy) {
   awardDailyContracts(state, simSec);
   // 1. Harvest ready
   state.plots.forEach((p, i) => {
@@ -639,7 +673,7 @@ function playerActions(state, milestones, simSec) {
       const rarityFloor = p.flags.wishflowerLeft > 0 ? 'legendary' : null;
       const picks = draftN(p, state, draftSize, rarityFloor);
       if (picks.length === 0) break;
-      const chosen = pickGreedy(picks);
+      const chosen = pickStrategy(picks);
       applyBuff(state, i, chosen);
     }
   });
@@ -695,17 +729,23 @@ function fmtTime(sec) {
   return `${d.toFixed(1)}d (${h.toFixed(0)}h)`;
 }
 
-function runSim(daysMax = 60) {
+function runSim(daysMax = 60, opts = {}) {
+  const pickStrategy = opts.pickStrategy || pickGreedy;
+  const dailySnapshots = !!opts.dailySnapshots;
   const state = initState();
   const milestones = {};
   const TICK_SEC = 60; // simulate 1 minute increments
   const totalSec = daysMax * 24 * 3600;
   const snapshots = [];
-  const snapshotAt = [1, 7, 14, 30, 60].map(d => d * 24 * 3600);
+  // Pre-build snapshot day-set: either every day (CSV) or sparse (default).
+  const snapshotDays = dailySnapshots
+    ? Array.from({ length: daysMax + 1 }, (_, d) => d)
+    : [1, 7, 14, 30, 60].filter(d => d <= daysMax);
+  const snapshotAtSet = new Set(snapshotDays.map(d => d * 24 * 3600));
   for (let simSec = 0; simSec < totalSec; simSec += TICK_SEC) {
     tickSim(state, TICK_SEC);
-    playerActions(state, milestones, simSec);
-    if (snapshotAt.includes(simSec)) {
+    playerActions(state, milestones, simSec, pickStrategy);
+    if (snapshotAtSet.has(simSec)) {
       snapshots.push({ day: simSec / 86400, state: snapshotState(state) });
     }
   }
@@ -742,16 +782,71 @@ function snapshotState(state) {
   };
 }
 
+// ============ MODULE EXPORTS ============
+// (keeps the CLI block at the bottom guarded so other sims can `require()` this file)
+if (typeof module !== 'undefined') {
+  module.exports = {
+    CROPS, PLOT_COSTS, PLOT_UPGRADES, BUFF_POOL, PERMA_POOL,
+    RARITY_WEIGHTS, PERMA_RARITY_WEIGHTS, RARITY_ORDER,
+    HARVESTS_PER_PACK, MAX_PERMA_SLOTS, MASTERY_BONUS_PER_5,
+    cropList,
+    initState, makePlot, runSim, snapshotState,
+    pickGreedy, pickConservative, pickNovice, pickCropFocused, STRATEGIES,
+    expectedYieldMult, riskAdjustedYieldMult,
+    draftPermaPack, addToCollection,
+    masteryTicksAtHours,
+  };
+}
+
+// CLI entrypoint guard — only runs when invoked directly, not via require()
+if (require.main !== module) return;
+
 // ============ REPORT ============
-const RUNS = parseInt(process.argv[2]) || 5;
-const DAYS = parseInt(process.argv[3]) || 60;
+function parseArg(name, fallback) {
+  const arg = process.argv.find(a => a.startsWith(`--${name}=`));
+  return arg ? arg.split('=')[1] : fallback;
+}
+const RUNS = parseInt(parseArg('runs', process.argv[2])) || 5;
+const DAYS = parseInt(parseArg('days', process.argv[3])) || 60;
+const STRATEGY_NAME = parseArg('strategy', 'greedy');
+const CSV_PATH = parseArg('csv', null);
+const strategy = STRATEGIES[STRATEGY_NAME];
+if (!strategy) {
+  console.error(`Unknown strategy: ${STRATEGY_NAME}. Choices: ${Object.keys(STRATEGIES).join(', ')}`);
+  process.exit(1);
+}
 
 console.log(`Hearth & Harvest progression simulation`);
-console.log(`Runs: ${RUNS}, simulated days per run: ${DAYS}`);
-console.log(`Player AI: greedy boon picks, plant best-coin/hr available, auto-equip strongest cards\n`);
+console.log(`Runs: ${RUNS}, simulated days per run: ${DAYS}, strategy: ${STRATEGY_NAME}`);
+console.log(`Player AI: plant best-coin/hr available, auto-equip strongest cards`);
+if (CSV_PATH) console.log(`CSV output: ${CSV_PATH} (run 1, daily snapshots)`);
+console.log('');
 
 const allRuns = [];
-for (let i = 0; i < RUNS; i++) allRuns.push(runSim(DAYS));
+for (let i = 0; i < RUNS; i++) {
+  // Run 1 gets daily snapshots if CSV requested
+  const opts = { pickStrategy: strategy, dailySnapshots: i === 0 && !!CSV_PATH };
+  allRuns.push(runSim(DAYS, opts));
+}
+
+// Optional CSV export — daily snapshot of run 1
+if (CSV_PATH) {
+  const fs = require('fs');
+  const r0 = allRuns[0];
+  const headers = ['day','money','plots','harvests','packs_opened','unique_cards','total_cards','legendaries','mythics','total_picks','upgrades_owned','upgrade_spend','contract_coins','contract_packs'];
+  const lines = [headers.join(',')];
+  for (const snap of r0.snapshots) {
+    const s = snap.state;
+    lines.push([
+      snap.day, s.money, s.unlockedPlots, s.totalHarvests, s.packsOpened,
+      s.uniqueCardsOwned, s.totalCardsOwned, s.legendariesOwned, s.mythicsOwned,
+      s.totalPicksTaken, s.upgradesOwned, s.upgradeSpend,
+      s.contractCoins, s.contractPacks,
+    ].join(','));
+  }
+  fs.writeFileSync(CSV_PATH, lines.join('\n'));
+  console.log(`Wrote ${lines.length - 1} day-rows to ${CSV_PATH}\n`);
+}
 
 // Aggregate milestones
 function pct(arr, p) {
