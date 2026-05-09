@@ -288,6 +288,19 @@ main {
   0%, 100% { box-shadow: 0 0 0 0 rgba(199, 93, 58, 0.55); }
   50% { box-shadow: 0 0 0 6px rgba(199, 93, 58, 0); }
 }
+/* Boon-flavored badge variant — gold + sits on the LEFT side so it's visually
+   distinct from the standard ready/attention badge (terracotta, right). */
+.tab-badge.tab-badge-boon {
+  right: auto;
+  left: 18%;
+  background: var(--gold);
+  color: var(--ink);
+  animation: tabBadgePulseBoon 2.2s ease-in-out infinite;
+}
+@keyframes tabBadgePulseBoon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(244, 193, 71, 0); }
+}
 
 /* === Contracts tab: market sub-header inside contract panel === */
 .contract-market-line {
@@ -2159,6 +2172,8 @@ main {
   <button class="tab-btn active" data-tab="farm" role="tab" aria-selected="true" aria-controls="tab-farm">
     <span class="tab-icon">🌱</span>
     <span class="tab-label">Farm</span>
+    <span class="tab-badge tab-badge-boon" id="tabBadgeFarmBoon" hidden></span>
+    <span class="tab-badge" id="tabBadgeFarmReady" hidden></span>
   </button>
   <button class="tab-btn" data-tab="contracts" role="tab" aria-selected="false" aria-controls="tab-contracts">
     <span class="tab-icon">📜</span>
@@ -2883,45 +2898,69 @@ function sndLevelUp() {
 function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
 function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
 
-// ============ AMBIENT DRONE ============
-// A soft procedural pad — three slightly-detuned sines through a lowpass +
-// slow gain LFO for a "breathing" effect. Master volume is very low so it
-// sits behind sound effects without competing. Auto-stops when the tab is
-// hidden so the player isn't humming at music in another tab.
+// ============ AMBIENT WIND ============
+// Cozy "wind through leaves" sound — pink noise through a bandpass filter
+// modulated slowly to create natural-feeling wooshes. Pink noise is the
+// universally-soothing version of background sound (rain, surf, wind
+// approximations all use it). Avoids the horror-movie tonality of a low
+// detuned-sine drone.
 let _ambientNodes = null;
+function _makePinkNoiseSource(ctx) {
+  // Paul Kellet's economic pink noise approximation — fills a 2-second buffer
+  // with proper pink noise (1/f spectrum), looped seamlessly.
+  const bufferSize = 2 * ctx.sampleRate;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < bufferSize; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520;
+    b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+    b6 = w * 0.115926;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  return src;
+}
 function startAmbient() {
   if (_ambientNodes) return;
   if (state && (state.soundEnabled === false || state.ambientEnabled === false)) return;
   const ctx = audioCtx();
   if (!ctx) return;
-  // Three sines with slight detune — warm root + gentle harmonics.
-  const oscs = [110, 165, 220].map((f, i) => {
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = f + (Math.random() - 0.5) * 1.5;
-    return o;
-  });
-  // Lowpass takes the edge off — silky pad rather than bright drone.
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = 600;
-  filter.Q.value = 0.5;
-  // Master gain (very quiet)
+  const noise = _makePinkNoiseSource(ctx);
+  // Bandpass at ~1.2kHz with low Q gives a "wind through leaves" character —
+  // not too low (rumble) not too high (hiss).
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 1200;
+  bp.Q.value = 0.7;
+  // High-shelf gentle attenuation to keep sibilance in check
+  const hs = ctx.createBiquadFilter();
+  hs.type = 'highshelf';
+  hs.frequency.value = 4000;
+  hs.gain.value = -6;
   const master = ctx.createGain();
-  master.gain.value = 0.012;
-  // Slow LFO modulating master gain ±20% for subtle "breathing"
+  master.gain.value = 0.05; // audible-but-background; tunable
+  // Slow LFO so the wind "wooshes" gently (different feel from a constant hiss)
   const lfo = ctx.createOscillator();
-  lfo.frequency.value = 0.06;             // ~16-second period
+  lfo.frequency.value = 0.08; // ~12s period
   const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.003;
+  lfoGain.gain.value = 0.018;
   lfo.connect(lfoGain);
   lfoGain.connect(master.gain);
-  // Wire the chain
-  for (const o of oscs) { o.connect(filter); o.start(); }
-  filter.connect(master);
+  noise.connect(bp);
+  bp.connect(hs);
+  hs.connect(master);
   master.connect(ctx.destination);
+  noise.start();
   lfo.start();
-  _ambientNodes = { oscs, filter, lfo, master };
+  _ambientNodes = { noise, bp, hs, master, lfo };
 }
 function stopAmbient() {
   if (!_ambientNodes) return;
@@ -2933,10 +2972,7 @@ function stopAmbient() {
     nodes.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
   }
   setTimeout(() => {
-    try {
-      nodes.oscs.forEach(o => o.stop());
-      nodes.lfo.stop();
-    } catch (e) { /* ignore */ }
+    try { nodes.noise.stop(); nodes.lfo.stop(); } catch (e) { /* ignore */ }
   }, 450);
 }
 function ensureAmbient() {
@@ -5290,6 +5326,22 @@ function renderTabBadges() {
     } else {
       contractsB.hidden = true;
     }
+  }
+  // Farm tab: two distinct badges so the player can tell at a glance whether
+  // they have crops to collect, boons to choose, or both.
+  //   - tabBadgeFarmReady (right side, terracotta) → plots ready to harvest
+  //   - tabBadgeFarmBoon  (left side, gold)        → boon picks pending
+  const farmReady = state.plots.filter(p => !p.locked && p.crop && p.elapsedMs >= p.totalMs).length;
+  const readyB = document.getElementById('tabBadgeFarmReady');
+  if (readyB) {
+    if (farmReady > 0) { readyB.hidden = false; readyB.textContent = farmReady; }
+    else readyB.hidden = true;
+  }
+  const farmBoons = totalAvailablePicks();
+  const boonB = document.getElementById('tabBadgeFarmBoon');
+  if (boonB) {
+    if (farmBoons > 0) { boonB.hidden = false; boonB.textContent = farmBoons; }
+    else boonB.hidden = true;
   }
 }
 
