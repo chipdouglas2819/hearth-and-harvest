@@ -174,12 +174,101 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 main {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 20px 36px 80px;
+  padding: 20px 36px 100px; /* extra bottom padding so tab bar doesn't cover content */
+}
+
+/* Tab content panes — only one visible at a time */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+#tab-farm.active {
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 32px;
   align-items: start;
 }
+.tab-placeholder {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--moss);
+  font-style: italic;
+  font-size: 14px;
+  background: var(--paper);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+/* Bottom tab bar */
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: rgba(254, 252, 247, 0.95);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  z-index: 60;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom)) 4px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
+}
+.tab-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  font-family: var(--sans);
+  color: var(--sage);
+  transition: color 0.15s ease;
+}
+.tab-btn .tab-icon {
+  font-size: 22px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.tab-btn .tab-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.tab-btn:hover { color: var(--forest); }
+.tab-btn.active { color: var(--terracotta); }
+.tab-btn.active .tab-icon { transform: scale(1.1); }
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  background: var(--terracotta);
+  border-radius: 0 0 3px 3px;
+}
+.tab-badge {
+  position: absolute;
+  top: 2px;
+  right: 18%;
+  background: var(--terracotta);
+  color: white;
+  border-radius: 999px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+}
+.tab-btn .tab-badge[hidden] { display: none; }
 
 /* === Daily dashboard (top of page) === */
 .dashboard {
@@ -924,10 +1013,13 @@ main {
 }
 @media (max-width: 720px) {
   .buff-options, .buff-options.wide { grid-template-columns: 1fr !important; }
-  main { grid-template-columns: 1fr; padding: 20px; }
+  main { padding: 20px 20px 110px; }
+  #tab-farm.active { grid-template-columns: 1fr; gap: 20px; }
   .topbar { padding: 16px 20px; flex-wrap: wrap; gap: 12px; }
   .sidebar { position: static; }
   .stats { width: 100%; justify-content: space-between; }
+  .tab-btn .tab-label { font-size: 9px; }
+  .tab-btn .tab-icon { font-size: 20px; }
 }
 
 .buff-card {
@@ -1463,31 +1555,74 @@ main {
 <section class="dashboard" id="dashboard"></section>
 
 <main>
-  <section class="plots-grid" id="plotsGrid"></section>
-  <aside class="sidebar">
-    <div class="panel">
-      <h3>Daily Contract</h3>
-      <div id="contractContent"></div>
-    </div>
-    <div class="panel">
-      <h3>Pack Progress</h3>
-      <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
-      <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
-      <div class="pack-stats">
-        <span id="totalCollected">0 boons collected</span>
-        <span id="totalHarvestsStat">0 harvests</span>
+  <div id="tab-farm" class="tab-content active">
+    <section class="plots-grid" id="plotsGrid"></section>
+    <aside class="sidebar">
+      <div class="panel">
+        <h3>Daily Contract</h3>
+        <div id="contractContent"></div>
       </div>
-    </div>
-    <div class="panel">
-      <h3>Mastery</h3>
-      <div id="masteryList"></div>
-    </div>
-    <div class="panel">
-      <h3>Recent Harvests</h3>
-      <div id="harvestLog"></div>
-    </div>
-  </aside>
+      <div class="panel">
+        <h3>Pack Progress</h3>
+        <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
+        <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
+        <div class="pack-stats">
+          <span id="totalCollected">0 boons collected</span>
+          <span id="totalHarvestsStat">0 harvests</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Mastery</h3>
+        <div id="masteryList"></div>
+      </div>
+      <div class="panel">
+        <h3>Recent Harvests</h3>
+        <div id="harvestLog"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="tab-contracts" class="tab-content">
+    <div class="tab-placeholder">📜 Contracts will live here in Phase 3</div>
+  </div>
+
+  <div id="tab-cards" class="tab-content">
+    <div class="tab-placeholder">🎴 Cards &amp; Pack progress will live here in Phase 3</div>
+  </div>
+
+  <div id="tab-journal" class="tab-content">
+    <div class="tab-placeholder">📔 Mastery, harvest log &amp; lifetime stats will live here in Phase 3</div>
+  </div>
+
+  <div id="tab-settings" class="tab-content">
+    <div class="tab-placeholder">⚙️ Settings will live here in Phase 3</div>
+  </div>
 </main>
+
+<nav class="tab-bar" id="tabBar">
+  <button class="tab-btn active" data-tab="farm" aria-selected="true">
+    <span class="tab-icon">🌱</span>
+    <span class="tab-label">Farm</span>
+  </button>
+  <button class="tab-btn" data-tab="contracts" aria-selected="false">
+    <span class="tab-icon">📜</span>
+    <span class="tab-label">Contracts</span>
+    <span class="tab-badge" id="tabBadgeContracts" hidden></span>
+  </button>
+  <button class="tab-btn" data-tab="cards" aria-selected="false">
+    <span class="tab-icon">🎴</span>
+    <span class="tab-label">Cards</span>
+    <span class="tab-badge" id="tabBadgeCards" hidden></span>
+  </button>
+  <button class="tab-btn" data-tab="journal" aria-selected="false">
+    <span class="tab-icon">📔</span>
+    <span class="tab-label">Journal</span>
+  </button>
+  <button class="tab-btn" data-tab="settings" aria-selected="false">
+    <span class="tab-icon">⚙️</span>
+    <span class="tab-label">Settings</span>
+  </button>
+</nav>
 
 <div class="modal" id="plantModal" hidden>
   <div class="modal-content">
@@ -2321,6 +2456,8 @@ const state = {
   marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
   // Audio
   soundEnabled: true,
+  // UI
+  activeTab: 'farm',
 };
 
 function makePlot(id) {
@@ -2592,6 +2729,7 @@ function saveGame() {
       marketFeaturedCrop: state.marketFeaturedCrop || null,
       marketHistory: state.marketHistory || [],
       soundEnabled: state.soundEnabled !== false,
+      activeTab: state.activeTab || 'farm',
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -2642,6 +2780,7 @@ function loadGame() {
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
     state.soundEnabled = loaded.soundEnabled !== false;
+    state.activeTab = loaded.activeTab || 'farm';
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -2883,7 +3022,7 @@ function tapEffectiveReduction() {
 }
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'collectionModal', 'loadoutModal']
+  return ['plantModal', 'buffModal', 'packModal', 'collectionModal', 'loadoutModal', 'moreModal', 'debugModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -3823,6 +3962,25 @@ document.querySelectorAll('.modal').forEach(m => {
   m.addEventListener('click', e => { if (e.target === m) closeAllModals(); });
 });
 
+// ============ TABS ============
+function switchTab(name) {
+  if (anyModalOpen()) return; // tabs inert while modal is open
+  document.querySelectorAll('.tab-content').forEach(el => {
+    el.classList.toggle('active', el.id === 'tab-' + name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const isActive = btn.dataset.tab === name;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  state.activeTab = name;
+  // scroll to top so player isn't dropped mid-page when switching
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => switchTab(btn.dataset.tab);
+});
+
 document.getElementById('globalPicksBtn').onclick = () => {
   const p = firstPlotWithPicks();
   if (p) openBuffModal(p.id);
@@ -4319,6 +4477,8 @@ applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
+// Restore last active tab (defaults to Farm for fresh sessions)
+if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
 
 // Save before tab close
 window.addEventListener('beforeunload', saveGame);
