@@ -52,48 +52,48 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 22px 36px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(254, 252, 247, 0.6);
+  background: rgba(254, 252, 247, 0.85);
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 50;
-  flex-wrap: wrap;
   gap: 16px;
+  min-height: 52px;
+  flex-wrap: wrap; /* small phones can wrap if needed */
 }
 .brand h1 {
   font-family: var(--serif);
   font-weight: 600;
-  font-size: 28px;
+  font-size: 20px;
   letter-spacing: -0.02em;
   color: var(--forest);
   font-style: italic;
-}
-.brand .subtitle {
-  font-family: var(--sans);
-  font-size: 11px;
-  color: var(--moss);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  display: block;
-  margin-top: -2px;
+  line-height: 1;
 }
 
-.stats { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-.money { display: flex; flex-direction: column; align-items: flex-end; }
+.stats { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.money {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--serif);
+  line-height: 1;
+}
 .label-tiny {
   font-size: 10px; letter-spacing: 0.18em;
   text-transform: uppercase; color: var(--moss);
   font-weight: 500;
 }
+.money .label-tiny { display: none; } /* compact: don't need a "coin" label next to the icon */
 .money .value {
   font-family: var(--serif);
   font-weight: 600;
-  font-size: 32px;
+  font-size: 22px;
   color: var(--terracotta);
   line-height: 1;
   font-feature-settings: "tnum";
 }
-.money .value::before { content: '◉ '; color: var(--butter); font-size: 18px; vertical-align: 4px; }
+.money .value::before { content: '◉ '; color: var(--butter); font-size: 14px; vertical-align: 1px; }
 
 .topbar-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .btn-pill {
@@ -139,12 +139,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   50% { box-shadow: 0 0 0 8px rgba(157, 111, 211, 0); }
 }
 
-.speed-control { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.speed-row { display: flex; gap: 4px; }
+.speed-control { display: flex; align-items: center; gap: 4px; }
+.speed-control .label-tiny { display: none; } /* compact: pill text speaks for itself */
+.speed-row { display: flex; gap: 3px; }
 .speed-btn {
   font-family: var(--mono);
-  font-size: 12px;
-  padding: 6px 10px;
+  font-size: 11px;
+  padding: 5px 9px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--paper);
@@ -174,7 +175,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 main {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 20px 36px 100px; /* extra bottom padding so tab bar doesn't cover content */
+  padding: 16px 24px 100px; /* extra bottom padding so tab bar doesn't cover content */
 }
 
 /* Tab content panes — only one visible at a time */
@@ -183,14 +184,14 @@ main {
   display: block;
   animation: tabFadeIn 0.18s ease-out;
 }
-#tab-farm.active {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 32px;
-  align-items: start;
+/* Cap reading width on the non-Farm tabs so panels feel intentional, not sprawling */
+#tab-contracts.active,
+#tab-cards.active,
+#tab-journal.active,
+#tab-settings.active {
+  max-width: 760px;
+  margin: 0 auto;
 }
-/* Farm tab now has no sidebar; force single column at desktop too */
-#tab-farm.active { grid-template-columns: 1fr; }
 @keyframes tabFadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -288,7 +289,7 @@ main {
 .dashboard {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 20px 36px 0;
+  padding: 14px 24px 0;
   display: grid;
   grid-template-columns: 2fr 1.2fr 1fr 1fr;
   gap: 12px;
@@ -339,8 +340,9 @@ main {
 
 .plots-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 320px));
   gap: 18px;
+  justify-content: center;
 }
 
 .plot {
@@ -729,6 +731,10 @@ main {
   border-radius: 12px;
   padding: 18px;
 }
+/* Stacked panels inside a tab need breathing room */
+.tab-content > .panel + .panel,
+.tab-content > .panel + .pack-cta-panel,
+.tab-content > .pack-cta-panel + .panel { margin-top: 16px; }
 .panel h3 {
   font-family: var(--serif);
   font-size: 16px;
@@ -1027,13 +1033,15 @@ main {
 }
 @media (max-width: 720px) {
   .buff-options, .buff-options.wide { grid-template-columns: 1fr !important; }
-  main { padding: 20px 20px 110px; }
-  #tab-farm.active { grid-template-columns: 1fr; gap: 20px; }
-  .topbar { padding: 16px 20px; flex-wrap: wrap; gap: 12px; }
-  .sidebar { position: static; }
-  .stats { width: 100%; justify-content: space-between; }
+  main { padding: 16px 16px 110px; }
+  #tab-farm.active { gap: 16px; }
+  .topbar { padding: 8px 16px; gap: 10px; }
+  .topbar .brand h1 { font-size: 17px; }
+  .money .value { font-size: 19px; }
+  .speed-btn { padding: 4px 7px; font-size: 10px; }
   .tab-btn .tab-label { font-size: 9px; }
   .tab-btn .tab-icon { font-size: 20px; }
+  .dashboard { padding: 12px 16px 0; }
 }
 
 .buff-card {
@@ -1561,15 +1569,13 @@ main {
 
 <header class="topbar">
   <div class="brand">
-    <h1>Hearth & Harvest</h1>
+    <h1>Hearth &amp; Harvest</h1>
   </div>
   <div class="stats">
     <div class="money">
-      <span class="label-tiny">coin</span>
       <span class="value" id="moneyValue">25</span>
     </div>
     <div class="speed-control">
-      <span class="label-tiny">time speed</span>
       <div class="speed-row">
         <button class="speed-btn" data-speed="1">1×</button>
         <button class="speed-btn" data-speed="60">60×</button>
