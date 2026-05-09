@@ -174,11 +174,64 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 main {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 32px 36px 80px;
+  padding: 20px 36px 80px;
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 32px;
   align-items: start;
+}
+
+/* === Daily dashboard (top of page) === */
+.dashboard {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 36px 0;
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1fr;
+  gap: 12px;
+}
+.dashboard-cell {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 56px;
+  justify-content: center;
+}
+.dashboard-cell.clickable { cursor: pointer; transition: all 0.15s ease; }
+.dashboard-cell.clickable:hover { border-color: var(--moss); transform: translateY(-1px); }
+.dashboard-cell.attention { border-color: var(--gold); background: rgba(244, 193, 71, 0.08); }
+.dashboard-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sage);
+}
+.dashboard-value {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--forest);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dashboard-value .market-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
+.dashboard-value .market-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
+.dashboard-value .pick-count { color: var(--terracotta); font-weight: 700; }
+.dashboard-emoji { font-size: 18px; line-height: 1; }
+.dashboard-cell .empty-state { color: var(--sage); font-style: italic; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .dashboard { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .dashboard { grid-template-columns: 1fr; padding: 16px 20px 0; }
 }
 
 .plots-grid {
@@ -1406,13 +1459,11 @@ main {
   </div>
 </header>
 
+<section class="dashboard" id="dashboard"></section>
+
 <main>
   <section class="plots-grid" id="plotsGrid"></section>
   <aside class="sidebar">
-    <div class="panel market-panel">
-      <h3>Today's Market</h3>
-      <div id="marketContent"></div>
-    </div>
     <div class="panel">
       <h3>Daily Contract</h3>
       <div id="contractContent"></div>
@@ -1616,6 +1667,15 @@ const MARKET_SATURATED_PENALTY = 0.7;
 function getCurrentDayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+// Reset today's harvest/coin counters at local midnight
+function rotateTodayIfNewDay() {
+  const today = getCurrentDayKey();
+  if (state.todayDayKey === today) return;
+  state.todayDayKey = today;
+  state.todayHarvests = 0;
+  state.todayCoins = 0;
 }
 
 function rotateMarketIfNewDay() {
@@ -2162,6 +2222,10 @@ const state = {
   // Plot upgrades — per-plot 3-tier QoL/buff system. Indexed by plot id.
   // Each entry: { autoReplant: bool, masterGardener: bool, practicedSoil: bool }
   plotUpgrades: [],
+  // Today's stats — reset at local midnight
+  todayDayKey: null,
+  todayHarvests: 0,
+  todayCoins: 0,
   // Today's Market — featured crop gets +40% sell value, rotates at midnight
   marketDayKey: null,
   marketFeaturedCrop: null,
@@ -2424,6 +2488,9 @@ function saveGame() {
       packsOpened: state.packsOpened,
       migrationsApplied: [...state.migrationsApplied],
       plotUpgrades: JSON.parse(JSON.stringify(state.plotUpgrades || [])),
+      todayDayKey: state.todayDayKey || null,
+      todayHarvests: state.todayHarvests || 0,
+      todayCoins: state.todayCoins || 0,
       activeContracts: JSON.parse(JSON.stringify(state.activeContracts || [])),
       offeredContracts: JSON.parse(JSON.stringify(state.offeredContracts || [])),
       contractsCompleted: state.contractsCompleted || 0,
@@ -2476,6 +2543,9 @@ function loadGame() {
     state.contractsOfferedDayKey = loaded.contractsOfferedDayKey || null;
     state.contractsGeneratedToday = loaded.contractsGeneratedToday || 0;
     state.contractRerollsUsedToday = loaded.contractRerollsUsedToday || 0;
+    state.todayDayKey = loaded.todayDayKey || null;
+    state.todayHarvests = loaded.todayHarvests || 0;
+    state.todayCoins = loaded.todayCoins || 0;
     state.marketDayKey = loaded.marketDayKey || null;
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
@@ -2805,6 +2875,10 @@ function harvest(plotId, ev) {
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
+  // Today's stats — for the dashboard
+  rotateTodayIfNewDay();
+  state.todayHarvests = (state.todayHarvests || 0) + 1;
+  state.todayCoins = (state.todayCoins || 0) + yieldAmount;
   // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes.
   // Plot upgrade "Master Gardener" adds +25% mastery hours per harvest on this plot.
   const masteryBoost = plotHasUpgrade(plotId, 'masterGardener') ? 1.25 : 1.0;
@@ -3745,6 +3819,73 @@ function renderOfferedContractHTML(c, locked) {
   `;
 }
 
+// Daily dashboard — single-glance status strip below the topbar.
+// Cells: today's market | active/offered contracts | pending picks | today's stats
+function renderDashboard() {
+  const el = document.getElementById('dashboard');
+  if (!el) return;
+  rotateMarketIfNewDay();
+  rotateTodayIfNewDay();
+
+  // Market cell
+  let marketHtml = '<div class="dashboard-label">Today\'s Market</div>';
+  if (state.marketFeaturedCrop) {
+    const f = CROPS[state.marketFeaturedCrop];
+    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+    const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+    let inner = `<span class="dashboard-emoji">${f.emoji}</span> ${f.name} <span class="market-up">+${fPct}%</span>`;
+    if (s) inner += ` &nbsp;·&nbsp; <span class="dashboard-emoji">${s.emoji}</span> ${s.name} <span class="market-down">−${sPct}%</span>`;
+    marketHtml += `<div class="dashboard-value">${inner}</div>`;
+  } else {
+    marketHtml += '<div class="dashboard-value"><span class="empty-state">no featured crop yet</span></div>';
+  }
+
+  // Contracts cell
+  const activeCount = (state.activeContracts || []).length;
+  const offeredCount = (state.offeredContracts || []).length;
+  let contractsValue = '';
+  if (activeCount > 0 && offeredCount > 0) contractsValue = `${activeCount} active · ${offeredCount} offered`;
+  else if (activeCount > 0) contractsValue = `${activeCount} active`;
+  else if (offeredCount > 0) contractsValue = `<span class="pick-count">${offeredCount}</span> offered`;
+  else contractsValue = '<span class="empty-state">none today</span>';
+  const contractsHtml = `
+    <div class="dashboard-label">Contracts</div>
+    <div class="dashboard-value">📜 ${contractsValue}</div>
+  `;
+
+  // Picks cell — interactive, jumps to first plot with picks
+  const totalPicks = totalAvailablePicks();
+  const picksHtml = `
+    <div class="dashboard-label">Boon Picks</div>
+    <div class="dashboard-value">${totalPicks > 0 ? `<span class="pick-count">${totalPicks}</span> pending` : '<span class="empty-state">none pending</span>'}</div>
+  `;
+
+  // Today cell — harvests + coins earned today
+  const tH = state.todayHarvests || 0;
+  const tC = state.todayCoins || 0;
+  const todayHtml = `
+    <div class="dashboard-label">Today</div>
+    <div class="dashboard-value">${tH} harvest${tH === 1 ? '' : 's'} · ◉ ${fmtMoney(tC)}</div>
+  `;
+
+  el.innerHTML = `
+    <div class="dashboard-cell market-cell">${marketHtml}</div>
+    <div class="dashboard-cell">${contractsHtml}</div>
+    <div class="dashboard-cell clickable picks-cell ${totalPicks > 0 ? 'attention' : ''}">${picksHtml}</div>
+    <div class="dashboard-cell">${todayHtml}</div>
+  `;
+
+  // Wire picks cell to open the first plot's boon modal
+  const picksCell = el.querySelector('.picks-cell');
+  if (picksCell && totalPicks > 0) {
+    picksCell.onclick = () => {
+      const p = firstPlotWithPicks();
+      if (p) openBuffModal(p.id);
+    };
+  }
+}
+
 function renderMarket() {
   const el = document.getElementById('marketContent');
   if (!el) return;
@@ -3971,7 +4112,7 @@ function render() {
   });
 
   // market + contract panels
-  renderMarket();
+  renderDashboard();
   renderContract();
 
   // mastery — grow-hours invested per crop, +0.1% per 20 hours
