@@ -487,7 +487,23 @@ main {
   border-left: 3px solid var(--sage);
 }
 .buff-chip .ferment-bonus { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--terracotta); }
-.buff-chip .buff-outcome { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--terracotta); font-style: normal; }
+.buff-chip .buff-outcome {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-style: normal;
+}
+.buff-chip .buff-outcome.hit { color: var(--rust); background: rgba(244, 193, 71, 0.25); }
+.buff-chip .buff-outcome.miss { color: var(--moss); background: rgba(143, 166, 142, 0.20); opacity: 0.85; }
+.buff-chip .buff-outcome.fresh { animation: outcomeFlash 1.6s ease-out; }
+@keyframes outcomeFlash {
+  0%   { transform: scale(1.4); box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.6); }
+  40%  { transform: scale(1.1); box-shadow: 0 0 14px 4px rgba(244, 193, 71, 0.35); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 193, 71, 0); }
+}
 .buff-chip.uncommon { border-left-color: var(--moss); background: rgba(74, 107, 79, 0.10); }
 .buff-chip.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.10); color: var(--rust); }
 .buff-chip.legendary { border-left-color: var(--gold); background: rgba(212, 160, 44, 0.14); color: var(--rust); font-weight: 600; }
@@ -1303,6 +1319,8 @@ main {
   color: var(--sage);
 }
 .lm-card .lc-tag.crop { color: var(--terracotta); }
+.lm-card.on-other-plot { border-style: dashed; opacity: 0.78; }
+.lm-card.on-other-plot:hover { opacity: 1; border-style: solid; border-color: var(--moss); }
 .lm-card .lc-count {
   font-family: var(--mono);
   font-size: 13px;
@@ -2299,6 +2317,32 @@ function applyStarMigration() {
   state.migrationsApplied.push('stars_v1');
 }
 
+// One-time migration: enforce one-card-per-plot on existing saves.
+// Strategy: keep a card on the LOWEST plot index it appears on; remove from the rest.
+function applyOneCardPerPlotMigration() {
+  if (state.migrationsApplied.includes('one_card_per_plot_v1')) return;
+  const seen = new Set();
+  let removed = 0;
+  for (let plotId = 0; plotId < state.loadouts.length; plotId++) {
+    const loadout = state.loadouts[plotId];
+    if (!loadout) continue;
+    state.loadouts[plotId] = loadout.filter(buffId => {
+      if (seen.has(buffId)) { removed++; return false; }
+      seen.add(buffId);
+      return true;
+    });
+  }
+  if (removed > 0) {
+    state.harvestLog.unshift({
+      type: 'info',
+      text: `🌾 One-card-per-plot rule: ${removed} duplicate card${removed === 1 ? '' : 's'} consolidated`,
+      t: Date.now(),
+    });
+    if (state.harvestLog.length > 6) state.harvestLog.pop();
+  }
+  state.migrationsApplied.push('one_card_per_plot_v1');
+}
+
 // Mastery v3: tiered curve so early hours give visible feedback, late hours slow down.
 // Tier 1 (0-50h):    +0.1% per  5 hours invested  (fast onboarding feedback)
 // Tier 2 (50-200h):  +0.1% per 10 hours
@@ -2865,7 +2909,7 @@ function applyBuff(plotId, buff) {
   let outcome = null;
   if (buff.custom) outcome = handleCustom(plotId, buff, echoActive);
 
-  plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome });
+  plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
   plot.picksTaken += 1;
   closeAllModals();
   render();
@@ -3052,10 +3096,29 @@ function isEquippedOnPlot(buffId, plotId) {
   return (state.loadouts[plotId] || []).includes(buffId);
 }
 
+// One-card-per-plot rule: a card can only be equipped on a single plot.
+// Equipping it on a new plot automatically removes it from any other plot.
+function findCurrentPlotForBuff(buffId) {
+  for (let i = 0; i < state.loadouts.length; i++) {
+    if (state.loadouts[i] && state.loadouts[i].includes(buffId)) return i;
+  }
+  return -1;
+}
+
+function unequipFromAllPlots(buffId) {
+  for (const loadout of state.loadouts) {
+    if (!loadout) continue;
+    const idx = loadout.indexOf(buffId);
+    if (idx >= 0) loadout.splice(idx, 1);
+  }
+}
+
 function equipToPlot(plotId, buffId) {
   if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
   const loadout = state.loadouts[plotId];
-  if (loadout.includes(buffId)) return; // already equipped
+  if (loadout.includes(buffId)) return; // already equipped here
+  // One-card-per-plot: remove from any other plot first
+  unequipFromAllPlots(buffId);
   if (loadout.length >= MAX_PERMA_SLOTS) {
     loadout.shift(); // bump oldest
   }
@@ -3305,14 +3368,15 @@ function renderCollection() {
 
   sorted.forEach(buff => {
     const card = document.createElement('div');
-    // count how many plots have this equipped
-    const equippedOn = state.loadouts.reduce((acc, l, i) => acc + (l.includes(buff.id) ? 1 : 0), 0);
+    // One-card-per-plot: each card is on at most one plot
+    const equippedPlot = findCurrentPlotForBuff(buff.id);
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
     card.className = `lm-card ${buff.rarity}`;
     const stars = buff.stars || 1;
     const prog = dupesTowardNextStar(buff.count, stars);
     const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
     const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
+    const equippedTag = equippedPlot >= 0 ? ` · on Plot ${equippedPlot + 1}` : '';
     card.innerHTML = `
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
@@ -3321,7 +3385,7 @@ function renderCollection() {
         <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
-      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedOn > 0 ? ` · equipped ×${equippedOn}` : ''}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedTag}</div>
     `;
     grid.appendChild(card);
   });
@@ -3441,13 +3505,17 @@ function renderLoadoutModal() {
     const card = document.createElement('div');
     const equipped = isEquippedOnPlot(buff.id, plotId);
     const active = !buff.cropOnly || buff.cropOnly === currentCrop;
-    const equippedCount = state.loadouts.reduce((acc, l) => acc + (l.includes(buff.id) ? 1 : 0), 0);
-    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''}`;
+    const otherPlot = findCurrentPlotForBuff(buff.id); // -1 if nowhere, plotId if here, else other plot
+    const onOtherPlot = otherPlot >= 0 && otherPlot !== plotId;
+    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''} ${onOtherPlot ? 'on-other-plot' : ''}`;
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
     const stars = buff.stars || 1;
     const prog = dupesTowardNextStar(buff.count, stars);
     const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
     const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
+    const tagSuffix = equipped ? ' · ✓ here'
+                    : onOtherPlot ? ` · on Plot ${otherPlot + 1} → tap to move`
+                    : '';
     card.innerHTML = `
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
@@ -3456,11 +3524,11 @@ function renderLoadoutModal() {
         <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
-      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedCount > 0 && !equipped ? ` · on ${equippedCount} plot${equippedCount > 1 ? 's' : ''}` : ''}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${tagSuffix}</div>
     `;
     card.onclick = () => {
       if (equipped) unequipFromPlot(plotId, buff.id);
-      else equipToPlot(plotId, buff.id);
+      else equipToPlot(plotId, buff.id); // moves from other plot if needed
       renderLoadoutModal();
       render();
     };
@@ -3856,7 +3924,12 @@ function render() {
           <div class="active-buffs">
             ${plot.activeBuffs.map(b => {
               const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
-              const outcome = b._outcome ? ` <span class="buff-outcome">→ ${b._outcome}</span>` : '';
+              let outcome = '';
+              if (b._outcome) {
+                const isMiss = String(b._outcome).includes('miss') || String(b._outcome).startsWith('−');
+                const fresh = (Date.now() - (b._appliedAt || 0)) < 2000;
+                outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}${fresh ? ' fresh' : ''}">${b._outcome}</span>`;
+              }
               return `<span class="buff-chip ${b.rarity}">${b.name}${outcome}${extra}</span>`;
             }).join('')}
           </div>
@@ -3947,6 +4020,8 @@ function render() {
       } else if (h.type === 'contract_expired') {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''} expired</span><span class="amount contract-fail">—</span>`;
+      } else if (h.type === 'info') {
+        e.innerHTML = `<span class="what">${h.text}</span><span class="amount"></span>`;
       } else {
         // Optional: small atmospheric flavor or a "lucky" celebration
         const flavor = h.flavor ? `<span class="harvest-flavor">· ${h.flavor}</span>` : '';
@@ -4008,6 +4083,7 @@ function tick(now) {
 loadGame();
 applyStarMigration();
 applyMasteryHoursMigration();
+applyOneCardPerPlotMigration();
 refreshSpeedButtons();
 
 // Save before tab close
