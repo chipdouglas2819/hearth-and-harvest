@@ -1483,15 +1483,43 @@ main {
 
 .lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
 
-/* === collection modal (now smaller, no ad) === */
-.collection-modal-content { max-width: 920px; }
-.shop-row {
+/* === Cards tab: open-pack CTA panel === */
+.pack-cta-panel {
   display: flex;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px dashed var(--border);
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(135deg, rgba(244, 193, 71, 0.18), rgba(199, 93, 58, 0.10));
+  border: 1px solid var(--gold);
+  animation: packPulse 1.8s ease-in-out infinite;
+}
+.pack-cta-text { display: flex; flex-direction: column; gap: 2px; }
+.pack-cta-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--forest);
+}
+.pack-cta-sub { font-size: 12px; color: var(--moss); letter-spacing: 0.04em; }
+.btn.big { font-size: 15px; padding: 12px 22px; }
+
+/* === Journal tab: lifetime stats === */
+.lifetime-stats { display: flex; flex-direction: column; gap: 6px; }
+.lifetime-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+}
+.lifetime-row:last-child { border-bottom: none; }
+.lifetime-label { color: var(--moss); letter-spacing: 0.04em; }
+.lifetime-value {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--forest);
+  font-feature-settings: "tnum";
 }
 
 .float-money {
@@ -1521,18 +1549,6 @@ main {
     <h1>Hearth & Harvest</h1>
   </div>
   <div class="stats">
-    <div class="topbar-btn">
-      <span class="label-tiny">boons</span>
-      <button class="btn-pill boons" id="globalPicksBtn" disabled>
-        Open Boons <span class="badge" id="globalPicksBadge">0</span>
-      </button>
-    </div>
-    <div class="topbar-btn">
-      <span class="label-tiny">packs</span>
-      <button class="btn-pill packs" id="packsBtn">
-        Collection <span class="badge" id="packsBadge">0</span>
-      </button>
-    </div>
     <div class="money">
       <span class="label-tiny">coin</span>
       <span class="value" id="moneyValue">25</span>
@@ -1545,10 +1561,6 @@ main {
         <button class="speed-btn active" data-speed="600">600×</button>
       </div>
     </div>
-    <div class="topbar-btn">
-      <span class="label-tiny">more</span>
-      <button class="btn-pill debug-btn" id="moreBtn" title="Settings &amp; tools">⋯</button>
-    </div>
   </div>
 </header>
 
@@ -1557,45 +1569,70 @@ main {
 <main>
   <div id="tab-farm" class="tab-content active">
     <section class="plots-grid" id="plotsGrid"></section>
-    <aside class="sidebar">
-      <div class="panel">
-        <h3>Daily Contract</h3>
-        <div id="contractContent"></div>
-      </div>
-      <div class="panel">
-        <h3>Pack Progress</h3>
-        <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
-        <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
-        <div class="pack-stats">
-          <span id="totalCollected">0 boons collected</span>
-          <span id="totalHarvestsStat">0 harvests</span>
-        </div>
-      </div>
-      <div class="panel">
-        <h3>Mastery</h3>
-        <div id="masteryList"></div>
-      </div>
-      <div class="panel">
-        <h3>Recent Harvests</h3>
-        <div id="harvestLog"></div>
-      </div>
-    </aside>
   </div>
 
   <div id="tab-contracts" class="tab-content">
-    <div class="tab-placeholder">📜 Contracts will live here in Phase 3</div>
+    <div class="panel">
+      <h3>Daily Contracts</h3>
+      <div id="contractContent"></div>
+    </div>
   </div>
 
   <div id="tab-cards" class="tab-content">
-    <div class="tab-placeholder">🎴 Cards &amp; Pack progress will live here in Phase 3</div>
+    <div class="panel pack-cta-panel" id="cardsPackCtaPanel" hidden>
+      <div class="pack-cta-text">
+        <div class="pack-cta-title">A new pack is ready</div>
+        <div class="pack-cta-sub" id="cardsPackCtaSub">1 pack waiting</div>
+      </div>
+      <button class="btn btn-primary big" id="cardsOpenPackBtn">Open Pack</button>
+    </div>
+    <div class="panel">
+      <h3>Pack Progress</h3>
+      <div class="pack-progress" id="packProgress">0 / 10 harvests until next pack</div>
+      <div class="pack-bar"><div class="pack-bar-fill" id="packBarFill" style="width: 0%"></div></div>
+      <div class="pack-stats">
+        <span id="totalCollected">0 boons collected</span>
+        <span id="totalHarvestsStat">0 harvests</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Collection</h3>
+      <div class="lm-grid" id="cardsCollectionGrid"></div>
+    </div>
   </div>
 
   <div id="tab-journal" class="tab-content">
-    <div class="tab-placeholder">📔 Mastery, harvest log &amp; lifetime stats will live here in Phase 3</div>
+    <div class="panel">
+      <h3>Recent Harvests</h3>
+      <div id="harvestLog"></div>
+    </div>
+    <div class="panel">
+      <h3>Mastery</h3>
+      <div id="masteryList"></div>
+    </div>
+    <div class="panel">
+      <h3>Lifetime Stats</h3>
+      <div id="lifetimeStats" class="lifetime-stats"></div>
+    </div>
   </div>
 
   <div id="tab-settings" class="tab-content">
-    <div class="tab-placeholder">⚙️ Settings will live here in Phase 3</div>
+    <div class="more-list">
+      <div class="more-row">
+        <div class="more-row-label">
+          <div class="more-row-title">Sound</div>
+          <div class="more-row-sub">tap, harvest, pack &amp; level-up chimes</div>
+        </div>
+        <button class="btn btn-ghost more-row-btn" id="settingsMuteBtn">🔊 On</button>
+      </div>
+      <div class="more-row">
+        <div class="more-row-label">
+          <div class="more-row-title">Debug Panel</div>
+          <div class="more-row-sub">force-apply boons, dev shortcuts</div>
+        </div>
+        <button class="btn btn-ghost more-row-btn" id="settingsDebugBtn">🔧 Open</button>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -1680,30 +1717,6 @@ main {
   </div>
 </div>
 
-<div class="modal" id="moreModal" hidden>
-  <div class="modal-content">
-    <h2>Settings</h2>
-    <p class="modal-subtitle">tweak preferences and dev shortcuts</p>
-    <div class="more-list">
-      <div class="more-row">
-        <div class="more-row-label">
-          <div class="more-row-title">Sound</div>
-          <div class="more-row-sub">tap, harvest, pack, level-up chimes</div>
-        </div>
-        <button class="btn btn-ghost more-row-btn" id="moreMuteBtn">🔊 On</button>
-      </div>
-      <div class="more-row">
-        <div class="more-row-label">
-          <div class="more-row-title">Debug Panel</div>
-          <div class="more-row-sub">force-apply boons, dev shortcuts</div>
-        </div>
-        <button class="btn btn-ghost more-row-btn" id="moreDebugBtn">🔧 Open</button>
-      </div>
-    </div>
-    <button class="modal-close" data-close>close</button>
-  </div>
-</div>
-
 <div class="modal" id="debugModal" hidden>
   <div class="modal-content wide">
     <h2>🔧 Debug / Boon Test Panel</h2>
@@ -1723,15 +1736,6 @@ main {
     </div>
     <div class="debug-section-title">In-run boons (click to apply)</div>
     <div class="debug-grid" id="debugBuffGrid"></div>
-    <button class="modal-close" data-close>close</button>
-  </div>
-</div>
-
-<div class="modal" id="collectionModal" hidden>
-  <div class="modal-content wide collection-modal-content">
-    <h2>Boon Collection</h2>
-    <p class="modal-subtitle">all owned perma-boons. equip them on individual plots from the plot's loadout panel.</p>
-    <div class="lm-grid" id="collectionGrid" style="max-height: 480px;"></div>
     <button class="modal-close" data-close>close</button>
   </div>
 </div>
@@ -3022,7 +3026,7 @@ function tapEffectiveReduction() {
 }
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'collectionModal', 'loadoutModal', 'moreModal', 'debugModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -3660,17 +3664,10 @@ function watchAdForBonus() {
   }, 1000);
 }
 
-function openCollectionModal() {
-  if (state.pendingPacks > 0) {
-    openPackModal();
-    return;
-  }
-  document.getElementById('collectionModal').hidden = false;
-  renderCollection();
-}
-
-function renderCollection() {
-  const grid = document.getElementById('collectionGrid');
+// Renders the full owned-cards collection into the Cards tab grid.
+function renderCardsCollection() {
+  const grid = document.getElementById('cardsCollectionGrid');
+  if (!grid) return;
   grid.innerHTML = '';
 
   if (state.collection.length === 0) {
@@ -3860,10 +3857,8 @@ function closeAllModals() {
   document.getElementById('plantModal').hidden = true;
   document.getElementById('buffModal').hidden = true;
   document.getElementById('packModal').hidden = true;
-  document.getElementById('collectionModal').hidden = true;
   document.getElementById('loadoutModal').hidden = true;
   document.getElementById('debugModal').hidden = true;
-  document.getElementById('moreModal').hidden = true;
 }
 
 // ============ DEBUG PANEL ============
@@ -3916,26 +3911,20 @@ function openDebugModal() {
   document.getElementById('debugModal').hidden = false;
 }
 
-function syncMoreModalLabels() {
-  const mb = document.getElementById('moreMuteBtn');
+function syncSettingsLabels() {
+  const mb = document.getElementById('settingsMuteBtn');
   if (mb) mb.textContent = state.soundEnabled === false ? '🔇 Off' : '🔊 On';
 }
 
-function openMoreModal() {
-  syncMoreModalLabels();
-  document.getElementById('moreModal').hidden = false;
-}
-
-document.getElementById('moreBtn').onclick = openMoreModal;
-document.getElementById('moreMuteBtn').onclick = () => {
+document.getElementById('settingsMuteBtn').onclick = () => {
   state.soundEnabled = !state.soundEnabled;
-  syncMoreModalLabels();
+  syncSettingsLabels();
   if (state.soundEnabled) sndUiClick();
   saveGame();
 };
-document.getElementById('moreDebugBtn').onclick = () => {
-  document.getElementById('moreModal').hidden = true;
-  openDebugModal();
+document.getElementById('settingsDebugBtn').onclick = openDebugModal;
+document.getElementById('cardsOpenPackBtn').onclick = () => {
+  if (state.pendingPacks > 0) openPackModal();
 };
 document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
 document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
@@ -3980,12 +3969,6 @@ function switchTab(name) {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
 });
-
-document.getElementById('globalPicksBtn').onclick = () => {
-  const p = firstPlotWithPicks();
-  if (p) openBuffModal(p.id);
-};
-document.getElementById('packsBtn').onclick = openCollectionModal;
 
 document.querySelectorAll('.speed-btn').forEach(b => {
   b.onclick = () => {
@@ -4107,6 +4090,44 @@ function renderOfferedContractHTML(c, locked) {
 
 // Daily dashboard — single-glance status strip below the topbar.
 // Cells: today's market | active/offered contracts | pending picks | today's stats
+// Lifetime stats panel inside the Journal tab.
+function renderLifetimeStats() {
+  const el = document.getElementById('lifetimeStats');
+  if (!el) return;
+  const rows = [
+    { label: 'Harvests', value: state.totalHarvests || 0 },
+    { label: 'Boons collected', value: state.collection.length },
+    { label: 'Packs opened', value: state.packsOpened || 0 },
+    { label: 'Contracts completed', value: state.contractsCompleted || 0 },
+  ];
+  el.innerHTML = rows.map(r =>
+    `<div class="lifetime-row"><span class="lifetime-label">${r.label}</span><span class="lifetime-value">${r.value}</span></div>`
+  ).join('');
+}
+
+// Updates tab-bar badges based on what needs attention.
+function renderTabBadges() {
+  const cardsB = document.getElementById('tabBadgeCards');
+  if (cardsB) {
+    if (state.pendingPacks > 0) {
+      cardsB.hidden = false;
+      cardsB.textContent = state.pendingPacks;
+    } else {
+      cardsB.hidden = true;
+    }
+  }
+  const contractsB = document.getElementById('tabBadgeContracts');
+  if (contractsB) {
+    const offered = (state.offeredContracts || []).length;
+    if (offered > 0) {
+      contractsB.hidden = false;
+      contractsB.textContent = offered;
+    } else {
+      contractsB.hidden = true;
+    }
+  }
+}
+
 function renderDashboard() {
   const el = document.getElementById('dashboard');
   if (!el) return;
@@ -4187,27 +4208,26 @@ function getFermentBonusText(plot) {
 function render() {
   document.getElementById('moneyValue').textContent = fmtMoney(state.money);
 
-  const totalPicks = totalAvailablePicks();
-  const gpb = document.getElementById('globalPicksBtn');
-  document.getElementById('globalPicksBadge').textContent = totalPicks;
-  gpb.disabled = totalPicks === 0;
-  gpb.classList.toggle('has-attention', totalPicks > 0);
-
-  const packsBtn = document.getElementById('packsBtn');
-  packsBtn.querySelector('.badge').textContent = state.pendingPacks;
-  packsBtn.classList.toggle('has-attention', state.pendingPacks > 0);
-  if (state.pendingPacks > 0) packsBtn.firstChild.textContent = 'Open Pack ';
-  else packsBtn.firstChild.textContent = 'Collection ';
-
-  // pack progress sidebar
+  // Cards tab — pack-pending CTA, pack progress, lifetime totals
   const harvestsThisCycle = state.totalHarvests % HARVESTS_PER_PACK;
-  document.getElementById('packProgress').textContent =
-    state.pendingPacks > 0
-      ? `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} ready · open from topbar`
-      : `${harvestsThisCycle}/${HARVESTS_PER_PACK} harvests until next pack`;
+  const packCta = document.getElementById('cardsPackCtaPanel');
+  if (state.pendingPacks > 0) {
+    packCta.hidden = false;
+    document.getElementById('cardsPackCtaSub').textContent =
+      `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} waiting`;
+    document.getElementById('packProgress').textContent =
+      `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} ready · open above`;
+  } else {
+    packCta.hidden = true;
+    document.getElementById('packProgress').textContent =
+      `${harvestsThisCycle}/${HARVESTS_PER_PACK} harvests until next pack`;
+  }
   document.getElementById('packBarFill').style.width = (harvestsThisCycle / HARVESTS_PER_PACK * 100) + '%';
   document.getElementById('totalCollected').textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} collected`;
   document.getElementById('totalHarvestsStat').textContent = `${state.totalHarvests} harvest${state.totalHarvests === 1 ? '' : 's'}`;
+  renderCardsCollection();
+  renderLifetimeStats();
+  renderTabBadges();
 
   // plots — show all unlocked plots, plus only the FIRST locked plot (next-to-buy)
   const grid = document.getElementById('plotsGrid');
@@ -4477,6 +4497,7 @@ applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
+syncSettingsLabels();
 // Restore last active tab (defaults to Farm for fresh sessions)
 if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
 
