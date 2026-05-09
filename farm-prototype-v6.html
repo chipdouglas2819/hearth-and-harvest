@@ -285,58 +285,117 @@ main {
   50% { box-shadow: 0 0 0 6px rgba(199, 93, 58, 0); }
 }
 
-/* === Daily dashboard (top of page) === */
-.dashboard {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 14px 24px 0;
-  display: grid;
-  grid-template-columns: 2fr 1.2fr 1fr 1fr;
-  gap: 12px;
-}
-.dashboard-cell {
-  background: var(--paper);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 14px;
+/* === Contracts tab: market sub-header inside contract panel === */
+.contract-market-line {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-height: 56px;
-  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--forest);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: rgba(244, 193, 71, 0.07);
+  border-radius: 6px;
 }
-.dashboard-cell.clickable { cursor: pointer; transition: all 0.15s ease; }
-.dashboard-cell.clickable:hover { border-color: var(--moss); transform: translateY(-1px); }
-.dashboard-cell.attention { border-color: var(--gold); background: rgba(244, 193, 71, 0.08); }
-.dashboard-label {
+.contract-market-line .cml-label {
   font-family: var(--mono);
+  font-style: normal;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--sage);
+  margin-right: 4px;
 }
-.dashboard-value {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 14px;
-  color: var(--forest);
+.contract-market-line .cml-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
+.contract-market-line .cml-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
+.contract-market-line .cml-divider { color: var(--sage); }
+
+/* === Farm tab: Today's Market strip === */
+.farm-market-strip {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--forest);
+  background: linear-gradient(180deg, rgba(244, 193, 71, 0.06), transparent);
+  border-radius: 8px;
   flex-wrap: wrap;
 }
-.dashboard-value .market-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
-.dashboard-value .market-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
-.dashboard-value .pick-count { color: var(--terracotta); font-weight: 700; }
-.dashboard-emoji { font-size: 18px; line-height: 1; }
-.dashboard-cell .empty-state { color: var(--sage); font-style: italic; font-size: 12px; }
+.farm-market-strip[hidden] { display: none !important; }
+.farm-market-strip .fm-emoji { font-size: 16px; line-height: 1; }
+.farm-market-strip .fm-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
+.farm-market-strip .fm-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
+.farm-market-strip .fm-divider { color: var(--sage); }
+.farm-market-strip .fm-label {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-right: 4px;
+}
 
-@media (max-width: 1100px) {
-  .dashboard { grid-template-columns: 1fr 1fr; }
+/* === Boon FAB — pending picks call-to-action === */
+.boon-fab {
+  position: fixed;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  right: 16px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--gold);
+  background: linear-gradient(135deg, var(--butter), rgba(244, 193, 71, 0.85));
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(199, 93, 58, 0.20), 0 2px 6px rgba(0,0,0,0.08);
+  animation: boonFabPulse 1.6s ease-in-out infinite, boonFabAppear 0.22s ease-out;
+  transition: transform 0.15s ease;
+}
+.boon-fab:hover { transform: translateY(-2px); }
+.boon-fab[hidden] { display: none !important; }
+.boon-fab .boon-fab-count {
+  background: var(--terracotta);
+  color: white;
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@keyframes boonFabPulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(199, 93, 58, 0.20), 0 2px 6px rgba(0,0,0,0.08), 0 0 0 0 rgba(244, 193, 71, 0.55); }
+  50%      { box-shadow: 0 6px 18px rgba(199, 93, 58, 0.20), 0 2px 6px rgba(0,0,0,0.08), 0 0 0 10px rgba(244, 193, 71, 0); }
+}
+@keyframes boonFabAppear {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 @media (max-width: 720px) {
-  .dashboard { grid-template-columns: 1fr; padding: 16px 20px 0; }
+  .boon-fab { font-size: 13px; padding: 10px 16px; right: 12px; }
 }
+
 
 .plots-grid {
   display: grid;
@@ -1041,7 +1100,6 @@ main {
   .speed-btn { padding: 4px 7px; font-size: 10px; }
   .tab-btn .tab-label { font-size: 9px; }
   .tab-btn .tab-icon { font-size: 20px; }
-  .dashboard { padding: 12px 16px 0; }
 }
 
 .buff-card {
@@ -1527,6 +1585,33 @@ main {
 .pack-cta-sub { font-size: 12px; color: var(--moss); letter-spacing: 0.04em; }
 .btn.big { font-size: 15px; padding: 12px 22px; }
 
+/* === Journal tab: Today panel (top of Journal) === */
+.today-panel-body {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-family: var(--serif);
+  font-style: italic;
+}
+.today-panel-body .today-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.today-panel-body .today-num {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--terracotta);
+  font-feature-settings: "tnum";
+  font-style: normal;
+  font-family: var(--serif);
+  line-height: 1;
+}
+.today-panel-body .today-num.coin::before { content: '◉ '; color: var(--butter); font-size: 16px; vertical-align: 1px; }
+.today-panel-body .today-label { color: var(--moss); font-size: 13px; }
+.today-panel-body .today-empty { color: var(--sage); font-size: 13px; }
+
 /* === Journal tab: lifetime stats === */
 .lifetime-stats { display: flex; flex-direction: column; gap: 6px; }
 .lifetime-row {
@@ -1585,10 +1670,9 @@ main {
   </div>
 </header>
 
-<section class="dashboard" id="dashboard"></section>
-
 <main>
   <div id="tab-farm" class="tab-content active" role="tabpanel">
+    <div class="farm-market-strip" id="farmMarketStrip" hidden></div>
     <section class="plots-grid" id="plotsGrid"></section>
   </div>
 
@@ -1623,6 +1707,10 @@ main {
   </div>
 
   <div id="tab-journal" class="tab-content" role="tabpanel">
+    <div class="panel today-panel">
+      <h3>Today</h3>
+      <div id="todayPanelBody" class="today-panel-body"></div>
+    </div>
     <div class="panel">
       <h3>Recent Harvests</h3>
       <div id="harvestLog"></div>
@@ -1681,6 +1769,12 @@ main {
     <span class="tab-label">Settings</span>
   </button>
 </nav>
+
+<button class="boon-fab" id="boonFab" hidden aria-label="Choose pending boons">
+  <span aria-hidden="true">🌟</span>
+  <span>Choose Boons</span>
+  <span class="boon-fab-count" id="boonFabCount">0</span>
+</button>
 
 <div class="modal" id="plantModal" hidden>
   <div class="modal-content">
@@ -3947,6 +4041,10 @@ document.getElementById('settingsDebugBtn').onclick = openDebugModal;
 document.getElementById('cardsOpenPackBtn').onclick = () => {
   if (state.pendingPacks > 0) openPackModal();
 };
+document.getElementById('boonFab').onclick = () => {
+  const p = firstPlotWithPicks();
+  if (p) openBuffModal(p.id);
+};
 document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
 document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
 document.getElementById('dbgMakeReady').onclick = () => {
@@ -4042,12 +4140,25 @@ function renderContract() {
   // Drop expired actives + refresh offer pool if it's a new day
   checkContractExpiry();
   ensureContractOffered();
+  rotateMarketIfNewDay();
 
   const activeHTML = state.activeContracts.map(c => renderActiveContractHTML(c)).join('');
   const slotsLeft = MAX_ACTIVE_CONTRACTS - state.activeContracts.length;
   const offerableNow = state.offeredContracts.slice(0, slotsLeft);
 
-  let html = '';
+  // Today's market sub-header — gives contract pricing context without redundant panel
+  let marketLine = '';
+  if (state.marketFeaturedCrop) {
+    const f = CROPS[state.marketFeaturedCrop];
+    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+    const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+    marketLine = `<div class="contract-market-line"><span class="cml-label">Today's market</span> ${f.emoji} ${f.name} <span class="cml-up">+${fPct}%</span>`;
+    if (s) marketLine += ` <span class="cml-divider">·</span> ${s.emoji} ${s.name} <span class="cml-down">−${sPct}%</span>`;
+    marketLine += '</div>';
+  }
+
+  let html = marketLine;
   if (activeHTML) html += '<div class="contract-section-label">active</div>' + activeHTML;
   if (state.offeredContracts.length > 0) {
     html += '<div class="contract-section-label">today\'s offers</div>';
@@ -4056,7 +4167,8 @@ function renderContract() {
     }
     html += state.offeredContracts.map(c => renderOfferedContractHTML(c, slotsLeft <= 0)).join('');
   }
-  if (!html) html = '<div class="contract-empty">no contracts right now · check back at midnight</div>';
+  if (!html.includes('contract-section-label') && !marketLine) html = '<div class="contract-empty">no contracts right now · check back at midnight</div>';
+  else if (!html.includes('contract-section-label')) html += '<div class="contract-empty">no contracts right now · check back at midnight</div>';
   el.innerHTML = html;
 
   // Wire accept + reroll buttons
@@ -4140,8 +4252,6 @@ function renderOfferedContractHTML(c, locked) {
   `;
 }
 
-// Daily dashboard — single-glance status strip below the topbar.
-// Cells: today's market | active/offered contracts | pending picks | today's stats
 // Lifetime stats panel inside the Journal tab.
 function renderLifetimeStats() {
   const el = document.getElementById('lifetimeStats');
@@ -4180,69 +4290,59 @@ function renderTabBadges() {
   }
 }
 
-function renderDashboard() {
-  const el = document.getElementById('dashboard');
+// Farm tab market strip — slim "Today's Market" line above the plot grid.
+// Hidden until the first market rotation has produced a featured crop.
+function renderFarmMarket() {
+  const el = document.getElementById('farmMarketStrip');
   if (!el) return;
   rotateMarketIfNewDay();
-  rotateTodayIfNewDay();
-
-  // Market cell
-  let marketHtml = '<div class="dashboard-label">Today\'s Market</div>';
-  if (state.marketFeaturedCrop) {
-    const f = CROPS[state.marketFeaturedCrop];
-    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
-    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
-    const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
-    let inner = `<span class="dashboard-emoji">${f.emoji}</span> ${f.name} <span class="market-up">+${fPct}%</span>`;
-    if (s) inner += ` &nbsp;·&nbsp; <span class="dashboard-emoji">${s.emoji}</span> ${s.name} <span class="market-down">−${sPct}%</span>`;
-    marketHtml += `<div class="dashboard-value">${inner}</div>`;
-  } else {
-    marketHtml += '<div class="dashboard-value"><span class="empty-state">no featured crop yet</span></div>';
+  if (!state.marketFeaturedCrop) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
   }
+  const f = CROPS[state.marketFeaturedCrop];
+  const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+  const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+  const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+  let html = `<span class="fm-label">Today's Market</span>` +
+    `<span class="fm-emoji">${f.emoji}</span> ${f.name} <span class="fm-up">+${fPct}%</span>`;
+  if (s) html += ` <span class="fm-divider">·</span> <span class="fm-emoji">${s.emoji}</span> ${s.name} <span class="fm-down">−${sPct}%</span>`;
+  el.innerHTML = html;
+  el.hidden = false;
+}
 
-  // Contracts cell
-  const activeCount = (state.activeContracts || []).length;
-  const offeredCount = (state.offeredContracts || []).length;
-  let contractsValue = '';
-  if (activeCount > 0 && offeredCount > 0) contractsValue = `${activeCount} active · ${offeredCount} offered`;
-  else if (activeCount > 0) contractsValue = `${activeCount} active`;
-  else if (offeredCount > 0) contractsValue = `<span class="pick-count">${offeredCount}</span> offered`;
-  else contractsValue = '<span class="empty-state">none today</span>';
-  const contractsHtml = `
-    <div class="dashboard-label">Contracts</div>
-    <div class="dashboard-value">📜 ${contractsValue}</div>
-  `;
-
-  // Picks cell — interactive, jumps to first plot with picks
+// Boon FAB — pulses in bottom-right when there are pending picks.
+// Shared across all tabs; tap opens first plot with picks.
+function renderBoonFab() {
+  const fab = document.getElementById('boonFab');
+  if (!fab) return;
   const totalPicks = totalAvailablePicks();
-  const picksHtml = `
-    <div class="dashboard-label">Boon Picks</div>
-    <div class="dashboard-value">${totalPicks > 0 ? `<span class="pick-count">${totalPicks}</span> pending` : '<span class="empty-state">none pending</span>'}</div>
-  `;
+  if (totalPicks > 0) {
+    document.getElementById('boonFabCount').textContent = totalPicks;
+    fab.hidden = false;
+    fab.setAttribute('aria-hidden', 'false');
+  } else {
+    fab.hidden = true;
+    fab.setAttribute('aria-hidden', 'true');
+  }
+}
 
-  // Today cell — harvests + coins earned today
+// Today panel (top of Journal tab) — harvests + coins earned today.
+function renderTodayPanel() {
+  const el = document.getElementById('todayPanelBody');
+  if (!el) return;
+  rotateTodayIfNewDay();
   const tH = state.todayHarvests || 0;
   const tC = state.todayCoins || 0;
-  const todayHtml = `
-    <div class="dashboard-label">Today</div>
-    <div class="dashboard-value">${tH} harvest${tH === 1 ? '' : 's'} · ◉ ${fmtMoney(tC)}</div>
-  `;
-
-  el.innerHTML = `
-    <div class="dashboard-cell market-cell">${marketHtml}</div>
-    <div class="dashboard-cell">${contractsHtml}</div>
-    <div class="dashboard-cell clickable picks-cell ${totalPicks > 0 ? 'attention' : ''}">${picksHtml}</div>
-    <div class="dashboard-cell">${todayHtml}</div>
-  `;
-
-  // Wire picks cell to open the first plot's boon modal
-  const picksCell = el.querySelector('.picks-cell');
-  if (picksCell && totalPicks > 0) {
-    picksCell.onclick = () => {
-      const p = firstPlotWithPicks();
-      if (p) openBuffModal(p.id);
-    };
+  if (tH === 0 && tC === 0) {
+    el.innerHTML = '<span class="today-empty">no harvests yet today</span>';
+    return;
   }
+  el.innerHTML = `
+    <div class="today-stat"><span class="today-num">${tH}</span><span class="today-label">harvest${tH === 1 ? '' : 's'}</span></div>
+    <div class="today-stat"><span class="today-num coin">${fmtMoney(tC)}</span><span class="today-label">earned</span></div>
+  `;
 }
 
 
@@ -4434,8 +4534,10 @@ function render() {
     grid.appendChild(el);
   });
 
-  // market + contract panels
-  renderDashboard();
+  // contextual surfaces (replaced the always-on Dashboard strip)
+  renderFarmMarket();
+  renderBoonFab();
+  renderTodayPanel();
   renderContract();
 
   // mastery — grow-hours invested per crop, +0.1% per 20 hours
