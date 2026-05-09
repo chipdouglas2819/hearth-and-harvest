@@ -1341,18 +1341,6 @@ main {
   100% { opacity: 0; transform: translateY(-60px) scale(1); }
 }
 
-.readme {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 36px 60px;
-  font-size: 12px;
-  color: var(--sage);
-  line-height: 1.7;
-  font-style: italic;
-  border-top: 1px dashed var(--border);
-  padding-top: 24px;
-}
-.readme strong { color: var(--moss); font-style: normal; font-weight: 600; }
 
 </style>
 </head>
@@ -1425,10 +1413,6 @@ main {
     </div>
   </aside>
 </main>
-
-<div class="readme">
-  <strong>v6 fixes:</strong> The boon and plant button issues were from render rebuilding the entire plot DOM every frame at 600× speed — clicks were being lost mid-event. Tick now does light DOM updates (progress bar, time text) without rebuilding. Tap effect scales with speed (≈2% at 1×, ≈11% at 600×) and now animates visibly. Time-mult buffs no longer un-ready a ripe plot when applied late. Plant modal now shows "need ◉ X more" so it's clear why options are locked. Wishflower/Cornucopia no longer waste their charge on closing the modal. Starting balance: ◉ 25 — exactly one radish. <strong>Monetization (TBD):</strong> the right model — battle-pass-style permanent upgrades, ad-free purchase, or a subscription — depends on the meta-game we haven't built yet. Removed the per-pack price tag. The Watch-Ad-for-Bonus-Card button stays in pack openings as the rewarded video pattern.
-</div>
 
 <div class="modal" id="plantModal" hidden>
   <div class="modal-content">
