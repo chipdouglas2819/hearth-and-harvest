@@ -7,12 +7,12 @@
 const CROPS = {
   radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
   carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
-  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 3, unlocksAt: { crop: 'carrot',     harvests: 1 } },
-  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 4, unlocksAt: { crop: 'tomato',     harvests: 1 } },
-  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 6, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 2, unlocksAt: { crop: 'carrot',     harvests: 1 } },
+  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 3, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 5, unlocksAt: { crop: 'strawberry', harvests: 1 } },
   corn:       { growthHrs: 30, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
-  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 830,  pickCount: 6, unlocksAt: { crop: 'corn',       harvests: 1 } },
-  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1150, pickCount: 6, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
+  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 950,  pickCount: 5, unlocksAt: { crop: 'corn',       harvests: 1 } },
+  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1300, pickCount: 5, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
 };
 function isCropUnlocked(state, crop) {
   const c = CROPS[crop];

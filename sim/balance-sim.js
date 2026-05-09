@@ -8,12 +8,12 @@ const USE_PROPOSED = process.argv.includes('--proposed');
 const CROPS = USE_PROPOSED ? {
   radish:     { growthHrs: 4,  plantCost: 20,  baseYield: 70,   pickCount: 1 },
   carrot:     { growthHrs: 8,  plantCost: 35,  baseYield: 160,  pickCount: 2 },
-  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 3 },
-  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 4 },
-  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 6 },
+  tomato:     { growthHrs: 12, plantCost: 60,  baseYield: 250,  pickCount: 2 },
+  strawberry: { growthHrs: 18, plantCost: 80,  baseYield: 370,  pickCount: 3 },
+  wheat:      { growthHrs: 24, plantCost: 100, baseYield: 380,  pickCount: 5 },
   corn:       { growthHrs: 30, plantCost: 175, baseYield: 690,  pickCount: 5 },
-  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 830,  pickCount: 6 },
-  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1150, pickCount: 6 },
+  pumpkin:    { growthHrs: 40, plantCost: 220, baseYield: 950,  pickCount: 5 },
+  sunflower:  { growthHrs: 50, plantCost: 280, baseYield: 1300, pickCount: 5 },
 } : {
   radish:  { growthHrs: 4,  plantCost: 20,  baseYield: 60,   pickCount: 2 },
   carrot:  { growthHrs: 8,  plantCost: 35,  baseYield: 130,  pickCount: 3 },

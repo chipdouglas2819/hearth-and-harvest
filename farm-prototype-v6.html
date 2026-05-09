@@ -1527,12 +1527,12 @@ main {
 const CROPS = {
   radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
   carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
-  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 3, unlocksAt: { crop: 'carrot',     harvests: 1 } },
-  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 370,  pickCount: 4, unlocksAt: { crop: 'tomato',     harvests: 1 } },
-  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 380,  pickCount: 6, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 2, unlocksAt: { crop: 'carrot',     harvests: 1 } },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 370,  pickCount: 3, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 380,  pickCount: 5, unlocksAt: { crop: 'strawberry', harvests: 1 } },
   corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
-  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 830,  pickCount: 6, unlocksAt: { crop: 'corn',       harvests: 1 } },
-  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1150, pickCount: 6, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
+  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 950,  pickCount: 5, unlocksAt: { crop: 'corn',       harvests: 1 } },
+  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1300, pickCount: 5, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
 };
 
 // Derive harvests-of-a-crop from grow-hour mastery (1 harvest = growthHrs of mastery)
