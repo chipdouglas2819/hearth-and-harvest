@@ -179,12 +179,21 @@ main {
 
 /* Tab content panes — only one visible at a time */
 .tab-content { display: none; }
-.tab-content.active { display: block; }
+.tab-content.active {
+  display: block;
+  animation: tabFadeIn 0.18s ease-out;
+}
 #tab-farm.active {
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 32px;
   align-items: start;
+}
+/* Farm tab now has no sidebar; force single column at desktop too */
+#tab-farm.active { grid-template-columns: 1fr; }
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .tab-placeholder {
   padding: 60px 20px;
@@ -267,8 +276,13 @@ main {
   align-items: center;
   justify-content: center;
   font-family: var(--sans);
+  animation: tabBadgePulse 2.2s ease-in-out infinite;
 }
 .tab-btn .tab-badge[hidden] { display: none; }
+@keyframes tabBadgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(199, 93, 58, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(199, 93, 58, 0); }
+}
 
 /* === Daily dashboard (top of page) === */
 .dashboard {
@@ -1567,18 +1581,18 @@ main {
 <section class="dashboard" id="dashboard"></section>
 
 <main>
-  <div id="tab-farm" class="tab-content active">
+  <div id="tab-farm" class="tab-content active" role="tabpanel">
     <section class="plots-grid" id="plotsGrid"></section>
   </div>
 
-  <div id="tab-contracts" class="tab-content">
+  <div id="tab-contracts" class="tab-content" role="tabpanel">
     <div class="panel">
       <h3>Daily Contracts</h3>
       <div id="contractContent"></div>
     </div>
   </div>
 
-  <div id="tab-cards" class="tab-content">
+  <div id="tab-cards" class="tab-content" role="tabpanel">
     <div class="panel pack-cta-panel" id="cardsPackCtaPanel" hidden>
       <div class="pack-cta-text">
         <div class="pack-cta-title">A new pack is ready</div>
@@ -1601,7 +1615,7 @@ main {
     </div>
   </div>
 
-  <div id="tab-journal" class="tab-content">
+  <div id="tab-journal" class="tab-content" role="tabpanel">
     <div class="panel">
       <h3>Recent Harvests</h3>
       <div id="harvestLog"></div>
@@ -1616,7 +1630,7 @@ main {
     </div>
   </div>
 
-  <div id="tab-settings" class="tab-content">
+  <div id="tab-settings" class="tab-content" role="tabpanel">
     <div class="more-list">
       <div class="more-row">
         <div class="more-row-label">
@@ -1636,26 +1650,26 @@ main {
   </div>
 </main>
 
-<nav class="tab-bar" id="tabBar">
-  <button class="tab-btn active" data-tab="farm" aria-selected="true">
+<nav class="tab-bar" id="tabBar" role="tablist" aria-label="Main navigation">
+  <button class="tab-btn active" data-tab="farm" role="tab" aria-selected="true" aria-controls="tab-farm">
     <span class="tab-icon">🌱</span>
     <span class="tab-label">Farm</span>
   </button>
-  <button class="tab-btn" data-tab="contracts" aria-selected="false">
+  <button class="tab-btn" data-tab="contracts" role="tab" aria-selected="false" aria-controls="tab-contracts">
     <span class="tab-icon">📜</span>
     <span class="tab-label">Contracts</span>
     <span class="tab-badge" id="tabBadgeContracts" hidden></span>
   </button>
-  <button class="tab-btn" data-tab="cards" aria-selected="false">
+  <button class="tab-btn" data-tab="cards" role="tab" aria-selected="false" aria-controls="tab-cards">
     <span class="tab-icon">🎴</span>
     <span class="tab-label">Cards</span>
     <span class="tab-badge" id="tabBadgeCards" hidden></span>
   </button>
-  <button class="tab-btn" data-tab="journal" aria-selected="false">
+  <button class="tab-btn" data-tab="journal" role="tab" aria-selected="false" aria-controls="tab-journal">
     <span class="tab-icon">📔</span>
     <span class="tab-label">Journal</span>
   </button>
-  <button class="tab-btn" data-tab="settings" aria-selected="false">
+  <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings">
     <span class="tab-icon">⚙️</span>
     <span class="tab-label">Settings</span>
   </button>
@@ -3968,6 +3982,37 @@ function switchTab(name) {
 }
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
+});
+
+const TAB_ORDER = ['farm', 'contracts', 'cards', 'journal', 'settings'];
+function cycleTab(direction) {
+  const idx = TAB_ORDER.indexOf(state.activeTab || 'farm');
+  const next = (idx + direction + TAB_ORDER.length) % TAB_ORDER.length;
+  switchTab(TAB_ORDER[next]);
+}
+
+// Keyboard shortcuts (ignored when typing in inputs/selects, or when a modal is open)
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (anyModalOpen()) return;
+
+  switch (e.key) {
+    case '1': state.speed = 1; refreshSpeedButtons(); break;
+    case '2': state.speed = 60; refreshSpeedButtons(); break;
+    case '3': state.speed = 600; refreshSpeedButtons(); break;
+    case 'm': case 'M':
+      state.soundEnabled = !state.soundEnabled;
+      syncSettingsLabels();
+      if (state.soundEnabled) sndUiClick();
+      saveGame();
+      break;
+    case '[': cycleTab(-1); break;
+    case ']': cycleTab(1); break;
+    default: return;
+  }
+  e.preventDefault();
 });
 
 document.querySelectorAll('.speed-btn').forEach(b => {
