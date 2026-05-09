@@ -116,6 +116,36 @@ for (const crop of cropList) {
   PERMA_POOL.push({ id: `p_${crop}_l`, rarity: 'legendary', yieldMult: 1.28, cropOnly: crop });
 }
 
+// ============ CARD SETS (mirror of game) ============
+// Crop set: own all 4 crop-specific PERMA cards → +10% yield on that crop.
+// Master set: own every PERMA card → +5% global yield.
+const CARD_SETS = (() => {
+  const sets = [];
+  for (const crop of cropList) {
+    sets.push({
+      id: `set_${crop}`,
+      cardIds: PERMA_POOL.filter(b => b.cropOnly === crop).map(b => b.id),
+      bonus: { type: 'crop_yield', crop, mult: 1.10 },
+    });
+  }
+  sets.push({
+    id: 'set_master',
+    cardIds: PERMA_POOL.map(b => b.id),
+    bonus: { type: 'global_yield', mult: 1.05 },
+  });
+  return sets;
+})();
+function getCardSetBonus(state, crop) {
+  let mult = 1.0;
+  for (const set of CARD_SETS) {
+    const owned = set.cardIds.every(id => state.collection.some(c => c.id === id));
+    if (!owned) continue;
+    if (set.bonus.type === 'crop_yield' && set.bonus.crop === crop) mult *= set.bonus.mult;
+    if (set.bonus.type === 'global_yield') mult *= set.bonus.mult;
+  }
+  return mult;
+}
+
 // ============ PLOT UPGRADES (mirror of game) ============
 const PLOT_UPGRADES = {
   autoReplant:    { cost: 10000  },
@@ -496,6 +526,7 @@ function harvest(state, plotId) {
   }
   mult *= getPermaYieldMultForPlot(state, plotId);
   mult *= getMasteryBonusForCrop(state, plot.crop);
+  mult *= getCardSetBonus(state, plot.crop);
   const yieldAmount = Math.floor(CROPS[plot.crop].baseYield * mult);
   state.money += yieldAmount;
   // Mastery now in grow-hours invested
@@ -717,6 +748,17 @@ function playerActions(state, milestones, simSec, pickStrategy = pickGreedy) {
     });
     if (!milestones.first_pack_opened) milestones.first_pack_opened = simSec;
     if (!milestones.full_loadout_p1 && state.loadouts[0].length >= 4) milestones.full_loadout_p1 = simSec;
+    // Set completion milestones — track first set + first crop set + master
+    if (!milestones.first_set_complete) {
+      const anyComplete = CARD_SETS.some(s => s.cardIds.every(id => state.collection.some(c => c.id === id)));
+      if (anyComplete) milestones.first_set_complete = simSec;
+    }
+    if (!milestones.master_set_complete) {
+      const masterSet = CARD_SETS.find(s => s.id === 'set_master');
+      if (masterSet.cardIds.every(id => state.collection.some(c => c.id === id))) {
+        milestones.master_set_complete = simSec;
+      }
+    }
   }
 }
 
@@ -861,6 +903,7 @@ const milestoneKeys = [
   'plot5_unlocked', 'plot6_unlocked', 'plot7_unlocked', 'plot8_unlocked',
   'first_legendary_perma', 'first_mythic_perma',
   'full_loadout_p1',
+  'first_set_complete', 'master_set_complete',
 ];
 for (const k of milestoneKeys) {
   const times = allRuns.map(r => r.milestones[k]).filter(t => t !== undefined);

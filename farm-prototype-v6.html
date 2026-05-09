@@ -1585,6 +1585,77 @@ main {
 .pack-cta-sub { font-size: 12px; color: var(--moss); letter-spacing: 0.04em; }
 .btn.big { font-size: 15px; padding: 12px 22px; }
 
+/* === Cards tab: Sets panel === */
+.panel-sub { color: var(--moss); font-size: 12px; margin-bottom: 14px; line-height: 1.4; }
+.card-sets { display: flex; flex-direction: column; gap: 8px; }
+.card-set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  transition: all 0.18s ease;
+}
+.card-set-row.complete {
+  background: linear-gradient(135deg, rgba(244, 193, 71, 0.10), rgba(199, 93, 58, 0.06));
+  border-color: var(--gold);
+  box-shadow: 0 1px 4px rgba(244, 193, 71, 0.18);
+}
+.card-set-row .cs-icon {
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.card-set-row .cs-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.card-set-row .cs-row1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.card-set-row .cs-name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--forest);
+}
+.card-set-row.complete .cs-name { color: var(--terracotta); }
+.card-set-row .cs-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--moss);
+  font-feature-settings: "tnum";
+}
+.card-set-row.complete .cs-count { color: var(--gold); }
+.card-set-row .cs-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.card-set-row .cs-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--moss), var(--terracotta));
+  transition: width 0.3s ease;
+}
+.card-set-row.complete .cs-bar-fill {
+  background: linear-gradient(90deg, var(--gold), var(--terracotta));
+}
+.card-set-row .cs-bonus {
+  font-size: 11px;
+  color: var(--sage);
+  font-style: italic;
+}
+.card-set-row.complete .cs-bonus {
+  color: var(--gold);
+  font-weight: 600;
+  font-style: normal;
+}
+
 /* === Journal tab: Today panel (top of Journal) === */
 .today-panel-body {
   display: flex;
@@ -1699,6 +1770,11 @@ main {
         <span id="totalCollected">0 boons collected</span>
         <span id="totalHarvestsStat">0 harvests</span>
       </div>
+    </div>
+    <div class="panel">
+      <h3>Sets</h3>
+      <p class="panel-sub">Complete a set for a permanent passive bonus that stacks with everything else.</p>
+      <div class="card-sets" id="cardSetsList"></div>
     </div>
     <div class="panel">
       <h3>Collection</h3>
@@ -2536,6 +2612,56 @@ const PERMA_POOL = [
 // Plot costs: clean ~×4 exponential. Plot 8 = $1.25M is multi-month aspirational.
 const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 
+// ============ CARD SETS ============
+// Sets reward completionist play. Owning every card in a set grants a permanent passive
+// bonus that stacks with star-leveling and equipped buffs. Computed live from state.collection
+// — no save migration needed. Each crop has its own set; one master set rewards owning all 47.
+const CARD_SETS = (() => {
+  const sets = [];
+  // Crop sets: own all 4 crop-specific PERMA cards → +10% yield on that crop, anywhere
+  const cropList = ['radish', 'carrot', 'tomato', 'strawberry', 'wheat', 'corn', 'pumpkin', 'sunflower'];
+  for (const crop of cropList) {
+    const cropCards = PERMA_POOL.filter(b => b.cropOnly === crop).map(b => b.id);
+    sets.push({
+      id: `set_${crop}`,
+      name: `${CROPS[crop].name} Set`,
+      icon: CROPS[crop].emoji,
+      cardIds: cropCards,
+      bonus: { type: 'crop_yield', crop, mult: 1.10 },
+      bonusLabel: '+10% yield to ' + CROPS[crop].name.toLowerCase(),
+    });
+  }
+  // Master set: own every PERMA card → +5% global yield (stacks with crop sets)
+  sets.push({
+    id: 'set_master',
+    name: 'Master Collection',
+    icon: '👑',
+    cardIds: PERMA_POOL.map(b => b.id),
+    bonus: { type: 'global_yield', mult: 1.05 },
+    bonusLabel: '+5% yield on every harvest',
+  });
+  return sets;
+})();
+
+function getSetCompletion(set) {
+  const owned = set.cardIds.filter(id => state.collection.some(c => c.id === id)).length;
+  return { owned, total: set.cardIds.length, complete: owned === set.cardIds.length };
+}
+function isSetComplete(setId) {
+  const set = CARD_SETS.find(s => s.id === setId);
+  return set ? getSetCompletion(set).complete : false;
+}
+// Returns yield mult contribution from completed sets, given a crop being harvested.
+function getCardSetBonus(crop) {
+  let mult = 1.0;
+  for (const set of CARD_SETS) {
+    if (!getSetCompletion(set).complete) continue;
+    if (set.bonus.type === 'crop_yield' && set.bonus.crop === crop) mult *= set.bonus.mult;
+    if (set.bonus.type === 'global_yield') mult *= set.bonus.mult;
+  }
+  return mult;
+}
+
 // ============ STATE ============
 const state = {
   money: 25,
@@ -3216,6 +3342,7 @@ function harvest(plotId, ev) {
 
   mult *= getPermaYieldMultForPlot(plotId);
   mult *= getMasteryBonusForCrop(plot.crop);
+  mult *= getCardSetBonus(plot.crop);
   // Today's Market: featured crop gets +40% on sell
   rotateMarketIfNewDay();
   const marketMult = getMarketYieldMultiplier(plot.crop);
@@ -3777,6 +3904,30 @@ function watchAdForBonus() {
       renderPackActions();
     }
   }, 1000);
+}
+
+// Renders the Sets panel — one row per set, with progress bar + bonus label.
+function renderCardSets() {
+  const el = document.getElementById('cardSetsList');
+  if (!el) return;
+  const rows = CARD_SETS.map(set => {
+    const { owned, total, complete } = getSetCompletion(set);
+    const pct = (owned / total) * 100;
+    return `
+      <div class="card-set-row ${complete ? 'complete' : ''}">
+        <div class="cs-icon">${set.icon}</div>
+        <div class="cs-body">
+          <div class="cs-row1">
+            <span class="cs-name">${set.name}</span>
+            <span class="cs-count">${owned}/${total}</span>
+          </div>
+          <div class="cs-bar"><div class="cs-bar-fill" style="width: ${pct}%"></div></div>
+          <div class="cs-bonus">${complete ? '✓ ' + set.bonusLabel : 'reward: ' + set.bonusLabel}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  el.innerHTML = rows;
 }
 
 // Renders the full owned-cards collection into the Cards tab grid.
@@ -4377,6 +4528,7 @@ function render() {
   document.getElementById('packBarFill').style.width = (harvestsThisCycle / HARVESTS_PER_PACK * 100) + '%';
   document.getElementById('totalCollected').textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} collected`;
   document.getElementById('totalHarvestsStat').textContent = `${state.totalHarvests} harvest${state.totalHarvests === 1 ? '' : 's'}`;
+  renderCardSets();
   renderCardsCollection();
   renderLifetimeStats();
   renderTabBadges();
