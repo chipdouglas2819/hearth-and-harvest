@@ -418,7 +418,7 @@ main {
   align-items: center;
   justify-content: center;
   margin: 4px 0 12px;
-  height: 110px;
+  height: 140px;
   position: relative;
   overflow: visible;
   z-index: 1;
@@ -444,20 +444,8 @@ main {
   100% { transform: scale(1); }
 }
 
-.tap-hint {
-  position: absolute;
-  bottom: -16px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--sage);
-  white-space: nowrap;
-  opacity: 0.7;
-  pointer-events: none;
-}
+/* tap-hint removed — it was intercepting the progress bar visually
+   and the entire 130x130 crop area is tappable (players figure it out) */
 
 .tap-popup {
   position: absolute;
@@ -1453,6 +1441,10 @@ main {
       </div>
     </div>
     <div class="topbar-btn">
+      <span class="label-tiny">sound</span>
+      <button class="btn-pill debug-btn" id="muteBtn" title="Toggle sound">🔊</button>
+    </div>
+    <div class="topbar-btn">
       <span class="label-tiny">debug</span>
       <button class="btn-pill debug-btn" id="debugBtn" title="Test boons / dev shortcuts">🔧</button>
     </div>
@@ -2009,6 +2001,70 @@ function completeContractById(id) {
   state.activeContracts.splice(idx, 1);
 }
 
+// ============ SOUND ============
+// Web Audio synthesized tones — tiny pleasing chimes, no asset files needed.
+// Lazy-init AudioContext on first call (browser autoplay policy).
+let _audioCtx = null;
+let _lastTapSoundMs = 0;
+const TAP_SOUND_THROTTLE_MS = 30;
+
+function audioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
+  if (state && state.soundEnabled === false) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const t0 = ctx.currentTime + delayMs / 1000;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.001, t0);
+  gain.gain.exponentialRampToValueAtTime(volume, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+function sndTap() {
+  const now = performance.now();
+  if (now - _lastTapSoundMs < TAP_SOUND_THROTTLE_MS) return;
+  _lastTapSoundMs = now;
+  playTone(660, 0.04, 0.025, 'triangle');
+}
+function sndHarvest() {
+  playTone(523, 0.10, 0.05);              // C5
+  playTone(659, 0.14, 0.05, 'sine', 60);  // E5
+  playTone(784, 0.20, 0.06, 'sine', 130); // G5
+}
+function sndLucky() {
+  playTone(523, 0.08, 0.05);
+  playTone(659, 0.08, 0.05, 'sine', 50);
+  playTone(784, 0.08, 0.06, 'sine', 100);
+  playTone(1047, 0.30, 0.08, 'sine', 160); // C6 sparkle
+}
+function sndPackOpen() {
+  playTone(440, 0.08, 0.05);              // A4
+  playTone(554, 0.10, 0.06, 'sine', 80);  // C#5
+  playTone(659, 0.20, 0.07, 'sine', 170); // E5
+}
+function sndLevelUp() {
+  playTone(440, 0.08, 0.05);              // A4
+  playTone(587, 0.10, 0.06, 'sine', 70);  // D5
+  playTone(740, 0.18, 0.07, 'sine', 140); // F#5
+}
+function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
+function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
+
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
@@ -2230,6 +2286,8 @@ const state = {
   marketDayKey: null,
   marketFeaturedCrop: null,
   marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
+  // Audio
+  soundEnabled: true,
 };
 
 function makePlot(id) {
@@ -2500,6 +2558,7 @@ function saveGame() {
       marketDayKey: state.marketDayKey || null,
       marketFeaturedCrop: state.marketFeaturedCrop || null,
       marketHistory: state.marketHistory || [],
+      soundEnabled: state.soundEnabled !== false,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -2549,6 +2608,7 @@ function loadGame() {
     state.marketDayKey = loaded.marketDayKey || null;
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
+    state.soundEnabled = loaded.soundEnabled !== false;
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -2807,6 +2867,7 @@ function tapCrop(plotId) {
   plot.tapsUsed += 1;
   plot.lastTapTime = now;
   plot.totalMs *= (1 - reduction);
+  sndTap();
 
   // animate the existing wrap (without destroying it via render)
   const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${plotId}"]`);
@@ -2875,6 +2936,7 @@ function harvest(plotId, ev) {
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
+  if (isLucky) sndLucky(); else sndHarvest();
   // Today's stats — for the dashboard
   rotateTodayIfNewDay();
   state.todayHarvests = (state.todayHarvests || 0) + 1;
@@ -2985,6 +3047,7 @@ function applyBuff(plotId, buff) {
 
   plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
   plot.picksTaken += 1;
+  sndPick();
   // Auto-advance: if there are still picks pending anywhere, refresh the modal
   // for the next plot so the player can blast through batch decisions in one
   // continuous flow. Tap-outside-modal still closes (manual stop).
@@ -3169,6 +3232,7 @@ function addToCollection(buff) {
       // Surface in the harvest log (most recent first)
       state.harvestLog.unshift({ type: 'levelup', name: buff.name, stars: existing.stars, rarity: buff.rarity, t: Date.now() });
       if (state.harvestLog.length > 6) state.harvestLog.pop();
+      sndLevelUp();
     }
   } else {
     state.collection.push({ ...buff, count: 1, stars: 1 });
@@ -3312,6 +3376,7 @@ function openPackModal(rarityFloor = null, customTitle = null) {
   renderPackCards();
   renderPackActions();
   document.getElementById('packModal').hidden = false;
+  sndPackOpen();
 }
 
 // Preview the effect of adding this pack card to the player's collection,
@@ -3679,6 +3744,12 @@ function openDebugModal() {
 }
 
 document.getElementById('debugBtn').onclick = openDebugModal;
+document.getElementById('muteBtn').onclick = () => {
+  state.soundEnabled = !state.soundEnabled;
+  document.getElementById('muteBtn').textContent = state.soundEnabled ? '🔊' : '🔇';
+  if (state.soundEnabled) sndUiClick();
+  saveGame();
+};
 document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
 document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
 document.getElementById('dbgMakeReady').onclick = () => {
@@ -4061,7 +4132,6 @@ function render() {
           <div class="growth-display">
             <div class="crop-visual-wrap ${ready ? 'exhausted' : ''}" data-plotid="${i}">
               <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
-              ${!ready ? '<div class="tap-hint">tap to grow</div>' : ''}
             </div>
           </div>
           <div class="progress-track">
@@ -4166,7 +4236,7 @@ function render() {
       } else if (h.type === 'contract_complete') {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         const packBit = h.packs ? ` +${h.packs} pack` : '';
-        e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''}</span><span class="amount contract-good">+${h.coins}c${packBit}</span>`;
+        e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''}</span><span class="amount contract-good">+${h.coins}${packBit}</span>`;
       } else if (h.type === 'contract_expired') {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''} expired</span><span class="amount contract-fail">—</span>`;
@@ -4235,6 +4305,11 @@ applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
+// Sync mute button label to loaded preference
+{
+  const mb = document.getElementById('muteBtn');
+  if (mb) mb.textContent = state.soundEnabled === false ? '🔇' : '🔊';
+}
 
 // Save before tab close
 window.addEventListener('beforeunload', saveGame);
