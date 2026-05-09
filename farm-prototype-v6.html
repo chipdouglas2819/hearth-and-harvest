@@ -1567,6 +1567,63 @@ main {
 
 .lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
 
+/* === Welcome-back overlay (shown after >5 min absence) === */
+.welcome-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(36, 28, 22, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  animation: wbFadeIn 0.35s ease-out;
+}
+.welcome-back[hidden] { display: none !important; }
+.wb-card {
+  background: var(--paper);
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  padding: 28px 32px;
+  max-width: 380px;
+  text-align: center;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  animation: wbSlideUp 0.4s ease-out 0.05s both;
+}
+.wb-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.wb-headline {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--forest);
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+.wb-detail {
+  font-size: 13px;
+  color: var(--moss);
+  line-height: 1.5;
+  margin-bottom: 22px;
+}
+.wb-cta { padding: 11px 22px; font-size: 14px; }
+@keyframes wbFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes wbSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* === Cards tab: open-pack CTA panel === */
 .pack-cta-panel[hidden] { display: none !important; }
 .pack-cta-panel {
@@ -2028,6 +2085,15 @@ main {
   <span>Choose Boons</span>
   <span class="boon-fab-count" id="boonFabCount">0</span>
 </button>
+
+<div class="welcome-back" id="welcomeBack" hidden>
+  <div class="wb-card">
+    <div class="wb-eyebrow">Welcome back</div>
+    <div class="wb-headline" id="wbHeadline"></div>
+    <div class="wb-detail" id="wbDetail"></div>
+    <button class="btn btn-primary wb-cta" id="wbCta">Step into the garden</button>
+  </div>
+</div>
 
 <div class="modal" id="plantModal" hidden>
   <div class="modal-content">
@@ -3321,10 +3387,25 @@ function loadGame() {
     if (loaded.savedAtMs) {
       const offlineMs = Math.max(0, Date.now() - loaded.savedAtMs);
       if (offlineMs > 0) {
+        let plotsReadyDuringOffline = 0;
+        let totalAdvancedMs = 0;
         for (const p of state.plots) {
           if (p.locked || !p.crop) continue;
+          const wasReady = p.elapsedMs >= p.totalMs;
           if (p.flags.skillFerment) p.elapsedMs += offlineMs;
           else p.elapsedMs = Math.min(p.totalMs, p.elapsedMs + offlineMs);
+          const isReady = p.elapsedMs >= p.totalMs;
+          if (!wasReady && isReady) plotsReadyDuringOffline += 1;
+          totalAdvancedMs += offlineMs;
+        }
+        // Stash a transient summary so init() can render a welcome-back banner.
+        // Only worth showing for absences > 5 minutes; below that it's just a tab refresh.
+        if (offlineMs > 5 * 60 * 1000) {
+          state._offlineSummary = {
+            offlineMs,
+            plotsReadyDuringOffline,
+            anyGrowing: totalAdvancedMs > 0,
+          };
         }
       }
     }
@@ -4500,6 +4581,41 @@ document.getElementById('achToggleBtn').onclick = () => {
   _achShowAll = !_achShowAll;
   renderAchievements();
 };
+
+// ============ WELCOME-BACK BANNER ============
+function fmtAwayTime(ms) {
+  const m = ms / 60000;
+  if (m < 60) return `${Math.round(m)} min`;
+  const h = m / 60;
+  if (h < 24) return `${h.toFixed(1)} hr`;
+  return `${(h / 24).toFixed(1)} days`;
+}
+function showWelcomeBack(summary) {
+  if (!summary) return;
+  const headline = document.getElementById('wbHeadline');
+  const detail = document.getElementById('wbDetail');
+  const banner = document.getElementById('welcomeBack');
+  if (!banner || !headline || !detail) return;
+  const away = fmtAwayTime(summary.offlineMs);
+  if (summary.plotsReadyDuringOffline > 0) {
+    headline.textContent = summary.plotsReadyDuringOffline === 1
+      ? `A plot is ready to harvest`
+      : `${summary.plotsReadyDuringOffline} plots are ready to harvest`;
+    detail.textContent = `Your farm grew quietly while you were away (${away}).`;
+  } else if (summary.anyGrowing) {
+    headline.textContent = 'Your crops kept growing';
+    detail.textContent = `${away} of patient work — check on them.`;
+  } else {
+    headline.textContent = 'Welcome back';
+    detail.textContent = `Time to plant something new.`;
+  }
+  banner.hidden = false;
+  // Auto-dismiss after a generous read window so the player can take it in
+  // without being trapped by it.
+  const dismiss = () => { banner.hidden = true; };
+  document.getElementById('wbCta').onclick = dismiss;
+  banner.addEventListener('click', e => { if (e.target === banner) dismiss(); });
+}
 document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
 document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
 document.getElementById('dbgMakeReady').onclick = () => {
@@ -5167,6 +5283,7 @@ function updatePlotTick(plot) {
   }
 }
 
+let _lastContractTickRender = 0;
 function tick(now) {
   const dt = now - state.lastTick;
   state.lastTick = now;
@@ -5191,11 +5308,18 @@ function tick(now) {
     }
   }
   if (structuralChange) render();
+  // Live contract countdown: if the player is sitting on the Contracts tab,
+  // refresh the panel every ~30s so the "Xh Ym Zs left" timer ticks down.
+  // Cheap (only when tab is active and only every 30s wall-clock).
+  if (state.activeTab === 'contracts' && now - _lastContractTickRender > 30000) {
+    _lastContractTickRender = now;
+    renderContract();
+  }
   requestAnimationFrame(tick);
 }
 
-// Load saved game (if any), then apply any pending migrations
-loadGame();
+// Load saved game (if any). If load returns false → totally fresh state.
+const isFreshStart = !loadGame();
 applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
@@ -5206,10 +5330,32 @@ syncSettingsLabels();
 // visit the Contracts tab — a bug, not the design intent.
 checkContractExpiry();
 ensureContractOffered();
+
+// First-session starter scene: a fresh player lands with plot 1 already grown,
+// ready to harvest, and 1 pack pre-pending. Their first 60 seconds become an
+// interactive demo of the loop (harvest → pack → equip → plant) without any
+// tutorial text. The "show, don't tell" approach.
+if (isFreshStart) {
+  const starterPlot = state.plots[0];
+  const radish = CROPS.radish;
+  starterPlot.crop = 'radish';
+  starterPlot.totalMs = radish.growthMs;
+  starterPlot.elapsedMs = radish.growthMs;     // 100% grown — ready button shows immediately
+  starterPlot.totalPicks = radish.pickCount;
+  starterPlot.picksTaken = radish.pickCount;   // no pending picks — keeps the first action simple
+  state.pendingPacks = 1;
+  state.firstPlayedAt = Date.now();
+}
+
 // Retroactively credit achievements for state already loaded — silent (no toast/log spam).
 checkAchievements({ silent: true });
 // Restore last active tab (defaults to Farm for fresh sessions)
 if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
+// If returning from a meaningful absence, greet the player. Consume + clear the flag.
+if (state._offlineSummary) {
+  showWelcomeBack(state._offlineSummary);
+  delete state._offlineSummary;
+}
 
 // Save before tab close
 window.addEventListener('beforeunload', saveGame);
