@@ -1868,6 +1868,55 @@ main {
   color: var(--forest);
 }
 
+/* Daily streak milestone toast — sits above contract toast so they can stack.
+   z-index above welcome-back banner backdrop (90) so the toast is visible
+   if a milestone fires the same session the player returns to a banner. */
+.streak-toast {
+  position: fixed;
+  bottom: 198px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(244, 193, 71, 0.18), rgba(199, 93, 58, 0.14));
+  color: var(--ink);
+  border-radius: 999px;
+  border: 1px solid var(--terracotta);
+  box-shadow: 0 8px 24px rgba(199, 93, 58, 0.25), 0 2px 8px rgba(0,0,0,0.10);
+  animation: achToastIn 0.32s ease-out, achToastOut 0.3s ease-in 3.6s forwards;
+  font-family: var(--serif);
+  font-size: 14px;
+  pointer-events: none;
+}
+.streak-toast .streak-toast-icon { font-size: 22px; line-height: 1; }
+.streak-toast .streak-toast-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--terracotta);
+}
+.streak-toast .streak-toast-detail {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--forest);
+}
+
+/* Tiny "best 12" subscript next to current streak in Stats panel */
+.lifetime-sub {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--moss);
+  margin-left: 4px;
+}
+
 /* === Journal tab: Today panel (top of Journal) === */
 .today-panel-body {
   display: flex;
@@ -2309,6 +2358,79 @@ const MARKET_SATURATED_PENALTY = 0.7;
 function getCurrentDayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+// ============ DAILY STREAK ============
+// Cozy-genre engagement loop. Players who return daily get rewarded; missing
+// one day is forgiven (no reset); missing two+ days resets to 1.
+//
+// Designed to be called ONCE per session at init. Same-day reloads are
+// short-circuited so a refresh doesn't double-count.
+const STREAK_MILESTONES = [
+  { day: 7,   reward: { packs: 1, label: '7-day streak!' } },
+  { day: 30,  reward: { packs: 2, label: '30-day streak!' } },
+  { day: 100, reward: { packs: 3, label: '100-day streak — incredible!' } },
+];
+function updateDailyStreak() {
+  const today = getCurrentDayKey();
+  if (state.lastPlayedDayKey === today) return;     // already counted today
+
+  let dayDiff = null;
+  if (state.lastPlayedDayKey) {
+    try {
+      const [y, m, d] = state.lastPlayedDayKey.split('-').map(Number);
+      const last = new Date(y, m - 1, d);
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const ms = now.getTime() - last.getTime();
+      dayDiff = Math.round(ms / 86400000);
+    } catch (e) { dayDiff = null; }
+  }
+
+  if (dayDiff === null || dayDiff > 2 || dayDiff < 0) {
+    // First-ever day OR streak broken (3+ day gap) OR clock went backwards: reset
+    state.streakDays = 1;
+    state.lastStreakMilestoneDay = 0; // milestones re-award on each fresh streak
+  } else if (dayDiff >= 1) {
+    // Either consecutive (1) or 1-day-forgiven (2) — both extend the streak
+    state.streakDays = (state.streakDays || 0) + 1;
+  }
+  // dayDiff === 0 was handled by the early-return above.
+
+  state.lastPlayedDayKey = today;
+  state.bestStreak = Math.max(state.bestStreak || 0, state.streakDays);
+  checkStreakMilestones();
+}
+function checkStreakMilestones() {
+  for (const m of STREAK_MILESTONES) {
+    if (state.streakDays >= m.day && (state.lastStreakMilestoneDay || 0) < m.day) {
+      state.lastStreakMilestoneDay = m.day;
+      state.pendingPacks += m.reward.packs;
+      showStreakMilestoneToast(m);
+      // Activity log entry too, so the moment shows up in the journal
+      state.harvestLog.unshift({
+        type: 'info',
+        text: `🔥 ${m.reward.label} +${m.reward.packs} pack${m.reward.packs === 1 ? '' : 's'}`,
+        t: Date.now(),
+      });
+      if (state.harvestLog.length > 6) state.harvestLog.pop();
+    }
+  }
+}
+function showStreakMilestoneToast(m) {
+  const existing = document.querySelector('.streak-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'streak-toast';
+  toast.innerHTML = `
+    <span class="streak-toast-icon">🔥</span>
+    <span>
+      <div class="streak-toast-label">Daily streak</div>
+      <div class="streak-toast-detail">${m.reward.label} · +${m.reward.packs} pack${m.reward.packs === 1 ? '' : 's'} earned</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  if (typeof sndLevelUp === 'function') sndLevelUp();
+  setTimeout(() => toast.remove(), 4200);
 }
 
 // Reset today's harvest/coin counters at local midnight
@@ -3103,6 +3225,11 @@ const state = {
   totalTaps: 0,              // every tapCrop increments
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
+  // Daily streak — cozy-genre engagement loop
+  lastPlayedDayKey: null,    // 'YYYY-M-D' of last session counted toward streak
+  streakDays: 0,             // current streak (consecutive + 1-day forgiven)
+  bestStreak: 0,             // longest streak ever
+  lastStreakMilestoneDay: 0, // highest milestone awarded for the current streak
 };
 
 function makePlot(id) {
@@ -3381,6 +3508,10 @@ function saveGame() {
       totalTaps: state.totalTaps || 0,
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
+      lastPlayedDayKey: state.lastPlayedDayKey || null,
+      streakDays: state.streakDays || 0,
+      bestStreak: state.bestStreak || 0,
+      lastStreakMilestoneDay: state.lastStreakMilestoneDay || 0,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -3438,6 +3569,10 @@ function loadGame() {
     state.totalTaps = loaded.totalTaps || 0;
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
+    state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
+    state.streakDays = loaded.streakDays || 0;
+    state.bestStreak = loaded.bestStreak || 0;
+    state.lastStreakMilestoneDay = loaded.lastStreakMilestoneDay || 0;
     state.activeTab = loaded.activeTab || 'farm';
 
     state.plots = loaded.plots.map(p => p.locked
@@ -4992,6 +5127,7 @@ function renderLifetimeStats() {
     timePlayed = days < 1 ? `${Math.floor(ms / (1000 * 60 * 60))}h` : `${days.toFixed(1)}d`;
   }
   const stats = [
+    { label: 'Daily streak',      value: `🔥 ${state.streakDays || 0}${state.bestStreak > (state.streakDays || 0) ? ` <span class="lifetime-sub">best ${state.bestStreak}</span>` : ''}` },
     { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
     { label: 'Total taps',        value: (state.totalTaps || 0).toLocaleString() },
     { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
@@ -5440,6 +5576,9 @@ if (isFreshStart) {
 
 // Retroactively credit achievements for state already loaded — silent (no toast/log spam).
 checkAchievements({ silent: true });
+// Daily streak: increments on first session of a new day, with 1-day forgiveness.
+// Must run AFTER loadGame so we can compare today's key with the saved one.
+updateDailyStreak();
 // Restore last active tab (defaults to Farm for fresh sessions)
 if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
 // If returning from a meaningful absence, greet the player. Consume + clear the flag.
