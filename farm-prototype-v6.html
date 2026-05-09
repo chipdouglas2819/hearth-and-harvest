@@ -377,8 +377,8 @@ main {
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.1s ease;
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: 130px;
+  height: 130px;
   pointer-events: auto;
 }
 .crop-visual-wrap:active:not(.exhausted) { transform: scale(0.92); }
@@ -453,7 +453,7 @@ main {
   position: relative;
   z-index: 2;
 }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--sage), var(--moss)); transition: width 0.3s ease; border-radius: 3px; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--sage), var(--moss)); transition: width 0.1s ease-out; border-radius: 3px; }
 .plot.ready .progress-fill { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
 
 .plot-info {
@@ -627,6 +627,10 @@ main {
 .harvest-entry .amount.levelup { color: var(--gold); }
 .harvest-entry .amount.contract-good { color: var(--gold); }
 .harvest-entry .amount.contract-fail { color: var(--rust); opacity: 0.7; }
+.harvest-entry .amount.lucky { color: var(--gold); font-weight: 700; }
+.harvest-entry .amount.market-bonus { color: var(--gold); }
+.harvest-entry .harvest-flavor { font-style: italic; font-size: 10px; color: var(--sage); margin-left: 4px; }
+.harvest-entry.lucky-harvest { animation: levelupFanfare 1.8s ease-out; border-radius: 4px; }
 
 /* === Contract panel === */
 .contract-active, .contract-offered {
@@ -841,17 +845,18 @@ main {
 .plant-option .po-reason.locked { color: var(--sage); background: rgba(143, 166, 142, 0.18); font-style: italic; }
 .plant-option.locked { filter: grayscale(0.7); }
 
-.buff-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.buff-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .buff-options.wide { grid-template-columns: repeat(5, 1fr); }
+/* mobile: stack everything in 1 column — must come AFTER the .wide rule below to win on narrow screens */
+@media (max-width: 1100px) {
+  .buff-options.wide { grid-template-columns: repeat(3, 1fr); }
+}
 @media (max-width: 720px) {
-  .buff-options, .buff-options.wide { grid-template-columns: 1fr; }
+  .buff-options, .buff-options.wide { grid-template-columns: 1fr !important; }
   main { grid-template-columns: 1fr; padding: 20px; }
   .topbar { padding: 16px 20px; flex-wrap: wrap; gap: 12px; }
   .sidebar { position: static; }
   .stats { width: 100%; justify-content: space-between; }
-}
-@media (max-width: 1100px) {
-  .buff-options.wide { grid-template-columns: repeat(3, 1fr); }
 }
 
 .buff-card {
@@ -1349,7 +1354,7 @@ main {
 <header class="topbar">
   <div class="brand">
     <h1>Hearth & Harvest</h1>
-    <span class="subtitle">v6 — bug fixes, partial-render</span>
+    <span class="subtitle">a cozy farming roguelike</span>
   </div>
   <div class="stats">
     <div class="topbar-btn">
@@ -1930,8 +1935,35 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-const TAP_COOLDOWN_MS = 50;
-const TAP_BASE_REDUCTION = 0.0025; // 0.25% per tap at 1x speed (Cookie Clicker tiny)
+const TAP_COOLDOWN_MS = 0; // uncapped: tap as fast as you want
+const TAP_BASE_REDUCTION = 0.004; // 0.4% per tap at 1x speed (still tiny — mash for ~1m to feel real progress)
+
+// Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
+const HARVEST_FLAVORS = [
+  'a perfect crop.',
+  'the soil is generous today.',
+  'morning dew helped.',
+  'this one was hand-picked.',
+  'patience paid off.',
+  'the bees were busy.',
+  'a small but earnest yield.',
+  'every leaf in place.',
+  'crisp and ready.',
+  'the wind was kind.',
+  'just a pinch sweeter than usual.',
+  'nothing wasted.',
+  'a quiet, working soil.',
+  'firm to the touch.',
+  'almost reluctant to pull.',
+];
+const LUCKY_FLAVORS = [
+  '✨ a lucky harvest!',
+  '✨ the sun shone just right.',
+  '✨ a once-in-a-season find.',
+  '✨ everything aligned.',
+  '✨ the soil rewarded you.',
+];
+const LUCKY_HARVEST_CHANCE = 0.03;
 // Mastery: each crop gains a small permanent yield bonus per harvests-of-that-crop.
 const MASTERY_BONUS_PER_5 = 0.001; // +0.1% per 5 harvests of the same crop
 
@@ -2163,9 +2195,12 @@ function fmtTimeRemaining(ms) {
   return `${h}h ${m % 60}m ${s % 60}s`;
 }
 
+// First pick is available immediately at plant; remaining picks unlock evenly
+// across the grow time. Last pick lands at ~(N-1)/N of progress, leaving a
+// small window before harvest so the player can still use it.
 function picksUnlockedAt(plot) {
   const progress = plot.totalMs > 0 ? plot.elapsedMs / plot.totalMs : 0;
-  return Math.min(plot.totalPicks, Math.floor(progress * (plot.totalPicks + 1)));
+  return Math.min(plot.totalPicks, 1 + Math.floor(progress * plot.totalPicks));
 }
 function picksAvailable(plot) {
   if (!plot.crop) return 0;
@@ -2719,6 +2754,10 @@ function harvest(plotId, ev) {
   rotateMarketIfNewDay();
   const marketMult = getMarketYieldMultiplier(plot.crop);
   mult *= marketMult;
+  // Lucky harvest: rare bonus (3%) — gives +50% yield with a celebration message.
+  // Pure delight moment, doesn't affect long-term balance much.
+  const isLucky = Math.random() < LUCKY_HARVEST_CHANCE;
+  if (isLucky) mult *= 1.5;
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
@@ -2744,7 +2783,12 @@ function harvest(plotId, ev) {
     }
   }
   for (const id of finishedIds) completeContractById(id);
-  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, marketPenalty: marketMult < 1, t: Date.now() });
+  // Pick a flavor message: lucky harvests always show a celebration; otherwise
+  // ~30% chance of a small atmospheric note. Quietly adds personality.
+  let flavor = null;
+  if (isLucky) flavor = LUCKY_FLAVORS[Math.floor(Math.random() * LUCKY_FLAVORS.length)];
+  else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
+  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, marketPenalty: marketMult < 1, lucky: isLucky, flavor, t: Date.now() });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
   state.totalHarvests += 1;
@@ -3077,14 +3121,15 @@ function openBuffModal(plotId) {
   if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) {
     floor = 'legendary';
   }
-  let draftCount = 3;
+  // Default offer is 2 cards (binary decision). Cornucopia bumps to 5.
+  let draftCount = 2;
   if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) {
     draftCount = 5;
   }
 
   const drafted = draftN(plot.crop, draftCount, floor, plot);
   const opts = document.getElementById('buffOptions');
-  opts.className = 'buff-options' + (draftCount > 3 ? ' wide' : '');
+  opts.className = 'buff-options' + (draftCount > 2 ? ' wide' : '');
   opts.innerHTML = '';
 
   drafted.forEach(buff => {
@@ -3903,7 +3948,11 @@ function render() {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''} expired</span><span class="amount contract-fail">—</span>`;
       } else {
-        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}</span><span class="amount">+${h.amount}</span>`;
+        // Optional: small atmospheric flavor or a "lucky" celebration
+        const flavor = h.flavor ? `<span class="harvest-flavor">· ${h.flavor}</span>` : '';
+        const amountClass = h.lucky ? 'amount lucky' : (h.marketBonus ? 'amount market-bonus' : 'amount');
+        if (h.lucky) e.classList.add('lucky-harvest');
+        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}</span><span class="${amountClass}">+${h.amount}</span>`;
       }
       log.appendChild(e);
     });
