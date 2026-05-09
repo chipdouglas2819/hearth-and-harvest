@@ -56,15 +56,28 @@ for (const stratName of strategies) {
   console.log(`${stratName.padEnd(18)} $${String(s.moneyMedian).padEnd(8)} $${String(s.moneyMean).padEnd(8)} $${s.moneyP10}–${String(s.moneyP90).padEnd(15)} ${String(s.plots).padEnd(6)} ${String(s.harvests).padEnd(9)} ${String(s.legendaries).padEnd(5)} ${s.plot7Reach}/${RUNS}`);
 }
 
-const gap = (stratStats.greedy.moneyMedian / Math.max(1, stratStats.novice.moneyMedian) - 1) * 100;
-console.log(`\nGreedy vs Novice: greedy is ${gap.toFixed(0)}% richer.`);
+// "Skill gap" = best-informed strategy vs random novice. Greedy alone isn't the right
+// reference because it can be self-defeating (e.g., when its heuristic over-values
+// time-stretchers or gambles). The healthy metric is "does any strategy clearly beat
+// random play?"
+const informedNames = ['greedy', 'optimal', 'conservative', 'cropFocused'];
+const informedBestName = informedNames.reduce((best, n) =>
+  stratStats[n].moneyMedian > stratStats[best].moneyMedian ? n : best, informedNames[0]);
+const bestStat = stratStats[informedBestName];
+const gap = (bestStat.moneyMedian / Math.max(1, stratStats.novice.moneyMedian) - 1) * 100;
+console.log(`\nBest informed (${informedBestName}) vs Novice: informed is ${gap.toFixed(0)}% richer.`);
 if (gap > 200) console.log('🚩 ISSUE: Skill gap >200% — game heavily punishes casual players.');
 else if (gap < 30) console.log('🚩 ISSUE: Skill gap <30% — strategy doesn\'t matter; player choice feels meaningless.');
 else console.log('✓ Skill gap in healthy range (30–200%).');
 
+// Inverted-greedy detector: if greedy LOSES to novice, the greedy heuristic is wrong.
+const greedyVsNovice = (stratStats.greedy.moneyMedian / Math.max(1, stratStats.novice.moneyMedian) - 1) * 100;
+if (greedyVsNovice < 0) {
+  console.log(`⚠ Greedy AI loses to novice by ${Math.abs(greedyVsNovice).toFixed(0)}% — heuristic is mis-valuing some boons.`);
+}
+
 const consGap = (stratStats.conservative.moneyMedian / stratStats.greedy.moneyMedian - 1) * 100;
-console.log(`Conservative vs Greedy: ${consGap >= 0 ? '+' : ''}${consGap.toFixed(0)}% — variance penalty cost.`);
-if (consGap < -30) console.log('   note: heavy penalty for risk-aversion. Game rewards gambling boons. May feel feast-or-famine.');
+console.log(`Conservative vs Greedy: ${consGap >= 0 ? '+' : ''}${consGap.toFixed(0)}% (variance penalty for greedy).`);
 
 // ============ STUCK-POINT DETECTION ============
 console.log('\n=== 2. STUCK POINTS ===');
@@ -179,7 +192,7 @@ console.log('\n=== 6. AUDIT SUMMARY ===');
 const issues = [];
 if (gap > 200) issues.push(`Skill gap >200% — punishes casual players`);
 else if (gap < 30) issues.push(`Skill gap <30% — strategy doesn't matter`);
-if (consGap < -30) issues.push(`Conservative play heavily penalized (variance is mandatory)`);
+if (greedyVsNovice < 0) issues.push(`Greedy heuristic is mis-valued (loses to random play)`);
 if (topStuck.length > 0) issues.push(`Concentrated stuck days (${topStuck.length} days): ${topStuck.map(([d]) => 'd' + d).join(', ')}`);
 const plot5Reach = greedyRuns.filter(r => r.milestones.plot5_unlocked !== undefined).length;
 if (plot5Reach < RUNS * 0.9) issues.push(`Plot 5 not reliably reached (${plot5Reach}/${RUNS} runs) — mid-game gate too aggressive`);

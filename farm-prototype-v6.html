@@ -1941,8 +1941,8 @@ const CROPS = {
   radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
   carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
   tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 2, unlocksAt: { crop: 'carrot',     harvests: 1 } },
-  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 370,  pickCount: 3, unlocksAt: { crop: 'tomato',     harvests: 1 } },
-  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 380,  pickCount: 5, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 400,  pickCount: 3, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 540,  pickCount: 5, unlocksAt: { crop: 'strawberry', harvests: 1 } },
   corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
   pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 950,  pickCount: 5, unlocksAt: { crop: 'corn',       harvests: 1 } },
   sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1300, pickCount: 5, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
@@ -2469,13 +2469,13 @@ const MAX_PERMA_SLOTS = 4;
 
 const BUFF_POOL = [
   // ============ COMMON ============
-  { id: 'sun',      name: 'Sunny Days',     desc: '+12% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.12, flavor: 'a warm patch of sky.' },
-  { id: 'rain',     name: 'Gentle Rain',    desc: '−12% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.88,  flavor: 'soft drumming on leaves.' },
-  { id: 'rich',     name: 'Rich Soil',      desc: '+18% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.18, flavor: 'dark, crumbling, alive.' },
-  { id: 'compost',  name: 'Compost Tea',    desc: '+8% yield, −8% time',                       rarity: 'common',   archetype: 'stat',     yieldMult: 1.08, timeMult: 0.92, flavor: 'an old farmer\'s trick.' },
-  { id: 'sprout',   name: 'Eager Sprout',   desc: '−15% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.85,  flavor: 'this one wants to grow.' },
+  { id: 'sun',      name: 'Sunny Days',     desc: '+18% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.18, flavor: 'a warm patch of sky.' },
+  { id: 'rain',     name: 'Gentle Rain',    desc: '−22% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.78,  flavor: 'soft drumming on leaves.' },
+  { id: 'rich',     name: 'Rich Soil',      desc: '+22% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.22, flavor: 'dark, crumbling, alive.' },
+  { id: 'compost',  name: 'Compost Tea',    desc: '+12% yield, −10% time',                     rarity: 'common',   archetype: 'stat',     yieldMult: 1.12, timeMult: 0.90, flavor: 'an old farmer\'s trick.' },
+  { id: 'sprout',   name: 'Eager Sprout',   desc: '−25% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.75,  flavor: 'this one wants to grow.' },
   { id: 'sturdy',   name: 'Sturdy Stems',   desc: '+15% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.15, flavor: 'bend in wind, never break.' },
-  { id: 'patient',  name: 'Slow & Steady',  desc: '+25% yield, +20% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.25, timeMult: 1.20, flavor: 'haste makes waste.' },
+  { id: 'patient',  name: 'Slow & Steady',  desc: '+28% yield, +10% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.28, timeMult: 1.10, flavor: 'haste makes waste.' },
   { id: 'common_synergy', name: 'Folk Wisdom', desc: '+5% yield per common buff (incl. this)', rarity: 'common',   archetype: 'synergy',  custom: 'common_synergy', flavor: 'small things, well done.' },
 
   // ============ UNCOMMON ============
@@ -2483,7 +2483,7 @@ const BUFF_POOL = [
   { id: 'mulch',    name: 'Living Mulch',    desc: '+18% yield, −10% time',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.18, timeMult: 0.90, flavor: 'clover keeping the roots cool.' },
   { id: 'symbiosis', name: 'Symbiosis',      desc: '+6% yield per OTHER active buff',          rarity: 'uncommon', archetype: 'synergy',  custom: 'symbiosis', flavor: 'each gift makes the next greater.' },
   { id: 'gamble',   name: 'Coin Flip',       desc: '50% chance: ×1.7 yield. else: nothing.',   rarity: 'uncommon', archetype: 'gamble',   custom: 'coin_flip_17', flavor: 'fortune favors the planted.' },
-  { id: 'tradeoff_a', name: 'Long Patience', desc: '+40% yield, +25% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.40, timeMult: 1.25, flavor: 'wait, and the field will pay.' },
+  { id: 'tradeoff_a', name: 'Long Patience', desc: '+45% yield, +18% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.45, timeMult: 1.18, flavor: 'wait, and the field will pay.' },
   { id: 'echo',     name: 'Echo',            desc: '+12% yield. your NEXT boon\'s effects apply twice.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.12, custom: 'echo', flavor: 'the field remembers.' },
   { id: 'twofold',  name: 'Twofold Path',    desc: '+15% yield. then apply a random uncommon-or-lower boon.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.15, custom: 'twofold', flavor: 'the soil decides what else.' },
   { id: 'cross_a',  name: 'Wild Pollen',     desc: '+15% yield to ALL other active plots',     rarity: 'uncommon', archetype: 'cross',    custom: 'cross_yield_15', flavor: 'the wind carries gifts.' },
@@ -2505,7 +2505,7 @@ const BUFF_POOL = [
 
   // ============ LEGENDARY ============
   { id: 'plenty',   name: 'Year of Plenty',  desc: '×1.7 yield',                               rarity: 'legendary', archetype: 'stat',     yieldMult: 1.70, flavor: 'the harvest of a lifetime.' },
-  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.0 yield, +60% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.00, timeMult: 1.60, flavor: 'years pass. the field remembers.' },
+  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.2 yield, +40% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.20, timeMult: 1.40, flavor: 'years pass. the field remembers.' },
   { id: 'cascade_gold', name: 'Cascade of Gold', desc: 'apply 2 random rare boons immediately.', rarity: 'legendary', archetype: 'cascade', custom: 'cascade_gold', flavor: 'the sky opens.' },
   { id: 'cross_leg', name: 'Garden\'s Blessing', desc: 'all OTHER plots: +50% yield this run', rarity: 'legendary', archetype: 'cross',    custom: 'cross_yield_50', flavor: 'every patch sings.' },
   { id: 'all_in',   name: 'All In',          desc: '×2.1 yield. lose all other current buffs.', rarity: 'legendary', archetype: 'commit', custom: 'all_in', flavor: 'one true thing, no more.' },
