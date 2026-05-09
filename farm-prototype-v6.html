@@ -2977,7 +2977,6 @@ function makePlot(id) {
     totalPicks: 0,
     picksTaken: 0,
     yieldMult: 1.0,
-    timeMult: 1.0,
     activeBuffs: [],
     tapsUsed: 0,
     lastTapTime: 0,
@@ -3235,6 +3234,7 @@ function saveGame() {
       contractRerollsUsedToday: state.contractRerollsUsedToday || 0,
       marketDayKey: state.marketDayKey || null,
       marketFeaturedCrop: state.marketFeaturedCrop || null,
+      marketSaturatedCrop: state.marketSaturatedCrop || null,
       marketHistory: state.marketHistory || [],
       soundEnabled: state.soundEnabled !== false,
       activeTab: state.activeTab || 'farm',
@@ -3292,6 +3292,7 @@ function loadGame() {
     state.todayCoins = loaded.todayCoins || 0;
     state.marketDayKey = loaded.marketDayKey || null;
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
+    state.marketSaturatedCrop = loaded.marketSaturatedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
     state.soundEnabled = loaded.soundEnabled !== false;
     state.achievements = loaded.achievements || {};
@@ -3365,7 +3366,9 @@ function getPermaYieldMultForPlot(plotId) {
     const sm = getStarMultiplier(stars);
     if (b.yieldMult) m *= 1 + (b.yieldMult - 1) * sm;
     if (b.custom === 'mastery_synergy') {
-      const totalMastered = Object.values(state.mastery).filter(c => c >= 5).length;
+      // Description: "+1% yield per crop with 5+ harvests".
+      // state.mastery is grow-hours (not harvest count) — convert via harvestsOf().
+      const totalMastered = Object.keys(CROPS).filter(c => harvestsOf(c) >= 5).length;
       m *= (1 + 0.01 * sm * totalMastered);
     }
   }
@@ -3770,7 +3773,7 @@ function handleCustom(plotId, buff, echo) {
     }
     case 'symbiosis': {
       const others = plot.activeBuffs.length;
-      plot.yieldMult *= Math.pow(1 + 0.08 * others, e);
+      plot.yieldMult *= Math.pow(1 + 0.06 * others, e);
       break;
     }
     case 'coin_flip_17': {
@@ -3875,11 +3878,11 @@ function handleCustom(plotId, buff, echo) {
       plot.flags.picksAtCommit = plot.picksTaken + 1;
       break;
     case 'all_in': {
-      // hard reset yieldMult to baseline (penalty carryover preserved), then apply 2.5x
+      // hard reset yieldMult to baseline (penalty carryover preserved), then apply ×2.1 per description
       const carryover = plot.flags.nextPenaltyMult || 1.0;
       plot.yieldMult = carryover;
       plot.activeBuffs = [];
-      plot.yieldMult *= Math.pow(2.5, e);
+      plot.yieldMult *= Math.pow(2.1, e);
       break;
     }
     case 'wishflower':
@@ -3887,19 +3890,19 @@ function handleCustom(plotId, buff, echo) {
       plot.totalPicks += 2;
       break;
     case 'world_tree':
-      plot.yieldMult *= Math.pow(3.5, e);
+      plot.yieldMult *= Math.pow(2.9, e);
       plot.flags.noMorePicks = true;
       break;
     case 'eternal':
       plot.flags.eternalActive = true;
       break;
     case 'solstice':
-      plot.yieldMult *= Math.pow(2.5, e);
-      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.8, e); });
+      plot.yieldMult *= Math.pow(2.0, e);
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.6, e); });
       break;
     case 'common_amp': {
       const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length;
-      plot.yieldMult *= Math.pow(1 + 0.25 * commons, e);
+      plot.yieldMult *= Math.pow(1 + 0.20 * commons, e);
       break;
     }
   }
