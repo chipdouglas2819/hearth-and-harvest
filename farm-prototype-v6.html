@@ -1656,6 +1656,113 @@ main {
   font-style: normal;
 }
 
+/* === Journal tab: Achievements === */
+.ach-counter {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--moss);
+  letter-spacing: 0.04em;
+  margin-left: 8px;
+  font-style: normal;
+}
+.achievements-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ach-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  transition: all 0.18s ease;
+}
+.ach-row.locked { opacity: 0.55; }
+.ach-row.unlocked {
+  background: linear-gradient(135deg, rgba(244, 193, 71, 0.10), rgba(199, 93, 58, 0.06));
+  border-color: var(--gold);
+  opacity: 1;
+}
+.ach-row .ach-icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+  filter: grayscale(0.8);
+}
+.ach-row.unlocked .ach-icon { filter: none; }
+.ach-row .ach-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ach-row .ach-name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--forest);
+}
+.ach-row.unlocked .ach-name { color: var(--terracotta); }
+.ach-row .ach-desc {
+  font-size: 11px;
+  color: var(--sage);
+  letter-spacing: 0.02em;
+}
+.ach-row .ach-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sage);
+  flex-shrink: 0;
+  font-feature-settings: "tnum";
+}
+.ach-row .ach-status.unlocked { color: var(--gold); font-size: 18px; }
+.ach-row .ach-status.progress { color: var(--moss); }
+
+/* Achievement unlock toast */
+.ach-toast {
+  position: fixed;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, var(--butter), var(--gold));
+  color: var(--ink);
+  border-radius: 999px;
+  border: 1px solid var(--gold);
+  box-shadow: 0 8px 24px rgba(199, 93, 58, 0.25), 0 2px 8px rgba(0,0,0,0.10);
+  animation: achToastIn 0.3s ease-out, achToastOut 0.3s ease-in 3.0s forwards;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-style: italic;
+  pointer-events: none;
+}
+.ach-toast .ach-toast-icon { font-size: 22px; line-height: 1; }
+.ach-toast .ach-toast-label {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+  font-weight: 700;
+}
+.ach-toast .ach-toast-name { font-weight: 600; }
+@keyframes achToastIn {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes achToastOut {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to   { opacity: 0; transform: translate(-50%, -10px); }
+}
+
 /* === Journal tab: Today panel (top of Journal) === */
 .today-panel-body {
   display: flex;
@@ -1786,6 +1893,10 @@ main {
     <div class="panel today-panel">
       <h3>Today</h3>
       <div id="todayPanelBody" class="today-panel-body"></div>
+    </div>
+    <div class="panel">
+      <h3>Achievements <span class="ach-counter" id="achCounter"></span></h3>
+      <div class="achievements-grid" id="achievementsList"></div>
     </div>
     <div class="panel">
       <h3>Recent Harvests</h3>
@@ -2350,6 +2461,7 @@ function completeContractById(id) {
   if (chance > 0 && Math.random() < chance) packsAwarded += 1;
   state.pendingPacks += packsAwarded;
   state.contractsCompleted += 1;
+  checkAchievements();
   state.harvestLog.unshift({
     type: 'contract_complete',
     tier: c.tier,
@@ -2662,6 +2774,82 @@ function getCardSetBonus(crop) {
   return mult;
 }
 
+// ============ ACHIEVEMENTS ============
+// Curated list of milestones that drip dopamine outside the gameplay loop.
+// Each defines a `test(state)` predicate, with optional `progress(state)` for
+// trackers ("47/100 harvests"). Unlocked achievements are stored in
+// state.achievements as { id: timestamp }.
+const ACHIEVEMENTS = [
+  // First-time moments
+  { id: 'first_harvest',    name: 'First Sprout',       icon: '🌱', desc: 'Harvest your first crop',         test: s => s.totalHarvests >= 1 },
+  { id: 'first_pack',       name: 'First Cards',        icon: '🎴', desc: 'Open your first pack',           test: s => s.packsOpened >= 1 },
+  { id: 'first_boon',       name: 'Drafted',            icon: '🌟', desc: 'Pick your first in-run boon',    test: s => (s.totalPicksTaken || 0) >= 1 },
+  { id: 'first_contract',   name: 'Promising Start',    icon: '🤝', desc: 'Complete your first contract',   test: s => (s.contractsCompleted || 0) >= 1 },
+  { id: 'first_starup',     name: 'Rising Star',        icon: '⭐', desc: 'Star up a card to ★2',           test: s => s.collection.some(c => (c.stars || 1) >= 2) },
+  { id: 'first_legendary',  name: 'Legendary Find',     icon: '✨', desc: 'Own your first legendary card',  test: s => s.collection.some(c => c.rarity === 'legendary') },
+  { id: 'first_mythic',     name: 'Mythic Touch',       icon: '🌙', desc: 'Own your first mythic card',     test: s => s.collection.some(c => c.rarity === 'mythic') },
+  { id: 'first_lucky',      name: 'Lucky Day',          icon: '🍀', desc: 'Get a lucky harvest',            test: s => (s.luckyHarvests || 0) >= 1 },
+  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))) },
+  // Volume milestones
+  { id: 'harvests_100',     name: 'Patient Gardener',   icon: '🌿', desc: '100 total harvests',             test: s => s.totalHarvests >= 100,            progress: s => `${Math.min(s.totalHarvests, 100)}/100` },
+  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500` },
+  { id: 'packs_50',         name: 'Pack Hoarder',       icon: '🎁', desc: 'Open 50 packs',                  test: s => s.packsOpened >= 50,               progress: s => `${Math.min(s.packsOpened, 50)}/50` },
+  { id: 'contracts_10',     name: 'Reliable Partner',   icon: '📜', desc: 'Complete 10 contracts',          test: s => (s.contractsCompleted || 0) >= 10, progress: s => `${Math.min(s.contractsCompleted || 0, 10)}/10` },
+  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25` },
+  // Late-game goals
+  { id: 'plots_all',        name: 'Land Baron',         icon: '🏡', desc: 'Unlock all 8 plots',             test: s => s.plots.filter(p => !p.locked).length >= 8, progress: s => `${s.plots.filter(p => !p.locked).length}/8` },
+  { id: 'star_max',         name: 'Constellation',      icon: '💫', desc: 'Star up a card to ★5',           test: s => s.collection.some(c => (c.stars || 1) >= 5) },
+  { id: 'master_crop',      name: 'Master of Earth',    icon: '🎨', desc: 'Master a crop (100h grow-time)', test: s => Object.values(s.mastery || {}).some(h => h >= 100), progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 100)}h/100h`; } },
+  { id: 'collection_full',  name: 'Master Collection',  icon: '👑', desc: 'Own all cards in the game',      test: s => s.collection.length >= PERMA_POOL.length, progress: s => `${s.collection.length}/${PERMA_POOL.length}` },
+  // Money thresholds (running balance, not lifetime)
+  { id: 'money_10k',        name: 'Penny Saved',        icon: '💰', desc: 'Hold $10,000 at once',           test: s => s.money >= 10000 },
+  { id: 'money_100k',       name: 'Tycoon',             icon: '💎', desc: 'Hold $100,000 at once',          test: s => s.money >= 100000 },
+];
+
+function unlockAchievement(id, opts = {}) {
+  if (!state.achievements) state.achievements = {};
+  if (state.achievements[id]) return false; // already unlocked
+  state.achievements[id] = Date.now();
+  if (opts.silent) return true;
+  // Surface in harvest log + play a chime + toast
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  if (a) {
+    state.harvestLog.unshift({ type: 'achievement', name: a.name, icon: a.icon, t: Date.now() });
+    if (state.harvestLog.length > 6) state.harvestLog.pop();
+    if (typeof sndLevelUp === 'function') sndLevelUp();
+    showAchievementToast(a);
+  }
+  return true;
+}
+
+function showAchievementToast(a) {
+  // Coalesce: if a toast is already up, replace it (multiple unlocks in one event)
+  const existing = document.querySelector('.ach-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'ach-toast';
+  toast.innerHTML = `
+    <span class="ach-toast-icon">${a.icon}</span>
+    <span>
+      <div class="ach-toast-label">Achievement</div>
+      <div class="ach-toast-name">${a.name}</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  // Animation duration: 0.3s in + 3.0s display + 0.3s out = 3.6s total
+  setTimeout(() => toast.remove(), 3700);
+}
+
+// Walks all achievements and unlocks any that newly meet their condition.
+// Cheap: ACHIEVEMENTS is small and predicates are tiny. Safe to call on every event.
+function checkAchievements(opts = {}) {
+  if (!state.achievements) state.achievements = {};
+  for (const a of ACHIEVEMENTS) {
+    if (state.achievements[a.id]) continue;
+    try { if (a.test(state)) unlockAchievement(a.id, opts); } catch (e) { /* ignore */ }
+  }
+}
+
 // ============ STATE ============
 const state = {
   money: 25,
@@ -2703,6 +2891,10 @@ const state = {
   soundEnabled: true,
   // UI
   activeTab: 'farm',
+  // Achievements + counters
+  achievements: {},          // { id: unlockedAtTimestamp }
+  luckyHarvests: 0,          // counter for "first lucky" achievement
+  totalPicksTaken: 0,        // counter for "first boon picked" achievement
 };
 
 function makePlot(id) {
@@ -2975,6 +3167,9 @@ function saveGame() {
       marketHistory: state.marketHistory || [],
       soundEnabled: state.soundEnabled !== false,
       activeTab: state.activeTab || 'farm',
+      achievements: { ...(state.achievements || {}) },
+      luckyHarvests: state.luckyHarvests || 0,
+      totalPicksTaken: state.totalPicksTaken || 0,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -3025,6 +3220,9 @@ function loadGame() {
     state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
     state.marketHistory = loaded.marketHistory || [];
     state.soundEnabled = loaded.soundEnabled !== false;
+    state.achievements = loaded.achievements || {};
+    state.luckyHarvests = loaded.luckyHarvests || 0;
+    state.totalPicksTaken = loaded.totalPicksTaken || 0;
     state.activeTab = loaded.activeTab || 'farm';
 
     state.plots = loaded.plots.map(p => p.locked
@@ -3350,7 +3548,7 @@ function harvest(plotId, ev) {
   // Lucky harvest: rare bonus (3%) — gives +50% yield with a celebration message.
   // Pure delight moment, doesn't affect long-term balance much.
   const isLucky = Math.random() < LUCKY_HARVEST_CHANCE;
-  if (isLucky) mult *= 1.5;
+  if (isLucky) { mult *= 1.5; state.luckyHarvests = (state.luckyHarvests || 0) + 1; }
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
@@ -3393,6 +3591,7 @@ function harvest(plotId, ev) {
   if (state.totalHarvests % HARVESTS_PER_PACK === 0) {
     state.pendingPacks += 1;
   }
+  checkAchievements();
 
   if (ev && ev.target) {
     const r = ev.target.getBoundingClientRect();
@@ -3465,7 +3664,9 @@ function applyBuff(plotId, buff) {
 
   plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
   plot.picksTaken += 1;
+  state.totalPicksTaken = (state.totalPicksTaken || 0) + 1;
   sndPick();
+  checkAchievements();
   // Auto-advance: if there are still picks pending anywhere, refresh the modal
   // for the next plot so the player can blast through batch decisions in one
   // continuous flow. Tap-outside-modal still closes (manual stop).
@@ -3636,6 +3837,7 @@ function buyPlot(plotId) {
     state.plots.push({ id: nextId, locked: true });
     state.loadouts.push([]);
   }
+  checkAchievements();
   render();
 }
 
@@ -3856,6 +4058,7 @@ function renderPackActions() {
     state.currentPackCards = [];
     state.adUsedForCurrentPack = false;
     state.packsOpened += 1;
+    checkAchievements();
     closeAllModals();
     render();
   };
@@ -4404,6 +4607,51 @@ function renderOfferedContractHTML(c, locked) {
 }
 
 // Lifetime stats panel inside the Journal tab.
+// Renders the Achievements panel — locked achievements show name + progress,
+// unlocked ones glow gold. Sorted: unlocked first (most-recent at top), then
+// locked (with progress trackers near the top of locked).
+function renderAchievements() {
+  const list = document.getElementById('achievementsList');
+  const counter = document.getElementById('achCounter');
+  if (!list) return;
+  const unlocked = state.achievements || {};
+  const total = ACHIEVEMENTS.length;
+  const owned = Object.keys(unlocked).filter(id => ACHIEVEMENTS.some(a => a.id === id)).length;
+  if (counter) counter.textContent = `${owned}/${total}`;
+
+  // Sort: unlocked (newest first), then locked-with-progress, then locked
+  const annotated = ACHIEVEMENTS.map(a => {
+    const ts = unlocked[a.id];
+    const isUnlocked = !!ts;
+    let progressText = '';
+    if (!isUnlocked && a.progress) {
+      try { progressText = a.progress(state); } catch (e) { progressText = ''; }
+    }
+    return { a, isUnlocked, ts: ts || 0, progressText };
+  });
+  annotated.sort((x, y) => {
+    if (x.isUnlocked !== y.isUnlocked) return x.isUnlocked ? -1 : 1;
+    if (x.isUnlocked) return y.ts - x.ts; // most recent unlock first
+    // locked: those with progress trackers first
+    const xHas = x.progressText ? 1 : 0;
+    const yHas = y.progressText ? 1 : 0;
+    return yHas - xHas;
+  });
+
+  list.innerHTML = annotated.map(({ a, isUnlocked, progressText }) => `
+    <div class="ach-row ${isUnlocked ? 'unlocked' : 'locked'}">
+      <div class="ach-icon">${a.icon}</div>
+      <div class="ach-body">
+        <div class="ach-name">${a.name}</div>
+        <div class="ach-desc">${a.desc}</div>
+      </div>
+      ${isUnlocked
+        ? '<div class="ach-status unlocked">✓</div>'
+        : (progressText ? `<div class="ach-status progress">${progressText}</div>` : '<div class="ach-status">—</div>')}
+    </div>
+  `).join('');
+}
+
 function renderLifetimeStats() {
   const el = document.getElementById('lifetimeStats');
   if (!el) return;
@@ -4531,6 +4779,7 @@ function render() {
   renderCardSets();
   renderCardsCollection();
   renderLifetimeStats();
+  renderAchievements();
   renderTabBadges();
 
   // plots — show all unlocked plots, plus only the FIRST locked plot (next-to-buy)
@@ -4727,10 +4976,12 @@ function render() {
   } else {
     state.harvestLog.forEach(h => {
       const e = document.createElement('div');
-      const isRecent = (h.type === 'levelup' || h.type === 'contract_complete') && (Date.now() - h.t) < 2500;
+      const isRecent = (h.type === 'levelup' || h.type === 'contract_complete' || h.type === 'achievement') && (Date.now() - h.t) < 2500;
       e.className = `harvest-entry${isRecent ? ' levelup-fanfare' : ''}`;
       if (h.type === 'levelup') {
         e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
+      } else if (h.type === 'achievement') {
+        e.innerHTML = `<span class="what">${h.icon} ${h.name}</span><span class="amount levelup">achievement</span>`;
       } else if (h.type === 'contract_complete') {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         const packBit = h.packs ? ` +${h.packs} pack` : '';
@@ -4804,6 +5055,8 @@ applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
 syncSettingsLabels();
+// Retroactively credit achievements for state already loaded — silent (no toast/log spam).
+checkAchievements({ silent: true });
 // Restore last active tab (defaults to Farm for fresh sessions)
 if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
 
