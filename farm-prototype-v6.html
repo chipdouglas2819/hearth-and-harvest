@@ -1824,6 +1824,50 @@ main {
   to   { opacity: 0; transform: translate(-50%, -10px); }
 }
 
+/* Contract complete toast — distinct gradient + tier accent so it doesn't read
+   as an achievement. Sits slightly higher to allow stacking with achievement
+   toasts when a harvest both completes a contract AND unlocks an achievement. */
+.contract-toast {
+  position: fixed;
+  bottom: 142px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 12px;
+  border: 1px solid var(--moss);
+  box-shadow: 0 8px 24px rgba(58, 90, 64, 0.20), 0 2px 8px rgba(0,0,0,0.10);
+  animation: achToastIn 0.3s ease-out, achToastOut 0.3s ease-in 3.0s forwards;
+  font-family: var(--serif);
+  font-size: 14px;
+  pointer-events: none;
+}
+.contract-toast.tier-bronze { border-color: #a07050; }
+.contract-toast.tier-silver { border-color: #8a96a4; }
+.contract-toast.tier-gold   { border-color: var(--gold); background: linear-gradient(135deg, var(--paper), rgba(244, 193, 71, 0.10)); }
+.contract-toast .contract-toast-icon { font-size: 22px; line-height: 1; }
+.contract-toast .contract-toast-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--moss);
+}
+.contract-toast.tier-gold .contract-toast-label { color: var(--terracotta); }
+.contract-toast .contract-toast-detail {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--forest);
+}
+
 /* === Journal tab: Today panel (top of Journal) === */
 .today-panel-body {
   display: flex;
@@ -2595,18 +2639,24 @@ function completeContractById(id) {
   state.pendingPacks += packsAwarded;
   state.contractsCompleted += 1;
   checkAchievements();
+  const label = c.template === 'deliver_mixed'
+    ? Object.keys(c.params.crops).map(cr => CROPS[cr].name).join('+')
+    : (CROPS[c.params.crop] ? CROPS[c.params.crop].name : '');
   state.harvestLog.unshift({
     type: 'contract_complete',
     tier: c.tier,
-    label: c.template === 'deliver_mixed'
-      ? Object.keys(c.params.crops).map(cr => CROPS[cr].name).join('+')
-      : (CROPS[c.params.crop] ? CROPS[c.params.crop].name : ''),
+    label,
     coins: c.reward.coins,
     packs: packsAwarded,
     t: Date.now(),
   });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
   state.activeContracts.splice(idx, 1);
+  // Visible mid-session feedback so the player sees WHY their coin count just
+  // jumped. Without this, contract completion is silent except for the Activity
+  // log entry — easy to miss when on Farm tab during a harvest.
+  showContractCompleteToast({ tier: c.tier, label, coins: c.reward.coins, packs: packsAwarded });
+  if (typeof sndLevelUp === 'function') sndLevelUp();
 }
 
 // ============ SOUND ============
@@ -2970,6 +3020,27 @@ function showAchievementToast(a) {
   `;
   document.body.appendChild(toast);
   // Animation duration: 0.3s in + 3.0s display + 0.3s out = 3.6s total
+  setTimeout(() => toast.remove(), 3700);
+}
+
+// Cozy "contract complete" toast — fires the moment a harvest fills a contract,
+// so the player sees WHY their coin count just jumped. Visually distinct from
+// the gold achievement toast so the two don't blur together.
+function showContractCompleteToast(c) {
+  const existing = document.querySelector('.contract-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = `contract-toast tier-${c.tier}`;
+  const tierLabel = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) : '';
+  const packBit = c.packs > 0 ? ` · +${c.packs} pack` : '';
+  toast.innerHTML = `
+    <span class="contract-toast-icon">📜</span>
+    <span>
+      <div class="contract-toast-label">${tierLabel} contract complete</div>
+      <div class="contract-toast-detail"><span class="coin-icon">◉</span> +${c.coins}${packBit}</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 3700);
 }
 
@@ -4597,21 +4668,36 @@ function showWelcomeBack(summary) {
   const banner = document.getElementById('welcomeBack');
   if (!banner || !headline || !detail) return;
   const away = fmtAwayTime(summary.offlineMs);
+  const expired = summary.contractsExpiredDuringOffline || 0;
+
+  // Headline reflects the most actionable thing first
   if (summary.plotsReadyDuringOffline > 0) {
     headline.textContent = summary.plotsReadyDuringOffline === 1
       ? `A plot is ready to harvest`
       : `${summary.plotsReadyDuringOffline} plots are ready to harvest`;
-    detail.textContent = `Your farm grew quietly while you were away (${away}).`;
   } else if (summary.anyGrowing) {
     headline.textContent = 'Your crops kept growing';
-    detail.textContent = `${away} of patient work — check on them.`;
   } else {
     headline.textContent = 'Welcome back';
-    detail.textContent = `Time to plant something new.`;
   }
+
+  // Build the detail line: combine away-time, growth, and any expired contracts
+  const parts = [];
+  if (summary.plotsReadyDuringOffline > 0) {
+    parts.push(`Your farm grew quietly while you were away (${away}).`);
+  } else if (summary.anyGrowing) {
+    parts.push(`${away} of patient work — check on them.`);
+  } else {
+    parts.push(`Time to plant something new.`);
+  }
+  if (expired > 0) {
+    parts.push(expired === 1
+      ? `A contract expired while you were away.`
+      : `${expired} contracts expired while you were away.`);
+  }
+  detail.textContent = parts.join(' ');
+
   banner.hidden = false;
-  // Auto-dismiss after a generous read window so the player can take it in
-  // without being trapped by it.
   const dismiss = () => { banner.hidden = true; };
   document.getElementById('wbCta').onclick = dismiss;
   banner.addEventListener('click', e => { if (e.target === banner) dismiss(); });
@@ -5328,7 +5414,12 @@ syncSettingsLabels();
 // Generate today's contracts up front so the badge fires regardless of which tab
 // the player lands on. Without this, fresh saves see no notification until they
 // visit the Contracts tab — a bug, not the design intent.
+const _expiriesAtInit = (state.activeContracts || []).length;
 checkContractExpiry();
+const _expiredOffline = _expiriesAtInit - (state.activeContracts || []).length;
+if (_expiredOffline > 0 && state._offlineSummary) {
+  state._offlineSummary.contractsExpiredDuringOffline = _expiredOffline;
+}
 ensureContractOffered();
 
 // First-session starter scene: a fresh player lands with plot 1 already grown,
