@@ -2946,12 +2946,13 @@ function startAmbient() {
   hs.frequency.value = 4000;
   hs.gain.value = -6;
   const master = ctx.createGain();
-  master.gain.value = 0.05; // audible-but-background; tunable
-  // Slow LFO so the wind "wooshes" gently (different feel from a constant hiss)
+  master.gain.value = 0.022; // buried in the background; just felt, not heard
+  // Slow LFO so the wind "wooshes" gently — modulation depth kept small so
+  // peaks don't intrude on whatever the player is focused on.
   const lfo = ctx.createOscillator();
   lfo.frequency.value = 0.08; // ~12s period
   const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.018;
+  lfoGain.gain.value = 0.005;
   lfo.connect(lfoGain);
   lfoGain.connect(master.gain);
   noise.connect(bp);
