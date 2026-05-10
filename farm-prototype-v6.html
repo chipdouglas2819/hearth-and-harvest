@@ -625,26 +625,58 @@ main {
   100% { transform: scale(1); }
 }
 
-/* Hold-to-tend: while the player keeps a finger pressed, a soft breathing
-   aura pulses around the crop. Visual signals "you're caring for this" —
-   the opposite of frantic tap-mash feedback. */
-.crop-visual-wrap.tending {
-  cursor: grabbing;
+/* Mindful breathing exercise modal — taught box-breathing visual.
+   The circle's scale changes match each breath phase exactly, so the
+   player has a visible target to follow with their own breath. */
+.breathe-modal { max-width: 380px; text-align: center; padding: 32px 24px; }
+.breathe-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 32px 0 20px;
+  min-height: 220px;
+  position: relative;
 }
-.crop-visual-wrap.tending::before {
-  content: '';
-  position: absolute;
-  inset: -8px;
+.breathe-circle {
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(127, 191, 191, 0.35) 0%, rgba(127, 191, 191, 0) 70%);
-  animation: tendBreathe 4s ease-in-out infinite;
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.45) 0%, rgba(127, 191, 191, 0.10) 70%, transparent 100%);
+  border: 2px solid var(--moss);
+  transform: scale(0.6);
+  transition: transform 4000ms cubic-bezier(0.4, 0, 0.2, 1), background 0.6s ease;
+}
+.breathe-circle.phase-ready  { transform: scale(0.6); }
+.breathe-circle.phase-inhale { transform: scale(1.4); background: radial-gradient(circle, rgba(127, 191, 191, 0.55) 0%, rgba(127, 191, 191, 0.15) 70%, transparent 100%); }
+.breathe-circle.phase-hold   { transform: scale(1.4); background: radial-gradient(circle, rgba(244, 193, 71, 0.45) 0%, rgba(244, 193, 71, 0.12) 70%, transparent 100%); }
+.breathe-circle.phase-exhale { transform: scale(0.6); background: radial-gradient(circle, rgba(127, 191, 191, 0.30) 0%, rgba(127, 191, 191, 0.05) 70%, transparent 100%); }
+.breathe-instruction {
+  position: absolute;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 18px;
+  color: var(--forest);
+  letter-spacing: 0.02em;
   pointer-events: none;
-  z-index: -1;
 }
-@keyframes tendBreathe {
-  0%, 100% { transform: scale(0.85); opacity: 0.55; }
-  50%      { transform: scale(1.15); opacity: 1.0; }
+.breathe-progress {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--moss);
+  min-height: 14px;
 }
+.btn-tend {
+  background: linear-gradient(135deg, rgba(127, 191, 191, 0.20), rgba(127, 191, 191, 0.08));
+  border: 1px solid var(--moss);
+  color: var(--forest);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.btn-tend:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.btn-tend:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* tap-hint removed — it was intercepting the progress bar visually
    and the entire 130x130 crop area is tappable (players figure it out) */
@@ -2287,6 +2319,19 @@ main {
   </div>
 </div>
 
+<div class="modal" id="breatheModal" hidden>
+  <div class="modal-content breathe-modal">
+    <h2 id="breatheTitle">Breathe with the radish</h2>
+    <p class="modal-subtitle" id="breatheSub">Inhale 4 · Hold 4 · Exhale 4. Three cycles.</p>
+    <div class="breathe-stage">
+      <div class="breathe-circle phase-ready" id="breatheCircle"></div>
+      <div class="breathe-instruction" id="breatheInstruction">Get ready…</div>
+    </div>
+    <div class="breathe-progress" id="breatheProgress"></div>
+    <button class="modal-close" data-close>stop</button>
+  </div>
+</div>
+
 <div class="modal" id="debugModal" hidden>
   <div class="modal-content wide">
     <h2>🔧 Debug / Boon Test Panel</h2>
@@ -3014,27 +3059,16 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-// Hold-to-tend: replaces frantic tap-spam with a calm sustained press. The
-// player holds a finger on the crop (like watering it) and time reduces
-// continuously while held. Caps via diminishing returns so a long hold
-// can't speedrun the whole grow — patience is still required.
-//
-//   reduction(s) = TEND_MAX_REDUCTION * (1 - exp(-s / TEND_TAU))
-//
-// With TEND_MAX_REDUCTION=0.50 and TEND_TAU=15:
-//    5s held →  14% reduction
-//   15s held →  32% reduction (the calm-breath sweet spot)
-//   30s held →  43% reduction
-//   60s held →  49% reduction (effectively the cap)
-//
-// A 4-hour radish at 60s of hold = ~2 hours real wait. Hard cap respects
-// real-time pacing while making active tending genuinely worthwhile.
-const TEND_MAX_REDUCTION = 0.50;
-const TEND_TAU = 15;
-function tendReductionForSeconds(s) {
-  if (!s || s <= 0) return 0;
-  return TEND_MAX_REDUCTION * (1 - Math.exp(-s / TEND_TAU));
-}
+// Mindful Tending: the player completes structured calming exercises (e.g.,
+// box breathing) which are CLEARLY TAUGHT and conveyed in-app. Each completed
+// exercise reduces the plot's growth time by a fixed amount. Capped per cycle
+// so the player paces engagement rather than speedrunning. Reframes the
+// "make plant grow faster" mechanic as an actual mindfulness practice — the
+// player learns box breathing while playing.
+const TEND_REDUCTION_PER_SESSION = 0.12;  // each completed exercise: -12% time
+const TEND_MAX_SESSIONS = 4;              // cap per crop cycle (resets on plant)
+const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
+const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
 
 // Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
 const HARVEST_FLAVORS = [
@@ -3407,7 +3441,8 @@ const state = {
   luckyHarvests: 0,          // counter for "first lucky" achievement
   totalPicksTaken: 0,        // counter for "first boon picked" achievement
   // Lifetime stats counters
-  totalTaps: 0,              // every tapCrop increments
+  totalTaps: 0,              // legacy field (no longer incremented; kept for save back-compat)
+  tendSessionsCompleted: 0,  // lifetime count of completed breathing exercises
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -3427,10 +3462,9 @@ function makePlot(id) {
     picksTaken: 0,
     yieldMult: 1.0,
     activeBuffs: [],
-    tapsUsed: 0,           // legacy field kept for save back-compat (unused at 0)
-    lastTapTime: 0,        // legacy field kept for save back-compat (unused)
-    holdSeconds: 0,        // accumulated tend-hold seconds this cycle
-    holdReductionApplied: 0, // multiplicative reduction already baked into totalMs
+    tapsUsed: 0,                  // legacy field, retained for save back-compat (unused)
+    lastTapTime: 0,               // legacy field, retained for save back-compat (unused)
+    tendSessionsThisCycle: 0,     // number of completed breathing exercises this grow cycle
     flags: {
       lockTime: false,
       noMorePicks: false,
@@ -3663,6 +3697,7 @@ function saveGame() {
             yieldMult: p.yieldMult,
             activeBuffs: p.activeBuffs.map(b => ({ ...b, _snapshot: undefined })),
             tapsUsed: p.tapsUsed,
+            tendSessionsThisCycle: p.tendSessionsThisCycle || 0,
             flags: { ...p.flags },
           }),
       mastery: { ...state.mastery },
@@ -3694,6 +3729,7 @@ function saveGame() {
       luckyHarvests: state.luckyHarvests || 0,
       totalPicksTaken: state.totalPicksTaken || 0,
       totalTaps: state.totalTaps || 0,
+      tendSessionsCompleted: state.tendSessionsCompleted || 0,
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -3756,6 +3792,7 @@ function loadGame() {
     state.luckyHarvests = loaded.luckyHarvests || 0;
     state.totalPicksTaken = loaded.totalPicksTaken || 0;
     state.totalTaps = loaded.totalTaps || 0;
+    state.tendSessionsCompleted = loaded.tendSessionsCompleted || 0;
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -3774,6 +3811,7 @@ function loadGame() {
           activeBuffs: p.activeBuffs || [],
           tapsUsed: p.tapsUsed || 0,
           lastTapTime: 0,
+          tendSessionsThisCycle: p.tendSessionsThisCycle || 0,
           flags: p.flags || {},
         });
 
@@ -4016,79 +4054,88 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
-// Hold-to-tend: pointerdown begins a sustained "watering" gesture. While
-// the player keeps the finger down, time on this plot reduces continuously
-// (with a per-cycle diminishing-returns cap). Lift to stop. No mashing.
-let _tendActive = null; // { plotId, intervalId, lastTickMs }
-const TEND_TICK_MS = 100;
-
-function tendStart(plotId) {
+// Mindful breathing exercise — 4-4-4 box breathing for BREATH_CYCLES rounds.
+// Opens a modal that guides the player through inhale → hold → exhale →
+// (rest), repeated. Player can stop early (no reward). Completing the full
+// sequence applies the time-reduction reward and increments session count.
+let _breath = null; // { plotId, cycle, phase, timeoutId }
+function tendsRemaining(plot) {
+  return Math.max(0, TEND_MAX_SESSIONS - (plot.tendSessionsThisCycle || 0));
+}
+function openBreathingExercise(plotId) {
   const plot = state.plots[plotId];
-  if (!plot || !plot.crop || plot.locked) return;
-  if (isReady(plot)) return;
+  if (!plot || !plot.crop || plot.locked || isReady(plot)) return;
+  if (tendsRemaining(plot) <= 0) return;
   if (anyModalOpen()) return;
-  if (_tendActive && _tendActive.plotId === plotId) return; // already tending
-
-  // Stop any other active hold (only one plot tended at a time).
-  if (_tendActive) tendStop();
-
-  const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${plotId}"]`);
-  if (wrap) wrap.classList.add('tending');
-  sndTap(); // soft "splash" cue at hold-start
-
-  _tendActive = {
-    plotId,
-    lastTickMs: performance.now(),
-    intervalId: setInterval(() => tendTick(plotId), TEND_TICK_MS),
-  };
+  // Open modal + reset state
+  document.getElementById('breatheModal').hidden = false;
+  document.getElementById('breatheTitle').textContent = `Breathe with the ${CROPS[plot.crop].name.toLowerCase()}`;
+  document.getElementById('breatheSub').textContent = `Inhale 4 · Hold 4 · Exhale 4. Three cycles.`;
+  _breath = { plotId, cycle: 0, phase: 'ready', timeoutId: null };
+  setBreathPhase('ready', 'Get ready...');
+  _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
 }
-
-function tendTick(plotId) {
-  if (!_tendActive || _tendActive.plotId !== plotId) return;
+function setBreathPhase(phase, label) {
+  const circle = document.getElementById('breatheCircle');
+  const inst = document.getElementById('breatheInstruction');
+  const prog = document.getElementById('breatheProgress');
+  if (!circle || !inst) return;
+  circle.className = 'breathe-circle phase-' + phase;
+  inst.textContent = label;
+  if (_breath) {
+    prog.textContent = phase === 'ready' || phase === 'done'
+      ? ''
+      : `Cycle ${Math.min(_breath.cycle + 1, BREATH_CYCLES)} of ${BREATH_CYCLES}`;
+  }
+}
+function runBreathPhase(phase) {
+  if (!_breath) return;
+  if (phase === 'inhale') {
+    setBreathPhase('inhale', 'Breathe in…');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('hold'), BREATH_PHASE_MS);
+  } else if (phase === 'hold') {
+    setBreathPhase('hold', 'Hold');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('exhale'), BREATH_PHASE_MS);
+  } else if (phase === 'exhale') {
+    setBreathPhase('exhale', 'Breathe out…');
+    _breath.timeoutId = setTimeout(() => {
+      _breath.cycle += 1;
+      if (_breath.cycle >= BREATH_CYCLES) {
+        completeBreathingExercise();
+      } else {
+        runBreathPhase('inhale');
+      }
+    }, BREATH_PHASE_MS);
+  }
+}
+function completeBreathingExercise() {
+  if (!_breath) return;
+  const plotId = _breath.plotId;
   const plot = state.plots[plotId];
-  if (!plot || !plot.crop || plot.locked || isReady(plot)) {
-    tendStop();
-    return;
-  }
-  const now = performance.now();
-  const dt = (now - _tendActive.lastTickMs) / 1000; // seconds
-  _tendActive.lastTickMs = now;
-  // Apply the multiplicative DELTA between current and new reduction so
-  // boons that mutate plot.totalMs independently still compose correctly.
-  const oldRed = plot.holdReductionApplied || 0;
-  plot.holdSeconds = (plot.holdSeconds || 0) + dt;
-  const newRed = tendReductionForSeconds(plot.holdSeconds);
-  const denom = Math.max(1e-6, 1 - oldRed);
-  const factor = (1 - newRed) / denom;
-  plot.totalMs *= factor;
-  plot.holdReductionApplied = newRed;
-  // Lifetime counter (kept under the same field name for save-back-compat,
-  // but now interpreted as accumulated tend SECONDS rather than tap count.)
-  state.totalTaps = (state.totalTaps || 0) + dt;
-
-  // Live UI updates without full render
-  updatePlotTick(plot);
-  const plotEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
-  if (plotEl) {
-    const counter = plotEl.querySelector('.tap-counter');
-    if (counter) {
-      const reductionPct = Math.round(newRed * 100);
-      counter.textContent = `⊹ tended −${reductionPct}% time`;
-    }
-  }
-  if (state.activeTab === 'journal') renderLifetimeStats();
+  cancelBreathingExercise();
+  if (!plot || !plot.crop || plot.locked) return;
+  // Apply reward — multiplicative reduction so it composes with boons cleanly
+  plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
+  plot.tendSessionsThisCycle = (plot.tendSessionsThisCycle || 0) + 1;
+  state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
+  // Friendly success cue
+  if (typeof sndLevelUp === 'function') sndLevelUp();
+  state.harvestLog.unshift({
+    type: 'info',
+    text: `🌿 Tended ${CROPS[plot.crop].name.toLowerCase()} — ${Math.round(TEND_REDUCTION_PER_SESSION * 100)}% time saved`,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+  render();
 }
-
-function tendStop() {
-  if (!_tendActive) return;
-  const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${_tendActive.plotId}"]`);
-  if (wrap) wrap.classList.remove('tending');
-  clearInterval(_tendActive.intervalId);
-  _tendActive = null;
+function cancelBreathingExercise() {
+  if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
+  _breath = null;
+  document.getElementById('breatheModal').hidden = true;
 }
 
 function harvest(plotId, ev) {
@@ -4914,6 +4961,9 @@ function closeAllModals() {
   packModal.hidden = true;
   document.getElementById('loadoutModal').hidden = true;
   document.getElementById('debugModal').hidden = true;
+  // Closing during a breathing exercise = no reward, but cancel cleanly so
+  // we don't leave timers running.
+  if (typeof cancelBreathingExercise === 'function') cancelBreathingExercise();
 }
 
 // ============ DEBUG PANEL ============
@@ -5341,7 +5391,7 @@ function renderLifetimeStats() {
   const stats = [
     { label: 'Daily streak',      value: `🔥 ${state.streakDays || 0}${state.bestStreak > (state.streakDays || 0) ? ` <span class="lifetime-sub">best ${state.bestStreak}</span>` : ''}` },
     { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
-    { label: 'Time tending',      value: (() => { const s = Math.floor(state.totalTaps || 0); if (s < 60) return `${s}s`; const m = Math.floor(s / 60); if (m < 60) return `${m}m ${s % 60}s`; const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; })() },
+    { label: 'Tend sessions',     value: (state.tendSessionsCompleted || 0).toLocaleString() },
     { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
     { label: 'Boon picks taken',  value: (state.totalPicksTaken || 0).toLocaleString() },
     { label: 'Lucky harvests',    value: (state.luckyHarvests || 0).toLocaleString() },
@@ -5527,7 +5577,7 @@ function render() {
       const labelHtml = `
         <div class="plot-label">
           <span>plot ${i + 1}</span>
-          ${plot.crop ? `<span class="tap-counter">⊹ tended −${Math.round(tendReductionForSeconds(plot.holdSeconds || 0) * 100)}% time</span>` : ''}
+          ${plot.crop && (plot.tendSessionsThisCycle || 0) > 0 ? `<span class="tap-counter">⊹ tended ${plot.tendSessionsThisCycle}×</span>` : ''}
         </div>
       `;
 
@@ -5612,18 +5662,6 @@ function render() {
           </div>
         `;
 
-        const wrap = el.querySelector('.crop-visual-wrap');
-        if (wrap && !ready) {
-          // Hold-to-tend: pointerdown begins a calm sustained press, pointerup
-          // (or leave/cancel) ends it. No mashing — the gesture is the cue.
-          const start = (e) => { e.preventDefault(); tendStart(i); };
-          const stop = () => tendStop();
-          wrap.addEventListener('pointerdown', start);
-          wrap.addEventListener('pointerup', stop);
-          wrap.addEventListener('pointerleave', stop);
-          wrap.addEventListener('pointercancel', stop);
-        }
-
         const actions = document.createElement('div');
         actions.className = 'plot-actions';
 
@@ -5642,6 +5680,21 @@ function render() {
           hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expectedYield})`;
           hb.onclick = (ev) => harvest(i, ev);
           actions.appendChild(hb);
+        } else {
+          // Tend with breath: opens the box-breathing exercise. State-aware
+          // label tells the player exactly what they get and how many remain.
+          const remaining = tendsRemaining(plot);
+          const tendBtn = document.createElement('button');
+          tendBtn.className = 'btn btn-tend';
+          if (remaining > 0) {
+            tendBtn.innerHTML = `🌿 Tend with breath <span class="pick-badge">${remaining}</span>`;
+            tendBtn.title = `Complete a 3-cycle breathing exercise to reduce growth time by ${Math.round(TEND_REDUCTION_PER_SESSION * 100)}%. ${remaining} session${remaining === 1 ? '' : 's'} left this cycle.`;
+            tendBtn.onclick = () => openBreathingExercise(i);
+          } else {
+            tendBtn.disabled = true;
+            tendBtn.textContent = '🌿 Tended for this cycle';
+          }
+          actions.appendChild(tendBtn);
         }
 
         el.appendChild(actions);
