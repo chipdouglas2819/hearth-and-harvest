@@ -615,7 +615,7 @@ main {
   height: 130px;
   pointer-events: auto;
 }
-.crop-visual-wrap:active:not(.exhausted) { transform: scale(0.92); }
+.crop-visual-wrap:active:not(.exhausted) { transform: scale(0.96); }
 .crop-visual-wrap.tapped { animation: tapBounce 0.32s ease; }
 .crop-visual-wrap.exhausted { cursor: default; pointer-events: none; }
 @keyframes tapBounce {
@@ -623,6 +623,27 @@ main {
   35% { transform: scale(1.18); }
   70% { transform: scale(0.96); }
   100% { transform: scale(1); }
+}
+
+/* Hold-to-tend: while the player keeps a finger pressed, a soft breathing
+   aura pulses around the crop. Visual signals "you're caring for this" —
+   the opposite of frantic tap-mash feedback. */
+.crop-visual-wrap.tending {
+  cursor: grabbing;
+}
+.crop-visual-wrap.tending::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.35) 0%, rgba(127, 191, 191, 0) 70%);
+  animation: tendBreathe 4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes tendBreathe {
+  0%, 100% { transform: scale(0.85); opacity: 0.55; }
+  50%      { transform: scale(1.15); opacity: 1.0; }
 }
 
 /* tap-hint removed — it was intercepting the progress bar visually
@@ -2993,8 +3014,27 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-const TAP_COOLDOWN_MS = 0; // uncapped: tap as fast as you want
-const TAP_BASE_REDUCTION = 0.004; // 0.4% per tap at 1x speed (still tiny — mash for ~1m to feel real progress)
+// Hold-to-tend: replaces frantic tap-spam with a calm sustained press. The
+// player holds a finger on the crop (like watering it) and time reduces
+// continuously while held. Caps via diminishing returns so a long hold
+// can't speedrun the whole grow — patience is still required.
+//
+//   reduction(s) = TEND_MAX_REDUCTION * (1 - exp(-s / TEND_TAU))
+//
+// With TEND_MAX_REDUCTION=0.50 and TEND_TAU=15:
+//    5s held →  14% reduction
+//   15s held →  32% reduction (the calm-breath sweet spot)
+//   30s held →  43% reduction
+//   60s held →  49% reduction (effectively the cap)
+//
+// A 4-hour radish at 60s of hold = ~2 hours real wait. Hard cap respects
+// real-time pacing while making active tending genuinely worthwhile.
+const TEND_MAX_REDUCTION = 0.50;
+const TEND_TAU = 15;
+function tendReductionForSeconds(s) {
+  if (!s || s <= 0) return 0;
+  return TEND_MAX_REDUCTION * (1 - Math.exp(-s / TEND_TAU));
+}
 
 // Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
 const HARVEST_FLAVORS = [
@@ -3387,8 +3427,10 @@ function makePlot(id) {
     picksTaken: 0,
     yieldMult: 1.0,
     activeBuffs: [],
-    tapsUsed: 0,
-    lastTapTime: 0,
+    tapsUsed: 0,           // legacy field kept for save back-compat (unused at 0)
+    lastTapTime: 0,        // legacy field kept for save back-compat (unused)
+    holdSeconds: 0,        // accumulated tend-hold seconds this cycle
+    holdReductionApplied: 0, // multiplicative reduction already baked into totalMs
     flags: {
       lockTime: false,
       noMorePicks: false,
@@ -3971,69 +4013,82 @@ function tryAutoReplant(plotId, cropType) {
   plot.yieldMult *= carryover;
 }
 
-function tapEffectiveReduction() {
-  // Per-tap reduction at speed N matches what N taps at 1x would do.
-  // 1× → 0.25%, 60× → 14%, 600× → 78%
-  const speed = Math.max(1, state.speed);
-  return 1 - Math.pow(1 - TAP_BASE_REDUCTION, speed);
-}
+// (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
   return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
-function tapCrop(plotId) {
+// Hold-to-tend: pointerdown begins a sustained "watering" gesture. While
+// the player keeps the finger down, time on this plot reduces continuously
+// (with a per-cycle diminishing-returns cap). Lift to stop. No mashing.
+let _tendActive = null; // { plotId, intervalId, lastTickMs }
+const TEND_TICK_MS = 100;
+
+function tendStart(plotId) {
   const plot = state.plots[plotId];
-  if (!plot.crop || plot.locked) return;
+  if (!plot || !plot.crop || plot.locked) return;
   if (isReady(plot)) return;
-  if (anyModalOpen()) return; // don't process taps under an open modal
-  const now = performance.now();
-  if (now - plot.lastTapTime < TAP_COOLDOWN_MS) return;
+  if (anyModalOpen()) return;
+  if (_tendActive && _tendActive.plotId === plotId) return; // already tending
 
-  const reduction = tapEffectiveReduction();
-  const wasPicksAvail = picksAvailable(plot);
-  plot.tapsUsed += 1;
-  state.totalTaps = (state.totalTaps || 0) + 1;
-  plot.lastTapTime = now;
-  plot.totalMs *= (1 - reduction);
-  sndTap();
+  // Stop any other active hold (only one plot tended at a time).
+  if (_tendActive) tendStop();
 
-  // animate the existing wrap (without destroying it via render)
   const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${plotId}"]`);
-  if (wrap) {
-    wrap.classList.remove('tapped');
-    void wrap.offsetWidth;
-    wrap.classList.add('tapped');
-    const popup = document.createElement('div');
-    popup.className = 'tap-popup';
-    const pct = reduction * 100;
-    popup.textContent = pct < 1 ? `−${pct.toFixed(1)}%` : `−${pct.toFixed(0)}%`;
-    wrap.appendChild(popup);
-    setTimeout(() => popup.remove(), 700);
-  }
+  if (wrap) wrap.classList.add('tending');
+  sndTap(); // soft "splash" cue at hold-start
 
-  // update tap counter without full DOM rebuild
+  _tendActive = {
+    plotId,
+    lastTickMs: performance.now(),
+    intervalId: setInterval(() => tendTick(plotId), TEND_TICK_MS),
+  };
+}
+
+function tendTick(plotId) {
+  if (!_tendActive || _tendActive.plotId !== plotId) return;
+  const plot = state.plots[plotId];
+  if (!plot || !plot.crop || plot.locked || isReady(plot)) {
+    tendStop();
+    return;
+  }
+  const now = performance.now();
+  const dt = (now - _tendActive.lastTickMs) / 1000; // seconds
+  _tendActive.lastTickMs = now;
+  // Apply the multiplicative DELTA between current and new reduction so
+  // boons that mutate plot.totalMs independently still compose correctly.
+  const oldRed = plot.holdReductionApplied || 0;
+  plot.holdSeconds = (plot.holdSeconds || 0) + dt;
+  const newRed = tendReductionForSeconds(plot.holdSeconds);
+  const denom = Math.max(1e-6, 1 - oldRed);
+  const factor = (1 - newRed) / denom;
+  plot.totalMs *= factor;
+  plot.holdReductionApplied = newRed;
+  // Lifetime counter (kept under the same field name for save-back-compat,
+  // but now interpreted as accumulated tend SECONDS rather than tap count.)
+  state.totalTaps = (state.totalTaps || 0) + dt;
+
+  // Live UI updates without full render
+  updatePlotTick(plot);
   const plotEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
   if (plotEl) {
     const counter = plotEl.querySelector('.tap-counter');
-    if (counter) counter.textContent = `⊹ ${plot.tapsUsed}`;
+    if (counter) {
+      const reductionPct = Math.round(newRed * 100);
+      counter.textContent = `⊹ tended −${reductionPct}% time`;
+    }
   }
+  if (state.activeTab === 'journal') renderLifetimeStats();
+}
 
-  // If tap pushed plot to ready, or unlocked new picks, that's a structural
-  // change. Tick won't catch it (wasReady will already be true on next tick),
-  // so render() must happen here.
-  const isNowReady = isReady(plot);
-  const nowPicksAvail = picksAvailable(plot);
-  if (isNowReady || nowPicksAvail !== wasPicksAvail) {
-    render();
-  } else {
-    updatePlotTick(plot);
-    // If the player is on the Journal tab while tapping (e.g., a long-grow
-    // crop), keep the lifetime "Total taps" counter in sync without firing a
-    // full render. Cheap targeted update.
-    if (state.activeTab === 'journal') renderLifetimeStats();
-  }
+function tendStop() {
+  if (!_tendActive) return;
+  const wrap = document.querySelector(`.crop-visual-wrap[data-plotid="${_tendActive.plotId}"]`);
+  if (wrap) wrap.classList.remove('tending');
+  clearInterval(_tendActive.intervalId);
+  _tendActive = null;
 }
 
 function harvest(plotId, ev) {
@@ -5286,7 +5341,7 @@ function renderLifetimeStats() {
   const stats = [
     { label: 'Daily streak',      value: `🔥 ${state.streakDays || 0}${state.bestStreak > (state.streakDays || 0) ? ` <span class="lifetime-sub">best ${state.bestStreak}</span>` : ''}` },
     { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
-    { label: 'Total taps',        value: (state.totalTaps || 0).toLocaleString() },
+    { label: 'Time tending',      value: (() => { const s = Math.floor(state.totalTaps || 0); if (s < 60) return `${s}s`; const m = Math.floor(s / 60); if (m < 60) return `${m}m ${s % 60}s`; const h = Math.floor(m / 60); return `${h}h ${m % 60}m`; })() },
     { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
     { label: 'Boon picks taken',  value: (state.totalPicksTaken || 0).toLocaleString() },
     { label: 'Lucky harvests',    value: (state.luckyHarvests || 0).toLocaleString() },
@@ -5472,7 +5527,7 @@ function render() {
       const labelHtml = `
         <div class="plot-label">
           <span>plot ${i + 1}</span>
-          ${plot.crop ? `<span class="tap-counter">⊹ ${plot.tapsUsed}</span>` : ''}
+          ${plot.crop ? `<span class="tap-counter">⊹ tended −${Math.round(tendReductionForSeconds(plot.holdSeconds || 0) * 100)}% time</span>` : ''}
         </div>
       `;
 
@@ -5559,7 +5614,14 @@ function render() {
 
         const wrap = el.querySelector('.crop-visual-wrap');
         if (wrap && !ready) {
-          wrap.addEventListener('click', () => tapCrop(i));
+          // Hold-to-tend: pointerdown begins a calm sustained press, pointerup
+          // (or leave/cancel) ends it. No mashing — the gesture is the cue.
+          const start = (e) => { e.preventDefault(); tendStart(i); };
+          const stop = () => tendStop();
+          wrap.addEventListener('pointerdown', start);
+          wrap.addEventListener('pointerup', stop);
+          wrap.addEventListener('pointerleave', stop);
+          wrap.addEventListener('pointercancel', stop);
         }
 
         const actions = document.createElement('div');
