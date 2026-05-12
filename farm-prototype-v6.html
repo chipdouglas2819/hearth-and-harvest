@@ -4197,6 +4197,18 @@ const PERMA_POOL = [
   { id: 'p_eternal_garden', name: 'Eternal Garden', desc: '+28% yield', rarity: 'mythic', yieldMult: 1.28, flavor: 'older than memory.' },
   { id: 'p_first_seed', name: 'The First Seed', desc: '+18% yield, −12% time', rarity: 'mythic', yieldMult: 1.18, timeMult: 0.88, flavor: 'planted before the world began.' },
 
+  // === GENERAL — conditional & mindfulness-wired ===
+  // Cards that read the wider state (time of day, plot grow-time, your
+  // tend history) instead of just adding a flat %. The mindfulness-wired
+  // ones tie the breathing system to gameplay reward — engaged players
+  // who tend get noticeably more out of these. Baseline kept small so
+  // casual players still benefit; engaged play earns the upside.
+  { id: 'p_devotion',   name: 'Garden Devotion',     desc: '+5% yield, +20% extra if you tended today',                                      rarity: 'uncommon',  custom: 'devotion',      flavor: 'a daily kindness, returned.' },
+  { id: 'p_centered',   name: 'Centered',            desc: '+30% yield if a breathing exercise was completed in the last hour',              rarity: 'rare',      custom: 'centered',      flavor: 'one slow breath, all the difference.' },
+  { id: 'p_moonlight',  name: 'Moonlight Pact',      desc: '+50% yield when harvested between 7pm and 7am',                                  rarity: 'rare',      custom: 'moonlight',     flavor: 'work the cool hours.' },
+  { id: 'p_patience',   name: 'Patience Pays',       desc: '+40% yield if the plot took 6+ hours to grow',                                   rarity: 'uncommon',  custom: 'long_grow',     flavor: 'the slow road, the full basket.' },
+  { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: '+1% yield per 50 tend sessions completed (cap +30%)',                            rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
+
   // === RADISH set ===
   { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
   { id: 'p_r_cold', name: 'Cold Frame', desc: '+10% radish yield, −3% time', rarity: 'uncommon', yieldMult: 1.10, timeMult: 0.97, cropOnly: 'radish', flavor: 'crisp through every season.' },
@@ -4541,6 +4553,7 @@ const state = {
   tendSessionsToday: 0,      // count of sessions completed today (resets on day rollover)
   tendExerciseLog: {},       // lifetime per-exercise counts, keyed by exercise id ({box, ground, scan})
   tendIntrosSeen: {},        // { box: true, ground: true, scan: true } — once seen, picker skips the intro
+  lastTendCompletedAt: 0,    // ms timestamp of last completed breathing exercise (used by Centered card)
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -4919,6 +4932,7 @@ function saveGame() {
       tendSessionsToday: state.tendSessionsToday || 0,
       tendExerciseLog: state.tendExerciseLog || {},
       tendIntrosSeen: state.tendIntrosSeen || {},
+      lastTendCompletedAt: state.lastTendCompletedAt || 0,
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -4995,6 +5009,7 @@ function loadGame() {
     state.tendSessionsToday = loaded.tendSessionsToday || 0;
     state.tendExerciseLog = loaded.tendExerciseLog || {};
     state.tendIntrosSeen = loaded.tendIntrosSeen || {};
+    state.lastTendCompletedAt = loaded.lastTendCompletedAt || 0;
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -5086,10 +5101,35 @@ function getPermaYieldMultForPlot(plotId) {
     const sm = getStarMultiplier(stars);
     if (b.yieldMult) m *= 1 + (b.yieldMult - 1) * sm;
     if (b.custom === 'mastery_synergy') {
-      // Description: "+1% yield per crop with 5+ harvests".
-      // state.mastery is grow-hours (not harvest count) — convert via harvestsOf().
+      // "+1% yield per crop with 5+ harvests"
       const totalMastered = Object.keys(CROPS).filter(c => harvestsOf(c) >= 5).length;
       m *= (1 + 0.01 * sm * totalMastered);
+    }
+    if (b.custom === 'devotion') {
+      // "+5% yield, +20% extra if you tended today"
+      const baseBonus = 0.05 * sm;
+      const tendBonus = ((state.tendSessionsToday || 0) >= 1) ? (0.20 * sm) : 0;
+      m *= 1 + baseBonus + tendBonus;
+    }
+    if (b.custom === 'centered') {
+      // "+30% yield if a breathing exercise was completed in the last hour"
+      const sinceMs = Date.now() - (state.lastTendCompletedAt || 0);
+      if (sinceMs < 3600000) m *= 1 + 0.30 * sm;
+    }
+    if (b.custom === 'moonlight') {
+      // "+50% yield when harvested between 7pm and 7am"
+      const h = new Date().getHours();
+      if (h >= 19 || h < 7) m *= 1 + 0.50 * sm;
+    }
+    if (b.custom === 'long_grow') {
+      // "+40% yield if the plot took 6+ hours to grow"
+      const plot = state.plots[plotId];
+      if (plot && plot.totalMs >= 6 * 3600 * 1000) m *= 1 + 0.40 * sm;
+    }
+    if (b.custom === 'lifetime_tend') {
+      // "+1% yield per 50 tend sessions completed (cap +30%)"
+      const ticks = Math.min(30, Math.floor((state.tendSessionsCompleted || 0) / 50));
+      m *= 1 + 0.01 * sm * ticks;
     }
   }
   return m;
@@ -5454,6 +5494,7 @@ function completeBreathingExercise() {
   }
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
   state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
+  state.lastTendCompletedAt = Date.now();
   if (!state.tendExerciseLog) state.tendExerciseLog = {};
   state.tendExerciseLog[exerciseId] = (state.tendExerciseLog[exerciseId] || 0) + 1;
   if (typeof sndLevelUp === 'function') sndLevelUp();
