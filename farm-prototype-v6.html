@@ -899,20 +899,59 @@ main {
 .pollen-drift-modal .ag-stage {
   background: radial-gradient(circle at 50% 50%, rgba(244, 193, 71, 0.10), rgba(244, 193, 71, 0.02) 70%);
 }
+/* Bigger pollen so the player can see it past their finger */
 .pollen-particle {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(244, 193, 71, 0.85), rgba(244, 193, 71, 0.2));
+  background: radial-gradient(circle, rgba(244, 193, 71, 0.95), rgba(244, 193, 71, 0.25));
   filter: blur(0.5px);
   pointer-events: none;
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 20px rgba(244, 193, 71, 0.5);
+  box-shadow: 0 0 30px rgba(244, 193, 71, 0.65);
+  transition: box-shadow 0.18s ease, background 0.18s ease;
 }
 .pollen-particle.glow {
-  box-shadow: 0 0 35px rgba(244, 193, 71, 0.85);
-  background: radial-gradient(circle, rgba(255, 220, 120, 1), rgba(244, 193, 71, 0.3));
+  box-shadow: 0 0 50px rgba(244, 193, 71, 1.0), 0 0 80px rgba(255, 220, 120, 0.5);
+  background: radial-gradient(circle, rgba(255, 235, 150, 1), rgba(244, 193, 71, 0.45));
+}
+/* Always-visible proximity ring — shows the tracking zone so the player
+   has a clear target area even when their finger covers the pollen itself */
+.pollen-halo {
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 2px solid rgba(244, 193, 71, 0.20);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+  animation: pollenHaloPulse 2.6s ease-in-out infinite;
+}
+.pollen-halo.glow {
+  border-color: rgba(244, 193, 71, 0.65);
+  box-shadow: 0 0 30px rgba(244, 193, 71, 0.25);
+}
+@keyframes pollenHaloPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50%      { transform: translate(-50%, -50%) scale(1.08); }
+}
+/* Fading trail dots — show where the pollen has been, helps tracking
+   when finger covers the live pollen */
+.pollen-trail {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(244, 193, 71, 0.55);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: pollenTrailFade 1400ms ease-out forwards;
+}
+@keyframes pollenTrailFade {
+  0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0;    transform: translate(-50%, -50%) scale(0.25); }
 }
 .pollen-sparkle {
   position: absolute;
@@ -947,11 +986,35 @@ main {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(127, 191, 191, 0.45), rgba(127, 191, 191, 0.05) 70%);
-  border: 2px solid rgba(127, 191, 191, 0.50);
-  transition: transform 1000ms ease-in-out, opacity 1000ms ease-in-out;
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.35), rgba(127, 191, 191, 0.05) 70%);
+  border: 2px solid rgba(127, 191, 191, 0.40);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  position: relative;
 }
-.slow-rhythm-pulse.expanded { transform: scale(1.5); opacity: 0.55; }
+/* Beat flash — the pulse brightens briefly at each tick so the player has
+   a clear "now" visual cue distinct from the steady ambient pulse. */
+.slow-rhythm-pulse.beat-flash {
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.80), rgba(127, 191, 191, 0.15) 70%);
+  border-color: rgba(127, 191, 191, 0.95);
+  box-shadow: 0 0 40px rgba(127, 191, 191, 0.6);
+}
+/* Expanding ring that bursts from the pulse at each beat — the dominant
+   "tap NOW" indicator. Animation duration matches the beat interval. */
+.slow-rhythm-tick {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px solid rgba(127, 191, 191, 0.85);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(1);
+  animation: slowRhythmTickAnim 700ms ease-out forwards;
+}
+@keyframes slowRhythmTickAnim {
+  0%   { transform: translate(-50%, -50%) scale(1);    opacity: 0.9; border-width: 3px; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; border-width: 1px; }
+}
 .slow-rhythm-ripple {
   position: absolute;
   width: 24px;
@@ -962,6 +1025,12 @@ main {
   pointer-events: none;
   transform: translate(-50%, -50%) scale(0);
   animation: slowRhythmRippleAnim 800ms ease-out forwards;
+}
+/* On-beat tap — gold ripple confirms timing without scoring */
+.slow-rhythm-ripple.on-beat {
+  border-color: rgba(244, 193, 71, 0.85);
+  background: rgba(244, 193, 71, 0.20);
+  box-shadow: 0 0 18px rgba(244, 193, 71, 0.45);
 }
 @keyframes slowRhythmRippleAnim {
   0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0.7; }
@@ -6275,17 +6344,30 @@ function openPollenDrift() {
   if (!modal || !stage) return;
   // Clean previous run if any
   stage.innerHTML = '';
+  // Proximity halo — large pulsing ring that shows the tracking zone.
+  // Visible at all times so the player has a clear target area even
+  // when their finger covers the pollen itself.
+  const halo = document.createElement('div');
+  halo.className = 'pollen-halo';
+  stage.appendChild(halo);
+  // Pollen particle — larger now so the player can see it past their finger
   const particle = document.createElement('div');
   particle.className = 'pollen-particle';
   stage.appendChild(particle);
+  // Modal must be shown BEFORE measuring so getBoundingClientRect returns
+  // real dimensions (same bug that broke Sand Mandala).
+  modal.hidden = false;
 
   let stageRect = stage.getBoundingClientRect();
   const updateRect = () => { stageRect = stage.getBoundingClientRect(); };
   window.addEventListener('resize', updateRect);
+  // Re-measure on next frame in case modal layout is still resolving
+  requestAnimationFrame(updateRect);
 
   // Particle drifts on a low-frequency Lissajous-ish curve, slow speed
   const startedAt = performance.now();
   let cursorX = -9999, cursorY = -9999;
+  let lastTrailAt = 0;
 
   const onMove = (e) => {
     const r = stage.getBoundingClientRect();
@@ -6298,6 +6380,8 @@ function openPollenDrift() {
   const onLeave = () => { cursorX = -9999; cursorY = -9999; };
   stage.addEventListener('pointerleave', onLeave);
 
+  const PROX_RADIUS = 90;   // generous tracking zone
+
   const tick = (now) => {
     if (!_activeGame || _activeGame.id !== 'pollen_drift') return;
     const w = stageRect.width || stage.offsetWidth;
@@ -6308,22 +6392,39 @@ function openPollenDrift() {
     const py = h * (0.5 + 0.30 * Math.cos(t * 0.27) + 0.05 * Math.cos(t * 0.11));
     particle.style.left = px + 'px';
     particle.style.top = py + 'px';
-    // Proximity glow + sparkle
+    halo.style.left = px + 'px';
+    halo.style.top = py + 'px';
+
+    // Drop a fading trail dot every ~120ms so the player sees the path
+    // even when their finger covers the live pollen
+    if (now - lastTrailAt > 120) {
+      lastTrailAt = now;
+      const trail = document.createElement('div');
+      trail.className = 'pollen-trail';
+      trail.style.left = px + 'px';
+      trail.style.top = py + 'px';
+      stage.appendChild(trail);
+      setTimeout(() => trail.remove(), 1400);
+    }
+
+    // Proximity feedback
     const dx = cursorX - px, dy = cursorY - py;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 60) {
+    if (dist < PROX_RADIUS) {
       particle.classList.add('glow');
-      // Spawn sparkles occasionally near the particle
-      if (Math.random() < 0.08) {
+      halo.classList.add('glow');
+      // More sparkles when tracking — clear "you're with it" feedback
+      if (Math.random() < 0.18) {
         const s = document.createElement('div');
         s.className = 'pollen-sparkle';
-        s.style.left = (px + (Math.random() - 0.5) * 30) + 'px';
-        s.style.top = (py + (Math.random() - 0.5) * 30) + 'px';
+        s.style.left = (px + (Math.random() - 0.5) * 50) + 'px';
+        s.style.top = (py + (Math.random() - 0.5) * 50) + 'px';
         stage.appendChild(s);
         setTimeout(() => s.remove(), 650);
       }
     } else {
       particle.classList.remove('glow');
+      halo.classList.remove('glow');
     }
     _activeGame.raf = requestAnimationFrame(tick);
   };
@@ -6342,7 +6443,6 @@ function openPollenDrift() {
   };
   _activeGame.raf = requestAnimationFrame(tick);
   _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
-  modal.hidden = false;
 }
 
 // --- Sand Mandala ---
@@ -6353,13 +6453,17 @@ function openSandMandala() {
   const modal = document.getElementById('sandMandalaModal');
   const canvas = document.getElementById('sandMandalaCanvas');
   if (!modal || !canvas) return;
-  // Size canvas to its layout box on open
+  // Show the modal FIRST so the canvas has real layout dimensions.
+  // Calling fit() while modal.hidden = true gave us a 0×0 canvas — that's
+  // why it looked like a blank white screen.
+  modal.hidden = false;
   const fit = () => {
     const r = canvas.getBoundingClientRect();
-    canvas.width = Math.floor(r.width);
-    canvas.height = Math.floor(r.height);
+    canvas.width = Math.max(1, Math.floor(r.width));
+    canvas.height = Math.max(1, Math.floor(r.height));
   };
-  fit();
+  // Defer one frame so the modal's layout fully resolves before measuring.
+  requestAnimationFrame(fit);
   window.addEventListener('resize', fit);
   const ctx = canvas.getContext('2d');
   let drawing = false;
@@ -6421,7 +6525,6 @@ function openSandMandala() {
   };
   _activeGame.timer = setTimeout(fadeTick, 100);
   _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(canvas.parentElement), ACTIVE_GAME_PROMPT_MS);
-  modal.hidden = false;
 }
 
 // --- Slow Rhythm ---
@@ -6433,16 +6536,32 @@ function openSlowRhythm() {
   const stage = document.getElementById('slowRhythmStage');
   const pulse = document.getElementById('slowRhythmPulse');
   if (!modal || !stage || !pulse) return;
-  // Animate the pulse via class toggling
-  let expanded = false;
+  modal.hidden = false;
+
+  // Each beat: a visible "tick" ring bursts from the pulse center, giving
+  // a clear "now" moment. The pulse itself also briefly flashes via the
+  // .beat-flash class, providing a second redundant cue. Player taps a
+  // ripple anywhere — taps within 250 ms of the tick get a gold "on-beat"
+  // treatment as confirmation. Every tap is welcome regardless.
+  const BEAT_INTERVAL = 1000;
+  const ON_BEAT_WINDOW = 250;
+  let lastBeatAt = 0;
+
   const beat = () => {
     if (!_activeGame || _activeGame.id !== 'slow_rhythm') return;
-    expanded = !expanded;
-    pulse.classList.toggle('expanded', expanded);
-    _activeGame.timer = setTimeout(beat, 1000); // ~60 BPM
+    lastBeatAt = performance.now();
+    // Pulse flash — quick brighten that fades
+    pulse.classList.add('beat-flash');
+    setTimeout(() => pulse.classList.remove('beat-flash'), 250);
+    // Expanding tick ring from center — unambiguous "beat now"
+    const tick = document.createElement('div');
+    tick.className = 'slow-rhythm-tick';
+    stage.appendChild(tick);
+    setTimeout(() => tick.remove(), 700);
+    _activeGame.timer = setTimeout(beat, BEAT_INTERVAL);
   };
 
-  // Tap anywhere on stage → ripple
+  // Tap anywhere on stage → ripple. Color depends on timing.
   const onTap = (e) => {
     if (e.target.closest('button')) return;
     const r = stage.getBoundingClientRect();
@@ -6450,6 +6569,11 @@ function openSlowRhythm() {
     const y = e.clientY - r.top;
     const rip = document.createElement('div');
     rip.className = 'slow-rhythm-ripple';
+    // "On beat" if tap was within the window after a beat
+    const sinceBeat = performance.now() - lastBeatAt;
+    if (sinceBeat <= ON_BEAT_WINDOW || sinceBeat >= (BEAT_INTERVAL - ON_BEAT_WINDOW)) {
+      rip.classList.add('on-beat');
+    }
     rip.style.left = x + 'px';
     rip.style.top = y + 'px';
     stage.appendChild(rip);
@@ -6463,14 +6587,12 @@ function openSlowRhythm() {
     timer: null,
     cleanup: () => {
       stage.removeEventListener('pointerdown', onTap);
-      pulse.classList.remove('expanded');
-      // Remove any leftover ripples
-      stage.querySelectorAll('.slow-rhythm-ripple, .ag-soft-prompt').forEach(el => el.remove());
+      pulse.classList.remove('beat-flash');
+      stage.querySelectorAll('.slow-rhythm-ripple, .slow-rhythm-tick, .ag-soft-prompt').forEach(el => el.remove());
     },
   };
   _activeGame.timer = setTimeout(beat, 100);
   _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
-  modal.hidden = false;
 }
 
 function harvest(plotId, ev) {
