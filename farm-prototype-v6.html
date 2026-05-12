@@ -1910,20 +1910,19 @@ main {
   color: var(--moss);
 }
 
-/* Loadout modal — sticky top section keeps slots visible while collection
-   scrolls below, so player never loses sight of what's equipped. */
-.lm-content { display: flex; flex-direction: column; padding-top: 0; }
-.lm-sticky-top {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--paper);
-  padding-top: 24px;
-  margin: 0 -32px 12px;
-  padding-left: 32px;
-  padding-right: 32px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+/* Loadout modal — compact view. Slots + plot upgrades only. The collection
+   itself lives in the slot picker (opens when you tap any slot). One way
+   to interact, no duplicated browsing surfaces. */
+.lm-content { display: flex; flex-direction: column; max-width: 560px; }
+.lm-tap-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sage);
+  text-align: center;
+  margin: 12px 0 8px;
+  opacity: 0.8;
 }
 .lm-header {
   display: flex;
@@ -3144,26 +3143,16 @@ main {
 </div>
 
 <div class="modal" id="loadoutModal" hidden>
-  <div class="modal-content wide lm-content">
-    <div class="lm-sticky-top">
-      <div class="lm-header">
-        <div class="lm-header-info">
-          <h2 id="lmTitle">Plot 1 Loadout</h2>
-          <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
-        </div>
-        <button class="lm-clear-btn" id="lmClearAllBtn" hidden>Clear all</button>
+  <div class="modal-content lm-content">
+    <div class="lm-header">
+      <div class="lm-header-info">
+        <h2 id="lmTitle">Plot 1 Loadout</h2>
+        <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
       </div>
-      <div class="lm-slots" id="lmSlots"></div>
+      <button class="lm-clear-btn" id="lmClearAllBtn" hidden>Clear all</button>
     </div>
-    <div class="lm-section-title">
-      <span>Collection</span>
-      <span class="lm-sec-meta" id="lmCollectionMeta"></span>
-    </div>
-    <div class="lm-filters">
-      <div class="lm-filter-row" id="lmFilterState"></div>
-      <div class="lm-filter-row" id="lmFilterRarity"></div>
-    </div>
-    <div class="lm-grid" id="lmGrid"></div>
+    <div class="lm-slots" id="lmSlots"></div>
+    <div class="lm-tap-hint">Tap any slot to choose a card</div>
     <button class="lm-upgrades-toggle" id="lmUpgradesToggle" aria-expanded="false" aria-controls="lmUpgradesBody">
       <span class="lm-upgrades-chev">▸</span>
       <span>Plot Upgrades</span>
@@ -6632,10 +6621,13 @@ function clearAllSlotsOnPlot(plotId) {
 
 // Build filter chip rows. Counts are live — they reflect how many boons
 // pass each option *given current selections in the OTHER axis*.
-function renderLoadoutFilters(plotId, plot) {
+// Build filter chip rows into the given DOM containers, calling rerenderFn
+// when any chip is clicked (so the consumer can refresh its grid). Used by
+// the slot picker now that the main loadout no longer has its own grid.
+function renderLoadoutFilters(plotId, plot, stateRowId, rarityRowId, rerenderFn) {
   const currentCrop = plot.crop;
-  const stateRow = document.getElementById('lmFilterState');
-  const rarityRow = document.getElementById('lmFilterRarity');
+  const stateRow = document.getElementById(stateRowId);
+  const rarityRow = document.getElementById(rarityRowId);
   if (!stateRow || !rarityRow) return;
 
   const stateOptions = [
@@ -6652,9 +6644,6 @@ function renderLoadoutFilters(plotId, plot) {
     { id: 'mythic',    label: 'Mythic' },
   ];
 
-  // Count boons that would pass if THIS chip were the only filter constraint
-  // on its axis (keeping the other axis's current selection). Lets the player
-  // see which slices are non-empty before clicking.
   const countStateChip = (opt) => state.collection.filter(b =>
     passesLoadoutFilters(b, plotId, currentCrop, { state: opt.id, rarity: _lmFilters.rarity })
   ).length;
@@ -6669,7 +6658,7 @@ function renderLoadoutFilters(plotId, plot) {
     chip.innerHTML = `${opt.label} <span class="chip-count">${count}</span>`;
     chip.onclick = () => {
       _lmFilters[axisKey] = opt.id;
-      renderLoadoutModal();
+      if (typeof rerenderFn === 'function') rerenderFn();
     };
     return chip;
   };
@@ -6842,45 +6831,8 @@ function renderLoadoutModal() {
     }
   }
 
-  // Collection metadata + filters
-  const meta = document.getElementById('lmCollectionMeta');
-  meta.textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} owned`;
-  renderLoadoutFilters(plotId, plot);
-
-  // Collection grid — card tap behavior:
-  //   already-equipped here  → unequip
-  //   on another plot        → move to this plot (replaces or fills here)
-  //   not equipped, full     → swap picker (player chooses which slot)
-  //   not equipped, not full → equip to first empty slot
-  const grid = document.getElementById('lmGrid');
-  _renderCollectionGrid(grid, plotId, plot, (buff, ctx) => {
-    if (ctx.equipped) {
-      unequipFromPlot(plotId, buff.id);
-      renderLoadoutModal();
-      render();
-      return;
-    }
-    if (ctx.onOtherPlot) {
-      // moves from other plot — fills first empty slot or replaces if full
-      const curLoadout = state.loadouts[plotId] || [];
-      if (curLoadout.length >= MAX_PERMA_SLOTS) {
-        openSwapPicker(plotId, buff.id);
-        return;
-      }
-      equipToPlot(plotId, buff.id);
-      renderLoadoutModal();
-      render();
-      return;
-    }
-    const curLoadout = state.loadouts[plotId] || [];
-    if (curLoadout.length >= MAX_PERMA_SLOTS) {
-      openSwapPicker(plotId, buff.id);
-      return;
-    }
-    equipToPlot(plotId, buff.id);
-    renderLoadoutModal();
-    render();
-  });
+  // Collection grid removed from this view — accessed via slot tap → picker.
+  // Main loadout modal now shows only: header (clear all) + slots + upgrades.
 }
 
 // Slot picker — opens when player taps a slot. Shows their collection
@@ -6903,37 +6855,11 @@ function openSlotPicker(plotId, slotIdx) {
 function _renderSlotPickerFilters() {
   const ctx = _slotPickerCtx; if (!ctx) return;
   const plot = state.plots[ctx.plotId];
-  // Temporarily replace the IDs with the slot-picker ones so renderLoadoutFilters works.
-  const stateRow = document.getElementById('slotPickerFilterState');
-  const rarityRow = document.getElementById('slotPickerFilterRarity');
-  const _stateOrig = document.getElementById('lmFilterState');
-  const _rarOrig = document.getElementById('lmFilterRarity');
-  // Trick: swap their IDs temporarily so renderLoadoutFilters fills the picker version,
-  // then swap back. Cleaner than duplicating renderLoadoutFilters.
-  if (_stateOrig) _stateOrig.id = '_lmFilterStateTmp';
-  if (_rarOrig) _rarOrig.id = '_lmFilterRarityTmp';
-  if (stateRow) stateRow.id = 'lmFilterState';
-  if (rarityRow) rarityRow.id = 'lmFilterRarity';
-  try {
-    renderLoadoutFilters(ctx.plotId, plot);
-  } finally {
-    // Wrap filter chip onclick to re-render the SLOT PICKER grid, not the main modal
-    // We'll just override by re-binding after the fact:
-    const newStateRow = document.getElementById('lmFilterState');
-    const newRarRow = document.getElementById('lmFilterRarity');
-    [newStateRow, newRarRow].forEach(row => {
-      if (!row) return;
-      row.querySelectorAll('.lm-filter-chip').forEach(chip => {
-        const orig = chip.onclick;
-        chip.onclick = () => { orig && orig(); _renderSlotPickerGrid(); };
-      });
-    });
-    // Restore IDs
-    if (newStateRow) newStateRow.id = 'slotPickerFilterState';
-    if (newRarRow) newRarRow.id = 'slotPickerFilterRarity';
-    if (_stateOrig) _stateOrig.id = 'lmFilterState';
-    if (_rarOrig) _rarOrig.id = 'lmFilterRarity';
-  }
+  // Clean call now that renderLoadoutFilters takes target IDs + rerender fn.
+  renderLoadoutFilters(ctx.plotId, plot, 'slotPickerFilterState', 'slotPickerFilterRarity', () => {
+    _renderSlotPickerFilters();   // rebuild chips to reflect new active state
+    _renderSlotPickerGrid();      // and rerun the grid with new filters
+  });
 }
 function _renderSlotPickerGrid() {
   const ctx = _slotPickerCtx; if (!ctx) return;
