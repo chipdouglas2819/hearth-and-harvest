@@ -104,12 +104,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .money .value {
   font-family: var(--serif);
   font-weight: 600;
-  font-size: 22px;
+  font-size: 26px;          /* roomier — handles 1M+ without truncating */
   color: var(--terracotta);
   line-height: 1;
   font-feature-settings: "tnum";
+  white-space: nowrap;
 }
-.money .value::before { content: '◉ '; color: var(--butter); font-size: 14px; vertical-align: 1px; }
+.money .value::before { content: '◉ '; color: var(--butter); font-size: 16px; vertical-align: 1px; }
 
 /* Reusable coin icon — apply this class to a <span> wrapping the ◉ glyph
    anywhere we want the same gold color used in the topbar coin display. */
@@ -1131,6 +1132,49 @@ main {
 }
 .more-row-sub { font-size: 11px; color: var(--moss); letter-spacing: 0.04em; }
 .more-row-btn { white-space: nowrap; padding: 8px 14px; font-size: 13px; }
+
+/* Volume slider rows — label sits on top, slider underneath, label shows live % */
+.more-row-slider .more-row-label { width: 100%; }
+.more-row-value {
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--terracotta);
+  letter-spacing: 0.04em;
+  float: right;
+  margin-left: 8px;
+}
+.more-row-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-top: 10px;
+  outline: none;
+  cursor: pointer;
+}
+.more-row-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--terracotta);
+  border: 2px solid var(--cream);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.20);
+}
+.more-row-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--terracotta);
+  border: 2px solid var(--cream);
+  cursor: pointer;
+}
 .modal-close {
   display: block;
   margin: 20px auto 0;
@@ -2180,13 +2224,6 @@ main {
     <div class="money">
       <span class="value" id="moneyValue">25</span>
     </div>
-    <div class="speed-control">
-      <div class="speed-row">
-        <button class="speed-btn" data-speed="1">1×</button>
-        <button class="speed-btn" data-speed="60">60×</button>
-        <button class="speed-btn active" data-speed="600">600×</button>
-      </div>
-    </div>
   </div>
 </header>
 
@@ -2258,24 +2295,24 @@ main {
 
   <div id="tab-settings" class="tab-content" role="tabpanel">
     <div class="more-list">
-      <div class="more-row">
+      <div class="more-row more-row-slider">
         <div class="more-row-label">
-          <div class="more-row-title">Sound</div>
+          <div class="more-row-title">Sound <span class="more-row-value" id="soundVolLabel">100%</span></div>
           <div class="more-row-sub">tap, harvest, pack &amp; level-up chimes</div>
+          <input type="range" min="0" max="100" step="5" value="100" id="settingsSoundSlider" class="more-row-range" />
         </div>
-        <button class="btn btn-ghost more-row-btn" id="settingsMuteBtn">🔊 On</button>
       </div>
-      <div class="more-row">
+      <div class="more-row more-row-slider">
         <div class="more-row-label">
-          <div class="more-row-title">Ambient</div>
+          <div class="more-row-title">Ambient <span class="more-row-value" id="ambientVolLabel">100%</span></div>
           <div class="more-row-sub">a gentle breeze drifting through the garden</div>
+          <input type="range" min="0" max="100" step="5" value="100" id="settingsAmbientSlider" class="more-row-range" />
         </div>
-        <button class="btn btn-ghost more-row-btn" id="settingsAmbientBtn">🎵 On</button>
       </div>
       <div class="more-row">
         <div class="more-row-label">
           <div class="more-row-title">Debug Panel</div>
-          <div class="more-row-sub">force-apply boons, dev shortcuts</div>
+          <div class="more-row-sub">force-apply boons, dev shortcuts, speed control</div>
         </div>
         <button class="btn btn-ghost more-row-btn" id="settingsDebugBtn">🔧 Open</button>
       </div>
@@ -2398,6 +2435,12 @@ main {
   <div class="modal-content wide">
     <h2>🔧 Debug / Boon Test Panel</h2>
     <p class="modal-subtitle">Force-apply any in-run boon to a growing plot, or use shortcuts. For testing only — not visible in production.</p>
+    <div class="debug-section-title">Time speed (testing only — production runs at 1×)</div>
+    <div class="speed-row" style="margin-bottom: 14px;">
+      <button class="speed-btn" data-speed="1">1×</button>
+      <button class="speed-btn" data-speed="60">60×</button>
+      <button class="speed-btn active" data-speed="600">600×</button>
+    </div>
     <div class="debug-actions">
       <button class="btn btn-ghost" id="dbgAddCoins">+ 1,000 coins</button>
       <button class="btn btn-ghost" id="dbgGivePack">+ 1 pack</button>
@@ -2482,8 +2525,10 @@ function plotUpgradeCost(plotId, key) {
   const def = PLOT_UPGRADES[key];
   if (!def) return Infinity;
   const scaled = def.cost * plotUpgradeMultiplier(plotId);
-  // Round to nearest 100 for cleaner display
-  return Math.round(scaled / 100) * 100;
+  // Round to nearest 1000 for the cleanest display (was 100 — still felt noisy)
+  // Tiny upgrades (<$10k) round to nearest 500 so plot-1 commons stay sensible.
+  if (scaled < 10000) return Math.round(scaled / 500) * 500;
+  return Math.round(scaled / 1000) * 1000;
 }
 
 function buyPlotUpgrade(plotId, key) {
@@ -2827,12 +2872,23 @@ function generateGoldContract() {
 // once the player has expanded enough to handle them. Duplicate crops between
 // slots are allowed — each slot rolls independently.
 function offeredTiersForState() {
+  // Roughly 1 contract per unlocked plot, capped at 5. Each plot you own adds
+  // more daily content; pacing scales with how invested the player is.
   const plotCount = state.plots.filter(p => !p.locked).length;
-  if (plotCount <= 2) return ['bronze'];
-  if (plotCount <= 4) return ['bronze', 'silver'];
-  // 5+ plots: 1 Bronze + 2 Silver, with a 25% chance the third slot is Gold
-  const tiers = ['bronze', 'silver', 'silver'];
-  if (Math.random() < 0.25) tiers[2] = 'gold';
+  const slots = Math.min(5, Math.max(1, plotCount));
+  // Tier mix:
+  //   1 slot  → 1 Bronze
+  //   2 slots → Bronze + Bronze
+  //   3 slots → Bronze + Silver + Silver
+  //   4 slots → Bronze + Silver + Silver + (25% Gold else Silver)
+  //   5 slots → Bronze + Silver + Silver + Silver + (50% Gold else Silver)
+  const tiers = [];
+  if (slots >= 1) tiers.push('bronze');
+  if (slots >= 2) tiers.push('bronze');
+  if (slots >= 3) tiers[1] = 'silver';
+  if (slots >= 3) tiers.push('silver');
+  if (slots >= 4) tiers.push(Math.random() < 0.25 ? 'gold' : 'silver');
+  if (slots >= 5) tiers.push(Math.random() < 0.50 ? 'gold' : 'silver');
   return tiers;
 }
 
@@ -2988,7 +3044,9 @@ function audioCtx() {
 }
 
 function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
-  if (state && state.soundEnabled === false) return;
+  // Master sound: slider 0–100 mapped to 0.0–1.0 multiplier on every tone's gain.
+  const soundGain = (state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100) / 100;
+  if (soundGain <= 0) return;
   const ctx = audioCtx();
   if (!ctx) return;
   // Browser autoplay policy unlocks audio on the first user gesture. Use
@@ -2999,8 +3057,9 @@ function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
   const gain = ctx.createGain();
   osc.type = type;
   osc.frequency.value = freq;
+  const effectiveVolume = Math.max(0.0001, volume * soundGain);
   gain.gain.setValueAtTime(0.001, t0);
-  gain.gain.exponentialRampToValueAtTime(volume, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(effectiveVolume, t0 + 0.01);
   gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
   osc.connect(gain);
   gain.connect(ctx.destination);
@@ -3098,7 +3157,8 @@ function _makePinkNoiseSource(ctx) {
 }
 function startAmbient() {
   if (_ambientNodes) return;
-  if (state && (state.soundEnabled === false || state.ambientEnabled === false)) return;
+  const ambGain = (state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100) / 100;
+  if (ambGain <= 0) return;
   const ctx = audioCtx();
   if (!ctx) return;
   const noise = _makePinkNoiseSource(ctx);
@@ -3114,7 +3174,7 @@ function startAmbient() {
   hs.frequency.value = 4000;
   hs.gain.value = -6;
   const master = ctx.createGain();
-  master.gain.value = 0.022; // buried in the background; just felt, not heard
+  master.gain.value = 0.022 * ambGain; // buried in the background; scales with ambient slider
   // Slow LFO so the wind "wooshes" gently — modulation depth kept small so
   // peaks don't intrude on whatever the player is focused on.
   const lfo = ctx.createOscillator();
@@ -3145,7 +3205,12 @@ function stopAmbient() {
   }, 450);
 }
 function ensureAmbient() {
-  if (state && state.soundEnabled !== false && state.ambientEnabled !== false) {
+  // Ambient runs if its slider > 0 AND the master sound slider > 0.
+  const soundGain = state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100;
+  const ambGain   = state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100;
+  if (soundGain > 0 && ambGain > 0) {
+    // Rebuild from scratch if value changed while playing (cheapest reliable way)
+    if (_ambientNodes) stopAmbient();
     startAmbient();
   } else {
     stopAmbient();
@@ -3533,9 +3598,12 @@ const state = {
   marketDayKey: null,
   marketFeaturedCrop: null,
   marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
-  // Audio
+  // Audio (0–100 volume sliders; 0 = muted)
+  soundVolume: 100,
+  ambientVolume: 100,
+  // Legacy toggles kept for save back-compat; map to volume==0 when loaded
   soundEnabled: true,
-  ambientEnabled: true,        // procedural soft drone in the background
+  ambientEnabled: true,
   // UI
   activeTab: 'farm',
   // Achievements + counters
@@ -3826,6 +3894,8 @@ function saveGame() {
       marketHistory: state.marketHistory || [],
       soundEnabled: state.soundEnabled !== false,
       ambientEnabled: state.ambientEnabled !== false,
+      soundVolume: state.soundVolume == null ? 100 : state.soundVolume,
+      ambientVolume: state.ambientVolume == null ? 100 : state.ambientVolume,
       activeTab: state.activeTab || 'farm',
       achievements: { ...(state.achievements || {}) },
       luckyHarvests: state.luckyHarvests || 0,
@@ -3890,6 +3960,15 @@ function loadGame() {
     state.marketHistory = loaded.marketHistory || [];
     state.soundEnabled = loaded.soundEnabled !== false;
     state.ambientEnabled = loaded.ambientEnabled !== false;
+    // Volume sliders (0–100). Backfill from legacy toggles: if a player had
+    // sound/ambient turned OFF before sliders existed, default that slider
+    // to 0 so the off state survives the upgrade.
+    state.soundVolume = loaded.soundVolume == null
+      ? (loaded.soundEnabled === false ? 0 : 100)
+      : loaded.soundVolume;
+    state.ambientVolume = loaded.ambientVolume == null
+      ? (loaded.ambientEnabled === false ? 0 : 100)
+      : loaded.ambientVolume;
     state.achievements = loaded.achievements || {};
     state.luckyHarvests = loaded.luckyHarvests || 0;
     state.totalPicksTaken = loaded.totalPicksTaken || 0;
@@ -5140,26 +5219,37 @@ function openDebugModal() {
 }
 
 function syncSettingsLabels() {
-  const mb = document.getElementById('settingsMuteBtn');
-  if (mb) mb.textContent = state.soundEnabled === false ? '🔇 Off' : '🔊 On';
-  const ab = document.getElementById('settingsAmbientBtn');
-  if (ab) ab.textContent = state.ambientEnabled === false ? '🎵 Off' : '🎵 On';
+  const ss = document.getElementById('settingsSoundSlider');
+  const sl = document.getElementById('soundVolLabel');
+  if (ss && sl) { ss.value = state.soundVolume; sl.textContent = state.soundVolume + '%'; }
+  const as = document.getElementById('settingsAmbientSlider');
+  const al = document.getElementById('ambientVolLabel');
+  if (as && al) { as.value = state.ambientVolume; al.textContent = state.ambientVolume + '%'; }
 }
 
-document.getElementById('settingsMuteBtn').onclick = () => {
-  state.soundEnabled = !state.soundEnabled;
-  syncSettingsLabels();
-  if (state.soundEnabled) { sndUiClick(); ensureAmbient(); }
-  else stopAmbient();
+// Slider event handlers — input fires continuously so the player gets live
+// feedback. Save throttled via debounce-on-change-end (input handler is fine
+// for the audio side because it just updates a state value).
+document.getElementById('settingsSoundSlider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) || 0;
+  state.soundVolume = v;
+  state.soundEnabled = v > 0; // back-compat mirror
+  document.getElementById('soundVolLabel').textContent = v + '%';
+  // Touch ambient too — if master sound is muted, ambient must also stop.
+  ensureAmbient();
+});
+document.getElementById('settingsSoundSlider').addEventListener('change', () => {
+  if (state.soundVolume > 0) sndUiClick();
   saveGame();
-};
-document.getElementById('settingsAmbientBtn').onclick = () => {
-  state.ambientEnabled = !state.ambientEnabled;
-  syncSettingsLabels();
-  if (state.ambientEnabled) ensureAmbient();
-  else stopAmbient();
-  saveGame();
-};
+});
+document.getElementById('settingsAmbientSlider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) || 0;
+  state.ambientVolume = v;
+  state.ambientEnabled = v > 0; // back-compat mirror
+  document.getElementById('ambientVolLabel').textContent = v + '%';
+  ensureAmbient();
+});
+document.getElementById('settingsAmbientSlider').addEventListener('change', () => saveGame());
 document.getElementById('settingsDebugBtn').onclick = openDebugModal;
 document.getElementById('cardsOpenPackBtn').onclick = () => {
   if (state.pendingPacks > 0) openPackModal();
