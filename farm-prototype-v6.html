@@ -4090,9 +4090,16 @@ const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
 // Sets reward completionist play. Owning every card in a set grants a permanent passive
 // bonus that stacks with star-leveling and equipped buffs. Computed live from state.collection
 // — no save migration needed. Each crop has its own set; one master set rewards owning all 47.
+//
+// Bonuses were +10% / +5% before — the strategy-comparison sim showed that
+// boon picks barely differentiate engaged play (5% gap vs novice). Set
+// completion is the long-term lever for engaged players, so we bumped:
+//   crop set:   +10% → +15%   (50% relative buff, payoff for collecting 4)
+//   master set: +5%  → +10%   (year+ chase reward; doubles its value)
+// Net economy stays modest because most players don't complete every set
+// until late game (sim: median ~5 of 8 sets complete by day 180).
 const CARD_SETS = (() => {
   const sets = [];
-  // Crop sets: own all 4 crop-specific PERMA cards → +10% yield on that crop, anywhere
   const cropList = ['radish', 'carrot', 'tomato', 'strawberry', 'wheat', 'corn', 'pumpkin', 'sunflower'];
   for (const crop of cropList) {
     const cropCards = PERMA_POOL.filter(b => b.cropOnly === crop).map(b => b.id);
@@ -4101,18 +4108,17 @@ const CARD_SETS = (() => {
       name: `${CROPS[crop].name} Set`,
       icon: CROPS[crop].emoji,
       cardIds: cropCards,
-      bonus: { type: 'crop_yield', crop, mult: 1.10 },
-      bonusLabel: '+10% yield to ' + CROPS[crop].name.toLowerCase(),
+      bonus: { type: 'crop_yield', crop, mult: 1.15 },
+      bonusLabel: '+15% yield to ' + CROPS[crop].name.toLowerCase(),
     });
   }
-  // Master set: own every PERMA card → +5% global yield (stacks with crop sets)
   sets.push({
     id: 'set_master',
     name: 'Master Collection',
     icon: '👑',
     cardIds: PERMA_POOL.map(b => b.id),
-    bonus: { type: 'global_yield', mult: 1.05 },
-    bonusLabel: '+5% yield on every harvest',
+    bonus: { type: 'global_yield', mult: 1.10 },
+    bonusLabel: '+10% yield on every harvest',
   });
   return sets;
 })();

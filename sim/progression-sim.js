@@ -117,21 +117,21 @@ for (const crop of cropList) {
 }
 
 // ============ CARD SETS (mirror of game) ============
-// Crop set: own all 4 crop-specific PERMA cards → +10% yield on that crop.
-// Master set: own every PERMA card → +5% global yield.
+// Crop set: own all 4 crop-specific PERMA cards → +15% yield on that crop.
+// Master set: own every PERMA card → +10% global yield.
 const CARD_SETS = (() => {
   const sets = [];
   for (const crop of cropList) {
     sets.push({
       id: `set_${crop}`,
       cardIds: PERMA_POOL.filter(b => b.cropOnly === crop).map(b => b.id),
-      bonus: { type: 'crop_yield', crop, mult: 1.10 },
+      bonus: { type: 'crop_yield', crop, mult: 1.15 },
     });
   }
   sets.push({
     id: 'set_master',
     cardIds: PERMA_POOL.map(b => b.id),
-    bonus: { type: 'global_yield', mult: 1.05 },
+    bonus: { type: 'global_yield', mult: 1.10 },
   });
   return sets;
 })();
