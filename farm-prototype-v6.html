@@ -842,9 +842,19 @@ main {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--moss);
-  opacity: 0.7;
+  opacity: 0.85;
   margin-left: 8px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  line-height: 1.3;
+}
+.exercise-option-reward {
+  color: var(--terracotta);
+  font-weight: 700;
+  opacity: 1;
 }
 .breathe-progress {
   font-family: var(--mono);
@@ -1172,6 +1182,32 @@ main {
 .harvest-entry .amount.contract-good { color: var(--gold); }
 .harvest-entry .amount.contract-fail { color: var(--rust); opacity: 0.7; }
 .harvest-entry .amount.lucky         { color: var(--gold); font-weight: 700; text-shadow: 0 0 6px rgba(244, 193, 71, 0.5); }
+
+/* "What do the colors mean?" — collapsible legend for the activity feed */
+.activity-help {
+  margin: 8px 0 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(143, 166, 142, 0.08);
+  border: 1px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.activity-help[hidden] { display: none; }
+.activity-help .ah-row { display: flex; align-items: center; gap: 10px; line-height: 1.4; }
+.activity-help .ah-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.activity-help .ah-dot.terracotta { background: var(--terracotta); }
+.activity-help .ah-dot.gold       { background: var(--gold); }
+.activity-help .ah-dot.gold-glow  { background: var(--gold); box-shadow: 0 0 8px rgba(244, 193, 71, 0.85); }
+.activity-help .ah-dot.rust       { background: var(--rust); opacity: 0.7; }
+.activity-help .ah-text { color: var(--moss); }
+.activity-help .ah-text b { color: var(--forest); font-weight: 600; font-style: italic; font-family: var(--serif); }
 .harvest-entry .harvest-flavor { font-style: italic; font-size: 10px; color: var(--sage); margin-left: 4px; }
 .harvest-entry .harvest-attribution {
   display: block;
@@ -2676,7 +2712,16 @@ main {
 
   <div id="tab-journal" class="tab-content" role="tabpanel">
     <div class="panel">
-      <h3>Recent Activity</h3>
+      <div class="panel-header-row">
+        <h3>Recent Activity</h3>
+        <button class="link-btn" id="activityHelpBtn" aria-expanded="false" aria-controls="activityHelpPanel">What do the colors mean?</button>
+      </div>
+      <div id="activityHelpPanel" class="activity-help" hidden>
+        <div class="ah-row"><span class="ah-dot terracotta"></span> <span class="ah-text"><b>Regular harvest</b> — the standard payout for a crop</span></div>
+        <div class="ah-row"><span class="ah-dot gold-glow"></span> <span class="ah-text"><b>Lucky harvest</b> — a rare lucky moment, glowing gold</span></div>
+        <div class="ah-row"><span class="ah-dot gold"></span> <span class="ah-text"><b>Celebration</b> — star-up, contract complete, or achievement</span></div>
+        <div class="ah-row"><span class="ah-dot rust"></span> <span class="ah-text"><b>Contract expired</b> — a missed deadline</span></div>
+      </div>
       <div id="harvestLog"></div>
     </div>
     <div class="panel stats-panel">
@@ -3155,10 +3200,15 @@ function getMarketYieldMultiplier(crop) {
 
 // ============ CONTRACTS (Phase C: multi-active, tier-based pack rewards) ============
 // - Bronze:  coins only            (frequent daily-completable casual)
-// - Silver:  coins + 30% pack roll (medium ask, 30-48h deadline)
+// - Silver:  coins only            (medium ask, 30-48h deadline)
 // - Gold:    coins + guaranteed pack (3-7d deadline, big volume — prestige reward)
+// Silver pack chance was removed: variance felt like a roll the player had no
+// control over. Pack rewards now come exclusively from guaranteed sources
+// (gold contracts, harvest milestones, achievements) — deterministic and
+// fair. Silver coin bases bumped slightly to partially compensate for the
+// lost ~0.3 expected packs per silver completion.
 const MAX_ACTIVE_CONTRACTS = 3;
-const SILVER_PACK_CHANCE = 0.30;
+const SILVER_PACK_CHANCE = 0;  // packs no longer roll from silver (was 0.30)
 
 // Bronze contracts are casual: only fast crops (≤12h grow), counts tuned to
 // be comfortably completable inside 24h with plenty of sleep/work buffer.
@@ -3253,7 +3303,7 @@ function generateSilverContract() {
       tier: 'silver',
       template: 'deliver_n_of_x',
       params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
-      reward: { coins: withCoinVariance(300 + count * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
+      reward: { coins: withCoinVariance(360 + count * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
       status: 'offered',
       progress: 0,
     };
@@ -3273,7 +3323,7 @@ function generateSilverContract() {
       crops: { [cropA]: countA, [cropB]: countB },
       deadlineHours: silverDeadlineFor([cropA, cropB]),
     },
-    reward: { coins: withCoinVariance(400 + totalCount * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
+    reward: { coins: withCoinVariance(460 + totalCount * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
     status: 'offered',
     progress: { [cropA]: 0, [cropB]: 0 },
   };
@@ -4919,6 +4969,7 @@ function openBreathingExercise() {
     `Choose a moment of quiet · ${remaining} left today`;
   const options = document.getElementById('exerciseOptions');
   options.innerHTML = '';
+  const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
   for (const ex of EXERCISES) {
     const btn = document.createElement('button');
     btn.className = 'exercise-option';
@@ -4928,7 +4979,10 @@ function openBreathingExercise() {
         <div class="exercise-option-name">${ex.name}</div>
         <div class="exercise-option-blurb">${ex.blurb}</div>
       </span>
-      <span class="exercise-option-meta">${ex.durationLabel}</span>
+      <span class="exercise-option-meta">
+        <span>${ex.durationLabel}</span>
+        <span class="exercise-option-reward">−${reductionPct}%</span>
+      </span>
     `;
     btn.onclick = () => {
       document.getElementById('exercisePickerModal').hidden = true;
@@ -6205,6 +6259,15 @@ document.getElementById('achToggleBtn').onclick = () => {
   _achShowAll = !_achShowAll;
   renderAchievements();
 };
+document.getElementById('activityHelpBtn').onclick = () => {
+  const panel = document.getElementById('activityHelpPanel');
+  const btn = document.getElementById('activityHelpBtn');
+  if (!panel || !btn) return;
+  const willShow = panel.hidden;
+  panel.hidden = !willShow;
+  btn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+  btn.textContent = willShow ? 'Hide color guide' : 'What do the colors mean?';
+};
 
 // ============ WELCOME-BACK BANNER ============
 function fmtAwayTime(ms) {
@@ -6445,10 +6508,32 @@ function renderActiveContractHTML(c) {
       <div class="contract-task">${describeContract(c)}</div>
       ${progressBlock}
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
-      <div class="contract-time">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
+      <div class="contract-time" data-contract-id="${c.id}">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
     </div>
   `;
 }
+
+// Live-tick the contract countdowns at 1Hz while the Contracts tab is
+// visible. Surgical: updates only the time-remaining text, no full panel
+// re-render (cheaper, and keeps reroll-ad overlays/etc. stable).
+function tickContractTimes() {
+  const tab = document.getElementById('tab-contracts');
+  if (!tab || !tab.classList.contains('active')) return;
+  let anyExpired = false;
+  tab.querySelectorAll('.contract-time[data-contract-id]').forEach(el => {
+    const id = el.getAttribute('data-contract-id');
+    const c = (state.activeContracts || []).find(x => x.id === id);
+    if (!c) return;
+    const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
+    if (remainingMs <= 0) anyExpired = true;
+    el.textContent = `${fmtTimeRemaining(Math.max(0, remainingMs))} left`;
+  });
+  // One full re-render when something crosses zero, so checkContractExpiry
+  // can move it to history and free its slot. Bounded to one trigger per
+  // tick because the next tick will see an empty .contract-time list.
+  if (anyExpired) renderContract();
+}
+setInterval(tickContractTimes, 1000);
 
 function renderOfferedContractHTML(c, locked) {
   const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
