@@ -1003,6 +1003,29 @@ main {
 .harvest-entry .amount.lucky { color: var(--gold); font-weight: 700; }
 .harvest-entry .amount.market-bonus { color: var(--gold); }
 .harvest-entry .harvest-flavor { font-style: italic; font-size: 10px; color: var(--sage); margin-left: 4px; }
+.harvest-entry .harvest-attribution {
+  display: block;
+  font-size: 10px;
+  color: var(--moss);
+  margin-top: 2px;
+  font-style: italic;
+}
+.harvest-entry .ha-rarity {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-style: normal;
+  font-weight: 700;
+  margin-right: 4px;
+}
+.harvest-entry .ha-rarity.common    { color: var(--sage); }
+.harvest-entry .ha-rarity.uncommon  { color: var(--moss); }
+.harvest-entry .ha-rarity.rare      { color: var(--terracotta); }
+.harvest-entry .ha-rarity.legendary { color: var(--gold); }
+.harvest-entry .ha-rarity.mythic    { color: var(--mythic); }
 .harvest-entry.lucky-harvest { animation: levelupFanfare 1.8s ease-out; border-radius: 4px; }
 
 /* === Contract panel === */
@@ -4489,7 +4512,30 @@ function harvest(plotId, ev) {
   let flavor = null;
   if (isLucky) flavor = LUCKY_FLAVORS[Math.floor(Math.random() * LUCKY_FLAVORS.length)];
   else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
-  state.harvestLog.unshift({ crop: plot.crop, amount: yieldAmount, marketBonus: marketMult > 1, marketPenalty: marketMult < 1, lucky: isLucky, flavor, t: Date.now() });
+  // Cozy story bit: when a harvest is meaningfully big (>=2× the crop's base),
+  // attribute it to the standout boon — the highest-rarity buff that was
+  // active for the run. Gives every great harvest a little "why" the player
+  // can read back in the activity log.
+  let starBuff = null;
+  if (plot.activeBuffs && plot.activeBuffs.length > 0 && mult >= 2.0) {
+    const rarityOrder = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+    starBuff = plot.activeBuffs.reduce((best, b) => {
+      const br = rarityOrder.indexOf(b.rarity);
+      const bestR = best ? rarityOrder.indexOf(best.rarity) : -1;
+      return br > bestR ? b : best;
+    }, null);
+  }
+  state.harvestLog.unshift({
+    crop: plot.crop,
+    amount: yieldAmount,
+    marketBonus: marketMult > 1,
+    marketPenalty: marketMult < 1,
+    lucky: isLucky,
+    flavor,
+    starBuff: starBuff ? { name: starBuff.name, rarity: starBuff.rarity } : null,
+    yieldMult: mult,
+    t: Date.now(),
+  });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
 
   state.totalHarvests += 1;
@@ -6081,11 +6127,16 @@ function render() {
       } else if (h.type === 'info') {
         e.innerHTML = `<span class="what">${h.text}</span><span class="amount"></span>`;
       } else {
-        // Optional: small atmospheric flavor or a "lucky" celebration
+        // Optional: small atmospheric flavor or a "lucky" celebration.
+        // When a harvest is meaningfully boosted, we also attribute it to
+        // the standout boon — short cozy "why" line, like a journal margin note.
         const flavor = h.flavor ? `<span class="harvest-flavor">· ${h.flavor}</span>` : '';
+        const buffAttribution = h.starBuff
+          ? `<span class="harvest-attribution"><span class="ha-rarity ${h.starBuff.rarity}">${h.starBuff.rarity}</span> ${h.starBuff.name} carried this one</span>`
+          : '';
         const amountClass = h.lucky ? 'amount lucky' : (h.marketBonus ? 'amount market-bonus' : 'amount');
         if (h.lucky) e.classList.add('lucky-harvest');
-        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}</span><span class="${amountClass}">+${h.amount}</span>`;
+        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}${buffAttribution}</span><span class="${amountClass}">+${h.amount}</span>`;
       }
       log.appendChild(e);
     });
