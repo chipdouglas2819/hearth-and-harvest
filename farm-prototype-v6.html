@@ -351,7 +351,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 6px 16px;          /* row gap small, column gap larger */
   padding: 8px 16px;
   margin-bottom: 12px;
   font-family: var(--serif);
@@ -364,9 +364,14 @@ main {
 }
 .farm-market-strip[hidden] { display: none !important; }
 .farm-market-strip .fm-emoji { font-size: 16px; line-height: 1; }
-.farm-market-strip .fm-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
-.farm-market-strip .fm-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
-.farm-market-strip .fm-divider { color: var(--sage); }
+.farm-market-strip .fm-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; min-width: 44px; text-align: right; }
+.farm-market-strip .fm-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; min-width: 44px; text-align: right; }
+.farm-market-strip .fm-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;     /* keep emoji + name + % glued together */
+}
 .farm-market-strip .fm-label {
   font-family: var(--mono);
   font-style: normal;
@@ -374,7 +379,17 @@ main {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--sage);
-  margin-right: 4px;
+  width: 100%;             /* always its own row — label sits above pairs */
+  text-align: center;
+  margin-bottom: -2px;
+}
+/* On narrow screens, stack pairs in a column so +% and −% line up under each other */
+@media (max-width: 540px) {
+  .farm-market-strip {
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+  }
 }
 
 /* === Boon FAB — pending picks call-to-action === */
@@ -5575,8 +5590,8 @@ function renderFarmMarket() {
   const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
   const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
   let html = `<span class="fm-label">Today's Market</span>` +
-    `<span class="fm-emoji">${f.emoji}</span> ${f.name} <span class="fm-up">+${fPct}%</span>`;
-  if (s) html += ` <span class="fm-divider">·</span> <span class="fm-emoji">${s.emoji}</span> ${s.name} <span class="fm-down">−${sPct}%</span>`;
+    `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span> ${f.name} <span class="fm-up">+${fPct}%</span></span>`;
+  if (s) html += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span> ${s.name} <span class="fm-down">−${sPct}%</span></span>`;
   el.innerHTML = html;
   el.hidden = false;
 }
