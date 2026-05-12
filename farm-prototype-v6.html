@@ -5612,23 +5612,23 @@ function hasAnyGrowingPlot() {
 function openBreathingExercise() {
   if (anyModalOpen()) return;
   const remaining = tendsRemainingToday();
-  // Allow opening even without growing plots only if there's no reward to
-  // miss — otherwise no point showing the picker. Pure-practice path
-  // available too: if rewards are exhausted, picker still opens.
-  if (remaining > 0 && !hasAnyGrowingPlot()) return;
+  const hasGrowing = hasAnyGrowingPlot();
+  // Picker opens at any state. The banner explains exactly what will (or
+  // won't) happen. No more silent blocking when state isn't ideal.
   document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
-  // Reward banner — explicit indicator of whether the NEXT session will
-  // apply the −8% time-skip or run as pure practice. Player should never
-  // be unsure what they're getting.
   const banner = document.getElementById('tendRewardBanner');
   const trbText = document.getElementById('trbText');
   const trbIcon = document.getElementById('trbIcon');
   if (banner && trbText && trbIcon) {
     const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
-    if (remaining > 0) {
+    if (remaining > 0 && hasGrowing) {
       banner.className = 'tend-reward-banner reward';
       trbIcon.textContent = '🌿';
       trbText.textContent = `Next session: −${reductionPct}% grow time · ${remaining} reward${remaining === 1 ? '' : 's'} left today`;
+    } else if (remaining > 0 && !hasGrowing) {
+      banner.className = 'tend-reward-banner practice';
+      trbIcon.textContent = '☁️';
+      trbText.textContent = `Practice only — nothing growing to reduce time on`;
     } else {
       banner.className = 'tend-reward-banner practice';
       trbIcon.textContent = '☁️';
@@ -5790,17 +5790,22 @@ function completeBreathingExercise() {
   cancelBreathingExercise();
   rotateTendDayIfNeeded();
   // Reward (time-skip) only applies if the player has reward sessions
-  // left today. Past the daily cap, the exercise still completes as
-  // pure practice — counts toward lifetime/per-exercise totals so
-  // achievements still progress — but no time reduction is applied.
-  const rewarded = tendsRemainingToday() > 0;
+  // left today AND there's at least one growing plot to apply it to.
+  // Past the daily cap OR with nothing growing, the exercise still
+  // completes as pure practice — counts toward lifetime/per-exercise
+  // totals so achievements still progress — but no time reduction is
+  // applied AND no daily reward slot is consumed (so the player isn't
+  // penalized for practicing when nothing's growing).
   let plotsAffected = 0;
-  if (rewarded) {
+  if (tendsRemainingToday() > 0) {
     for (const plot of state.plots) {
       if (plot.locked || !plot.crop) continue;
       plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
       plotsAffected += 1;
     }
+  }
+  const rewarded = plotsAffected > 0;
+  if (rewarded) {
     state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
   }
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
@@ -7716,7 +7721,11 @@ function renderTendFab() {
   if (!fab) return;
   const remaining = tendsRemainingToday();
   const onFarmTab = (state.activeTab || 'farm') === 'farm';
-  const show = onFarmTab && hasAnyGrowingPlot();
+  // FAB is visible on Farm tab regardless of growing plots OR remaining
+  // reward sessions. Practice is for the player's wellbeing, not the
+  // plants — should be available even when nothing's growing AND when
+  // the daily reward cap is spent.
+  const show = onFarmTab;
   if (show) {
     // Count badge shows reward sessions left. Hidden at 0 — picker still
     // opens, just for practice; player isn't shouted at by a "0" pip.
