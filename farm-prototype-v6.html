@@ -910,6 +910,14 @@ main {
   font-weight: 700;
   opacity: 1;
 }
+/* Shown in the picker when daily reward sessions are spent — the exercise
+   still runs as pure practice, just without the time-skip bonus. */
+.exercise-option-practice {
+  color: var(--sage);
+  font-style: italic;
+  font-weight: 500;
+  opacity: 0.85;
+}
 .breathe-progress {
   font-family: var(--mono);
   font-size: 11px;
@@ -5374,13 +5382,21 @@ function hasAnyGrowingPlot() {
 }
 // Step 1 of the tend flow: open the exercise picker.
 // Player chooses Box / 5-4-3-2-1 / Body Scan, then that exercise runs.
+// PRACTICE is unlimited (real mindfulness doesn't gate itself). REWARD is
+// bounded at 4/day — after that, exercises still run but don't apply the
+// time-skip. The framing is "you've taken today's reward sessions, but
+// practice is here whenever you need it" — not punishing.
 function openBreathingExercise() {
   if (anyModalOpen()) return;
-  if (tendsRemainingToday() <= 0) return;
-  if (!hasAnyGrowingPlot()) return;
   const remaining = tendsRemainingToday();
-  document.getElementById('exercisePickerSub').textContent =
-    `Choose a moment of quiet · ${remaining} left today`;
+  // Allow opening even without growing plots only if there's no reward to
+  // miss — otherwise no point showing the picker. Pure-practice path
+  // available too: if rewards are exhausted, picker still opens.
+  if (remaining > 0 && !hasAnyGrowingPlot()) return;
+  const sub = remaining > 0
+    ? `Choose a moment of quiet · ${remaining} reward session${remaining === 1 ? '' : 's'} left today`
+    : `Today's reward sessions complete · practice is here whenever you'd like`;
+  document.getElementById('exercisePickerSub').textContent = sub;
   const options = document.getElementById('exerciseOptions');
   options.innerHTML = '';
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
@@ -5395,7 +5411,9 @@ function openBreathingExercise() {
       </span>
       <span class="exercise-option-meta">
         <span>${ex.durationLabel}</span>
-        <span class="exercise-option-reward">−${reductionPct}%</span>
+        ${remaining > 0
+          ? `<span class="exercise-option-reward">−${reductionPct}%</span>`
+          : `<span class="exercise-option-practice">practice</span>`}
       </span>
     `;
     btn.onclick = () => {
@@ -5533,29 +5551,42 @@ function completeBreathingExercise() {
   const exerciseId = _breath.exerciseId || 'box';
   cancelBreathingExercise();
   rotateTendDayIfNeeded();
-  // Apply the reduction to EVERY growing plot. Already-ready plots are
-  // included (multiplying totalMs by 0.92 when elapsed > totalMs is a no-op
-  // for readiness — keeps the math uniform without "skipping").
+  // Reward (time-skip) only applies if the player has reward sessions
+  // left today. Past the daily cap, the exercise still completes as
+  // pure practice — counts toward lifetime/per-exercise totals so
+  // achievements still progress — but no time reduction is applied.
+  const rewarded = tendsRemainingToday() > 0;
   let plotsAffected = 0;
-  for (const plot of state.plots) {
-    if (plot.locked || !plot.crop) continue;
-    plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
-    plotsAffected += 1;
+  if (rewarded) {
+    for (const plot of state.plots) {
+      if (plot.locked || !plot.crop) continue;
+      plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
+      plotsAffected += 1;
+    }
+    state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
   }
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
-  state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
   state.lastTendCompletedAt = Date.now();
   if (!state.tendExerciseLog) state.tendExerciseLog = {};
   state.tendExerciseLog[exerciseId] = (state.tendExerciseLog[exerciseId] || 0) + 1;
   if (typeof sndLevelUp === 'function') sndLevelUp();
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
-  state.harvestLog.unshift({
-    type: 'info',
-    text: `🌿 Tended the garden — ${reductionPct}% time off ${plotsAffected} plot${plotsAffected === 1 ? '' : 's'}`,
-    t: Date.now(),
-  });
+  if (rewarded) {
+    state.harvestLog.unshift({
+      type: 'info',
+      text: `🌿 Tended the garden — ${reductionPct}% time off ${plotsAffected} plot${plotsAffected === 1 ? '' : 's'}`,
+      t: Date.now(),
+    });
+    showTendToast({ plotsAffected, reductionPct });
+  } else {
+    state.harvestLog.unshift({
+      type: 'info',
+      text: `🌿 A quiet moment of practice`,
+      t: Date.now(),
+    });
+    showTendToast({ plotsAffected: 0, reductionPct: 0, practiceOnly: true });
+  }
   if (state.harvestLog.length > 6) state.harvestLog.pop();
-  showTendToast({ plotsAffected, reductionPct });
   checkAchievements();
   render();
 }
@@ -5564,11 +5595,15 @@ function showTendToast(info) {
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = 'tend-toast';
+  const label = info.practiceOnly ? 'A quiet moment' : 'Tended the garden';
+  const detail = info.practiceOnly
+    ? 'pure practice · no time bonus today'
+    : `−${info.reductionPct}% on ${info.plotsAffected} plot${info.plotsAffected === 1 ? '' : 's'}`;
   toast.innerHTML = `
     <span class="tend-toast-icon">🌿</span>
     <span>
-      <div class="tend-toast-label">Tended the garden</div>
-      <div class="tend-toast-detail">−${info.reductionPct}% on ${info.plotsAffected} plot${info.plotsAffected === 1 ? '' : 's'}</div>
+      <div class="tend-toast-label">${label}</div>
+      <div class="tend-toast-detail">${detail}</div>
     </span>
   `;
   document.body.appendChild(toast);
@@ -7311,17 +7346,27 @@ function renderBoonFab() {
   }
 }
 
-// Tend FAB — bottom-left, visible whenever there's at least one growing plot
-// and the player still has a tend session left today. Single global trigger
-// replaces the per-plot button.
+// Tend FAB — visible on the Farm tab whenever there's at least one growing
+// plot. Stays visible past the daily reward cap so the player can still
+// open the picker for pure practice (real mindfulness doesn't gate itself).
 function renderTendFab() {
   const fab = document.getElementById('tendFab');
+  const countEl = document.getElementById('tendFabCount');
   if (!fab) return;
   const remaining = tendsRemainingToday();
   const onFarmTab = (state.activeTab || 'farm') === 'farm';
-  const show = onFarmTab && remaining > 0 && hasAnyGrowingPlot();
+  const show = onFarmTab && hasAnyGrowingPlot();
   if (show) {
-    document.getElementById('tendFabCount').textContent = remaining;
+    // Count badge shows reward sessions left. Hidden at 0 — picker still
+    // opens, just for practice; player isn't shouted at by a "0" pip.
+    if (countEl) {
+      if (remaining > 0) {
+        countEl.textContent = remaining;
+        countEl.hidden = false;
+      } else {
+        countEl.hidden = true;
+      }
+    }
     fab.hidden = false;
     fab.setAttribute('aria-hidden', 'false');
     // When the Boon FAB is also showing, stack Tend above it (mobile CSS).
