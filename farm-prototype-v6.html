@@ -1925,6 +1925,60 @@ main {
 
 .lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
 
+/* Clear-all button on the slots header — soft destructive action */
+.lm-clear-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rust);
+  background: transparent;
+  border: 1px solid var(--rust);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.lm-clear-btn:hover { background: var(--rust); color: var(--cream); }
+
+/* Filter chip rows above the collection grid */
+.lm-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.lm-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.lm-filter-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--sage);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.lm-filter-chip:hover { border-color: var(--moss); color: var(--moss); }
+.lm-filter-chip.active {
+  background: var(--moss);
+  border-color: var(--moss);
+  color: var(--cream);
+}
+.lm-filter-chip .chip-count {
+  font-weight: 700;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
 /* === Welcome-back overlay (shown after >5 min absence) === */
 .welcome-back {
   position: fixed;
@@ -2719,6 +2773,10 @@ main {
         <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
       </div>
     </div>
+    <div class="lm-section-title">
+      <span>Equipped boons</span>
+      <button class="lm-clear-btn" id="lmClearAllBtn" hidden>Clear all</button>
+    </div>
     <div class="lm-slots" id="lmSlots"></div>
     <div class="lm-section-title">
       <span>Plot Upgrades</span>
@@ -2727,6 +2785,10 @@ main {
     <div class="lm-section-title">
       <span>Collection</span>
       <span class="lm-sec-meta" id="lmCollectionMeta"></span>
+    </div>
+    <div class="lm-filters">
+      <div class="lm-filter-row" id="lmFilterState"></div>
+      <div class="lm-filter-row" id="lmFilterRarity"></div>
     </div>
     <div class="lm-grid" id="lmGrid"></div>
     <button class="modal-close" data-close>done</button>
@@ -5667,8 +5729,12 @@ function renderCardsCollection() {
 }
 
 // ============ LOADOUT MODAL ============
+// UI filter state — modal-scoped, resets on close so each open is a clean slate.
+let _lmFilters = { state: 'all', rarity: 'all' };
+
 function openLoadoutModal(plotId) {
   state.loadoutModalPlotId = plotId;
+  _lmFilters = { state: 'all', rarity: 'all' };  // reset on each open
   const plot = state.plots[plotId];
   const titleEl = document.getElementById('lmTitle');
   const subEl = document.getElementById('lmSub');
@@ -5683,10 +5749,94 @@ function openLoadoutModal(plotId) {
   document.getElementById('loadoutModal').hidden = false;
 }
 
+// "Clear all" — strip every equipped boon off this plot in one tap.
+// Confirmed by render+save; no modal prompt (small undo-able action).
+function clearAllSlotsOnPlot(plotId) {
+  if (!state.loadouts[plotId] || state.loadouts[plotId].length === 0) return;
+  state.loadouts[plotId] = [];
+  saveGame();
+  renderLoadoutModal();
+  render();
+}
+
+// Build filter chip rows. Counts are live — they reflect how many boons
+// pass each option *given current selections in the OTHER axis*.
+function renderLoadoutFilters(plotId, plot) {
+  const currentCrop = plot.crop;
+  const stateRow = document.getElementById('lmFilterState');
+  const rarityRow = document.getElementById('lmFilterRarity');
+  if (!stateRow || !rarityRow) return;
+
+  const stateOptions = [
+    { id: 'all',        label: 'All' },
+    { id: 'active',     label: 'Active here' },
+    { id: 'equipped',   label: 'Equipped' },
+    { id: 'unequipped', label: 'Unequipped' },
+  ];
+  const rarityOptions = [
+    { id: 'all',       label: 'All rarities' },
+    { id: 'uncommon',  label: 'Uncommon' },
+    { id: 'rare',      label: 'Rare' },
+    { id: 'legendary', label: 'Legendary' },
+    { id: 'mythic',    label: 'Mythic' },
+  ];
+
+  // Count boons that would pass if THIS chip were the only filter constraint
+  // on its axis (keeping the other axis's current selection). Lets the player
+  // see which slices are non-empty before clicking.
+  const countStateChip = (opt) => state.collection.filter(b =>
+    passesLoadoutFilters(b, plotId, currentCrop, { state: opt.id, rarity: _lmFilters.rarity })
+  ).length;
+  const countRarityChip = (opt) => state.collection.filter(b =>
+    passesLoadoutFilters(b, plotId, currentCrop, { state: _lmFilters.state, rarity: opt.id })
+  ).length;
+
+  const buildChip = (opt, axisKey, count) => {
+    const chip = document.createElement('button');
+    const active = _lmFilters[axisKey] === opt.id;
+    chip.className = 'lm-filter-chip' + (active ? ' active' : '');
+    chip.innerHTML = `${opt.label} <span class="chip-count">${count}</span>`;
+    chip.onclick = () => {
+      _lmFilters[axisKey] = opt.id;
+      renderLoadoutModal();
+    };
+    return chip;
+  };
+
+  stateRow.innerHTML = '';
+  stateOptions.forEach(opt => stateRow.appendChild(buildChip(opt, 'state', countStateChip(opt))));
+  rarityRow.innerHTML = '';
+  rarityOptions.forEach(opt => rarityRow.appendChild(buildChip(opt, 'rarity', countRarityChip(opt))));
+}
+
+// Filter test — uses an override filters object so chip-count previews can
+// ask "what if THIS were the only constraint on this axis?"
+function passesLoadoutFilters(buff, plotId, currentCrop, filtersOverride) {
+  const f = filtersOverride || _lmFilters;
+  // state axis
+  if (f.state === 'active') {
+    if (buff.cropOnly && buff.cropOnly !== currentCrop) return false;
+  } else if (f.state === 'equipped') {
+    if (!isEquippedOnPlot(buff.id, plotId)) return false;
+  } else if (f.state === 'unequipped') {
+    if (findCurrentPlotForBuff(buff.id) >= 0) return false;
+  }
+  // rarity axis
+  if (f.rarity !== 'all' && buff.rarity !== f.rarity) return false;
+  return true;
+}
+
 function renderLoadoutModal() {
   const plotId = state.loadoutModalPlotId;
   const plot = state.plots[plotId];
   const loadout = state.loadouts[plotId] || [];
+
+  // Clear-all button — only visible when there's at least one equipped boon
+  const clearBtn = document.getElementById('lmClearAllBtn');
+  if (clearBtn) {
+    clearBtn.hidden = loadout.length === 0;
+    clearBtn.onclick = () => clearAllSlotsOnPlot(plotId);
+  }
 
   // slots
   const slotsEl = document.getElementById('lmSlots');
@@ -5751,6 +5901,9 @@ function renderLoadoutModal() {
   const meta = document.getElementById('lmCollectionMeta');
   meta.textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} owned`;
 
+  // Filter chips — state (all/active/equipped/unequipped) + rarity tiers
+  renderLoadoutFilters(plotId, plot);
+
   // collection grid (filtered/sorted: relevant first)
   const grid = document.getElementById('lmGrid');
   grid.innerHTML = '';
@@ -5760,7 +5913,12 @@ function renderLoadoutModal() {
   }
 
   const currentCrop = plot.crop;
-  const sorted = [...state.collection].sort((a, b) => {
+  const filtered = state.collection.filter(b => passesLoadoutFilters(b, plotId, currentCrop));
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
+    return;
+  }
+  const sorted = [...filtered].sort((a, b) => {
     // priority 1: equipped here come first
     const ae = isEquippedOnPlot(a.id, plotId) ? 0 : 1;
     const be = isEquippedOnPlot(b.id, plotId) ? 0 : 1;
