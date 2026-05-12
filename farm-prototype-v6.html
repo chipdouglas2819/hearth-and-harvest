@@ -829,8 +829,166 @@ main {
   100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
 }
 
-/* Exercise picker — three cards, player chooses tone for this session */
-.exercise-picker { max-width: 420px; text-align: center; padding: 28px 22px; }
+/* Exercise picker — two-section layout: mindfulness + active practices */
+.exercise-picker { max-width: 460px; text-align: center; padding: 28px 22px; }
+.picker-section-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--moss);
+  text-align: left;
+  margin: 16px 0 2px;
+}
+.picker-section-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sage);
+  text-align: left;
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
+
+/* === Active practice (mini-game) shared modal styles === */
+.active-game-modal {
+  max-width: 480px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.active-game-modal .ag-header {
+  padding: 16px 22px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+.active-game-modal .ag-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--forest);
+}
+.active-game-modal .ag-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--moss);
+  margin-top: 4px;
+}
+.active-game-modal .ag-stage {
+  position: relative;
+  width: 100%;
+  height: 360px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.active-game-modal .ag-leave {
+  margin: 12px auto 18px;
+  padding: 8px 22px !important;
+  font-size: 13px !important;
+  align-self: center;
+}
+
+/* Pollen Drift — soft yellow field, particles drift */
+.pollen-drift-modal .ag-stage {
+  background: radial-gradient(circle at 50% 50%, rgba(244, 193, 71, 0.10), rgba(244, 193, 71, 0.02) 70%);
+}
+.pollen-particle {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(244, 193, 71, 0.85), rgba(244, 193, 71, 0.2));
+  filter: blur(0.5px);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 20px rgba(244, 193, 71, 0.5);
+}
+.pollen-particle.glow {
+  box-shadow: 0 0 35px rgba(244, 193, 71, 0.85);
+  background: radial-gradient(circle, rgba(255, 220, 120, 1), rgba(244, 193, 71, 0.3));
+}
+.pollen-sparkle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 235, 180, 0.9);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: pollenSparkleAnim 600ms ease-out forwards;
+}
+@keyframes pollenSparkleAnim {
+  0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+}
+
+/* Sand Mandala — sage canvas, finger draws fading sand */
+.sand-mandala-canvas {
+  display: block;
+  background: radial-gradient(circle at 50% 50%, rgba(143, 166, 142, 0.20), rgba(143, 166, 142, 0.06) 70%);
+  cursor: crosshair;
+}
+
+/* Slow Rhythm — calm dark space, central pulse */
+.slow-rhythm-modal .ag-stage {
+  background: radial-gradient(circle at 50% 50%, rgba(127, 191, 191, 0.10), rgba(45, 74, 62, 0.04) 70%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.slow-rhythm-pulse {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.45), rgba(127, 191, 191, 0.05) 70%);
+  border: 2px solid rgba(127, 191, 191, 0.50);
+  transition: transform 1000ms ease-in-out, opacity 1000ms ease-in-out;
+}
+.slow-rhythm-pulse.expanded { transform: scale(1.5); opacity: 0.55; }
+.slow-rhythm-ripple {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(127, 191, 191, 0.6);
+  background: rgba(127, 191, 191, 0.15);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: slowRhythmRippleAnim 800ms ease-out forwards;
+}
+@keyframes slowRhythmRippleAnim {
+  0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+}
+
+/* Soft "you can step away" prompt that fades in around 30s into a game */
+.ag-soft-prompt {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--moss);
+  background: rgba(254, 252, 247, 0.85);
+  padding: 4px 12px;
+  border-radius: 999px;
+  opacity: 0;
+  animation: agSoftPromptIn 1.5s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes agSoftPromptIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 0.9; transform: translateX(-50%) translateY(0); }
+}
 
 /* Tend reward state banner — prominent so the player immediately sees
    whether the next session will give them -8% or be pure practice. */
@@ -3248,8 +3406,49 @@ main {
       <span class="trb-icon" id="trbIcon">🌿</span>
       <span class="trb-text" id="trbText"></span>
     </div>
+    <div class="picker-section-title">Mindfulness practices</div>
+    <div class="picker-section-sub">apply the daily reward when available</div>
     <div class="exercise-options" id="exerciseOptions"></div>
+    <div class="picker-section-title">Active practices</div>
+    <div class="picker-section-sub">no time-skip — just gentle engagement</div>
+    <div class="exercise-options" id="activeGameOptions"></div>
     <button class="modal-close" data-close>not now</button>
+  </div>
+</div>
+
+<!-- Active practice modals -->
+<div class="modal" id="pollenDriftModal" hidden>
+  <div class="modal-content active-game-modal pollen-drift-modal">
+    <div class="ag-header">
+      <div class="ag-title">Pollen Drift</div>
+      <div class="ag-sub" id="pollenDriftSub">Follow the drift…</div>
+    </div>
+    <div class="ag-stage" id="pollenDriftStage"></div>
+    <button class="btn btn-ghost ag-leave" data-close>step away</button>
+  </div>
+</div>
+
+<div class="modal" id="sandMandalaModal" hidden>
+  <div class="modal-content active-game-modal sand-mandala-modal">
+    <div class="ag-header">
+      <div class="ag-title">Sand Mandala</div>
+      <div class="ag-sub" id="sandMandalaSub">Draw with your finger…</div>
+    </div>
+    <canvas class="ag-stage sand-mandala-canvas" id="sandMandalaCanvas"></canvas>
+    <button class="btn btn-ghost ag-leave" data-close>step away</button>
+  </div>
+</div>
+
+<div class="modal" id="slowRhythmModal" hidden>
+  <div class="modal-content active-game-modal slow-rhythm-modal">
+    <div class="ag-header">
+      <div class="ag-title">Slow Rhythm</div>
+      <div class="ag-sub" id="slowRhythmSub">Tap with the pulse…</div>
+    </div>
+    <div class="ag-stage" id="slowRhythmStage">
+      <div class="slow-rhythm-pulse" id="slowRhythmPulse"></div>
+    </div>
+    <button class="btn btn-ghost ag-leave" data-close>step away</button>
   </div>
 </div>
 
@@ -4366,6 +4565,37 @@ const EXERCISES = [
   },
 ];
 
+// Active practices — engagement-only mini-games. No time-skip reward,
+// no fail state, no score. Player picks them when they want to do
+// something with their hands instead of meditate. Completion adds to
+// the "Moments collected" lifetime stat (state.activePracticesCompleted).
+const ACTIVE_GAMES = [
+  {
+    id: 'pollen_drift',
+    name: 'Pollen Drift',
+    blurb: 'Follow a single drifting light',
+    icon: '✨',
+    durationLabel: 'open-ended',
+    openFn: 'openPollenDrift',
+  },
+  {
+    id: 'sand_mandala',
+    name: 'Sand Mandala',
+    blurb: 'Draw patterns that gently fade',
+    icon: '🌀',
+    durationLabel: 'open-ended',
+    openFn: 'openSandMandala',
+  },
+  {
+    id: 'slow_rhythm',
+    name: 'Slow Rhythm',
+    blurb: 'Tap gently with a calm pulse',
+    icon: '🫧',
+    durationLabel: 'open-ended',
+    openFn: 'openSlowRhythm',
+  },
+];
+
 // Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
 const HARVEST_FLAVORS = [
   'a perfect crop.',
@@ -4906,6 +5136,7 @@ const state = {
   tendExerciseLog: {},       // lifetime per-exercise counts, keyed by exercise id ({box, ground, scan})
   tendIntrosSeen: {},        // { box: true, ground: true, scan: true } — once seen, picker skips the intro
   lastTendCompletedAt: 0,    // ms timestamp of last completed breathing exercise (used by Centered card)
+  activePracticesCompleted: 0,  // lifetime count of completed active-game sessions ("moments collected")
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -5296,6 +5527,7 @@ function saveGame() {
       tendExerciseLog: state.tendExerciseLog || {},
       tendIntrosSeen: state.tendIntrosSeen || {},
       lastTendCompletedAt: state.lastTendCompletedAt || 0,
+      activePracticesCompleted: state.activePracticesCompleted || 0,
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -5373,6 +5605,7 @@ function loadGame() {
     state.tendExerciseLog = loaded.tendExerciseLog || {};
     state.tendIntrosSeen = loaded.tendIntrosSeen || {};
     state.lastTendCompletedAt = loaded.lastTendCompletedAt || 0;
+    state.activePracticesCompleted = loaded.activePracticesCompleted || 0;
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -5663,7 +5896,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'slotPickerModal', 'swapPickerModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'slotPickerModal', 'swapPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -5749,6 +5982,34 @@ function openBreathingExercise() {
     };
     options.appendChild(btn);
   }
+
+  // Active practices section — engagement-only mini-games (no reward)
+  const activeOptions = document.getElementById('activeGameOptions');
+  if (activeOptions) {
+    activeOptions.innerHTML = '';
+    for (const game of ACTIVE_GAMES) {
+      const btn = document.createElement('button');
+      btn.className = 'exercise-option';
+      btn.innerHTML = `
+        <span class="exercise-option-icon">${game.icon}</span>
+        <span class="exercise-option-body">
+          <div class="exercise-option-name">${game.name}</div>
+          <div class="exercise-option-blurb">${game.blurb}</div>
+        </span>
+        <span class="exercise-option-meta">
+          <span>${game.durationLabel}</span>
+          <span class="exercise-option-practice">no reward</span>
+        </span>
+      `;
+      btn.onclick = () => {
+        document.getElementById('exercisePickerModal').hidden = true;
+        const fn = window[game.openFn];
+        if (typeof fn === 'function') fn();
+      };
+      activeOptions.appendChild(btn);
+    }
+  }
+
   document.getElementById('exercisePickerModal').hidden = false;
 }
 
@@ -5961,6 +6222,255 @@ function cancelBreathingExercise() {
   if (stage) stage.classList.remove('mode-text');
   const textIcon = document.getElementById('breatheTextIcon');
   if (textIcon) textIcon.classList.remove('fade-in');
+}
+
+// ============ ACTIVE PRACTICES (mini-games) ============
+// Engagement-only. No time-skip reward, no fail state, no score. Each
+// runs open-ended until the player taps "step away". A soft prompt
+// fades in around 30 seconds in to remind them they can leave anytime.
+// Completing any game (≥10 seconds of play) increments
+// state.activePracticesCompleted — the "Moments collected" tracker.
+
+let _activeGame = null;        // { id, startedAt, raf, timer, cleanup }
+const ACTIVE_GAME_PROMPT_MS = 30000;
+const ACTIVE_GAME_MIN_COUNT_MS = 10000; // play ≥10s to count toward Moments
+
+function _endActiveGame() {
+  if (!_activeGame) return;
+  const g = _activeGame;
+  _activeGame = null;
+  if (g.raf) cancelAnimationFrame(g.raf);
+  if (g.timer) clearTimeout(g.timer);
+  if (g.promptTimer) clearTimeout(g.promptTimer);
+  if (typeof g.cleanup === 'function') g.cleanup();
+  // Count the moment if the player stayed at least the minimum
+  const played = performance.now() - g.startedAt;
+  if (played >= ACTIVE_GAME_MIN_COUNT_MS) {
+    state.activePracticesCompleted = (state.activePracticesCompleted || 0) + 1;
+    saveGame();
+  }
+  // Hide all active-game modals (one of them is open)
+  ['pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  });
+}
+
+function _spawnAgSoftPrompt(stage) {
+  if (!stage) return;
+  if (stage.querySelector('.ag-soft-prompt')) return;
+  const p = document.createElement('div');
+  p.className = 'ag-soft-prompt';
+  p.textContent = 'You can step away whenever you like';
+  stage.appendChild(p);
+}
+
+// --- Pollen Drift ---
+// Soft glowing dot drifts on a slow curved path. Player follows it with
+// finger/cursor. Proximity triggers a sparkle. No fail.
+function openPollenDrift() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('pollenDriftModal');
+  const stage = document.getElementById('pollenDriftStage');
+  if (!modal || !stage) return;
+  // Clean previous run if any
+  stage.innerHTML = '';
+  const particle = document.createElement('div');
+  particle.className = 'pollen-particle';
+  stage.appendChild(particle);
+
+  let stageRect = stage.getBoundingClientRect();
+  const updateRect = () => { stageRect = stage.getBoundingClientRect(); };
+  window.addEventListener('resize', updateRect);
+
+  // Particle drifts on a low-frequency Lissajous-ish curve, slow speed
+  const startedAt = performance.now();
+  let cursorX = -9999, cursorY = -9999;
+
+  const onMove = (e) => {
+    const r = stage.getBoundingClientRect();
+    cursorX = e.clientX - r.left;
+    cursorY = e.clientY - r.top;
+  };
+  stage.addEventListener('pointermove', onMove);
+  stage.addEventListener('pointerdown', onMove);
+
+  const onLeave = () => { cursorX = -9999; cursorY = -9999; };
+  stage.addEventListener('pointerleave', onLeave);
+
+  const tick = (now) => {
+    if (!_activeGame || _activeGame.id !== 'pollen_drift') return;
+    const w = stageRect.width || stage.offsetWidth;
+    const h = stageRect.height || stage.offsetHeight;
+    const t = (now - startedAt) / 1000;
+    // Slow drift: two summed sines, slow frequencies
+    const px = w * (0.5 + 0.35 * Math.sin(t * 0.35) + 0.05 * Math.sin(t * 0.13));
+    const py = h * (0.5 + 0.30 * Math.cos(t * 0.27) + 0.05 * Math.cos(t * 0.11));
+    particle.style.left = px + 'px';
+    particle.style.top = py + 'px';
+    // Proximity glow + sparkle
+    const dx = cursorX - px, dy = cursorY - py;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 60) {
+      particle.classList.add('glow');
+      // Spawn sparkles occasionally near the particle
+      if (Math.random() < 0.08) {
+        const s = document.createElement('div');
+        s.className = 'pollen-sparkle';
+        s.style.left = (px + (Math.random() - 0.5) * 30) + 'px';
+        s.style.top = (py + (Math.random() - 0.5) * 30) + 'px';
+        stage.appendChild(s);
+        setTimeout(() => s.remove(), 650);
+      }
+    } else {
+      particle.classList.remove('glow');
+    }
+    _activeGame.raf = requestAnimationFrame(tick);
+  };
+
+  _activeGame = {
+    id: 'pollen_drift',
+    startedAt: performance.now(),
+    raf: null,
+    cleanup: () => {
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerdown', onMove);
+      stage.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener('resize', updateRect);
+      stage.innerHTML = '';
+    },
+  };
+  _activeGame.raf = requestAnimationFrame(tick);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
+  modal.hidden = false;
+}
+
+// --- Sand Mandala ---
+// Canvas drawing. Player drags finger to leave a sand-trail. Trail fades
+// over time. Pure expression, no goal.
+function openSandMandala() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('sandMandalaModal');
+  const canvas = document.getElementById('sandMandalaCanvas');
+  if (!modal || !canvas) return;
+  // Size canvas to its layout box on open
+  const fit = () => {
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(r.width);
+    canvas.height = Math.floor(r.height);
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  const start = (e) => {
+    drawing = true;
+    const r = canvas.getBoundingClientRect();
+    lastX = e.clientX - r.left;
+    lastY = e.clientY - r.top;
+  };
+  const move = (e) => {
+    if (!drawing) return;
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    ctx.strokeStyle = 'rgba(244, 193, 71, 0.85)';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(244, 193, 71, 0.6)';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastX = x; lastY = y;
+  };
+  const end = () => { drawing = false; };
+  canvas.addEventListener('pointerdown', start);
+  canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointerleave', end);
+  canvas.addEventListener('pointercancel', end);
+
+  // Slowly fade the canvas — old marks dissolve like sand catching wind
+  const fadeTick = () => {
+    if (!_activeGame || _activeGame.id !== 'sand_mandala') return;
+    ctx.shadowBlur = 0;
+    // Composite a translucent sage wash over everything to fade trails
+    ctx.fillStyle = 'rgba(143, 166, 142, 0.018)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    _activeGame.timer = setTimeout(fadeTick, 100);
+  };
+
+  _activeGame = {
+    id: 'sand_mandala',
+    startedAt: performance.now(),
+    timer: null,
+    cleanup: () => {
+      canvas.removeEventListener('pointerdown', start);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', end);
+      canvas.removeEventListener('pointerleave', end);
+      canvas.removeEventListener('pointercancel', end);
+      window.removeEventListener('resize', fit);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    },
+  };
+  _activeGame.timer = setTimeout(fadeTick, 100);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(canvas.parentElement), ACTIVE_GAME_PROMPT_MS);
+  modal.hidden = false;
+}
+
+// --- Slow Rhythm ---
+// A central circle pulses at ~60 BPM (one beat per second-ish). Player
+// taps anywhere to drop a soft ripple. No hit/miss — every tap welcome.
+function openSlowRhythm() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('slowRhythmModal');
+  const stage = document.getElementById('slowRhythmStage');
+  const pulse = document.getElementById('slowRhythmPulse');
+  if (!modal || !stage || !pulse) return;
+  // Animate the pulse via class toggling
+  let expanded = false;
+  const beat = () => {
+    if (!_activeGame || _activeGame.id !== 'slow_rhythm') return;
+    expanded = !expanded;
+    pulse.classList.toggle('expanded', expanded);
+    _activeGame.timer = setTimeout(beat, 1000); // ~60 BPM
+  };
+
+  // Tap anywhere on stage → ripple
+  const onTap = (e) => {
+    if (e.target.closest('button')) return;
+    const r = stage.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const rip = document.createElement('div');
+    rip.className = 'slow-rhythm-ripple';
+    rip.style.left = x + 'px';
+    rip.style.top = y + 'px';
+    stage.appendChild(rip);
+    setTimeout(() => rip.remove(), 850);
+  };
+  stage.addEventListener('pointerdown', onTap);
+
+  _activeGame = {
+    id: 'slow_rhythm',
+    startedAt: performance.now(),
+    timer: null,
+    cleanup: () => {
+      stage.removeEventListener('pointerdown', onTap);
+      pulse.classList.remove('expanded');
+      // Remove any leftover ripples
+      stage.querySelectorAll('.slow-rhythm-ripple, .ag-soft-prompt').forEach(el => el.remove());
+    },
+  };
+  _activeGame.timer = setTimeout(beat, 100);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
+  modal.hidden = false;
 }
 
 function harvest(plotId, ev) {
@@ -7105,6 +7615,9 @@ function closeAllModals() {
   // Closing during a breathing exercise = no reward, but cancel cleanly so
   // we don't leave timers running.
   if (typeof cancelBreathingExercise === 'function') cancelBreathingExercise();
+  // Closing an active-game modal — clean up RAF/timers and count the moment
+  // if the player stayed long enough.
+  if (typeof _endActiveGame === 'function' && _activeGame) _endActiveGame();
 }
 
 // ============ DEBUG PANEL ============
@@ -7751,6 +8264,7 @@ function renderLifetimeStats() {
     { label: 'Daily streak',      value: `🔥 ${state.streakDays || 0}${state.bestStreak > (state.streakDays || 0) ? ` <span class="lifetime-sub">best ${state.bestStreak}</span>` : ''}` },
     { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
     { label: 'Tend sessions',     value: (state.tendSessionsCompleted || 0).toLocaleString() },
+    { label: 'Moments collected', value: (state.activePracticesCompleted || 0).toLocaleString() },
     { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
     { label: 'Boon picks taken',  value: (state.totalPicksTaken || 0).toLocaleString() },
     { label: 'Lucky harvests',    value: (state.luckyHarvests || 0).toLocaleString() },
