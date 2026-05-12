@@ -7366,30 +7366,50 @@ function describeContract(c) {
 }
 
 // Contract quality — how good is this offer for the work involved?
-// Computes reward (coins + pack value at $500/pack equiv) / baseline coin
-// you'd earn just harvesting those crops normally. Uses contract-specific
-// labels (modest/fair/good/great) instead of card rarity words to avoid
-// semantic overload — "common card" means "drops frequently", "common
-// contract" would mean "bad offer", same word two meanings. Same COLOR
-// palette per tier keeps visual consistency with the rest of the game.
+//
+// Two paths because pack-bearing contracts (currently gold tier) are
+// intrinsically worth doing regardless of coin payout — the pack alone
+// is a meaningful reward. Treating them on the same coin/effort scale
+// as coin-only contracts (silver/bronze) made gold contracts look
+// "modest" because they tend to ask for lots of crops, inflating
+// baseline. Path A: pack contracts start at "good", bump to "great"
+// when coins are also generous. Path B: coin-only contracts rate
+// purely on coin/effort ratio.
+//
+// Labels (modest/fair/good/great) deliberately avoid card-rarity
+// words ("common"/"rare") so the player isn't confused by the same
+// word meaning different things in different contexts. Same color
+// palette is used for visual consistency (sage/moss/terracotta/gold).
 function computeContractQuality(c) {
-  const PACK_COIN_VALUE = 500;
   let baseline = 0;
   if (c.template === 'deliver_n_of_x') {
-    const crop = c.params.crop;
-    const count = c.params.count;
-    baseline = (CROPS[crop]?.baseYield || 1) * count;
+    baseline = (CROPS[c.params.crop]?.baseYield || 1) * c.params.count;
   } else if (c.template === 'deliver_mixed') {
     for (const [crop, count] of Object.entries(c.params.crops || {})) {
       baseline += (CROPS[crop]?.baseYield || 1) * count;
     }
   }
-  const totalValue = (c.reward?.coins || 0) + (c.reward?.packs || 0) * PACK_COIN_VALUE;
   if (baseline <= 0) return { tier: 'common', label: 'modest' };
-  const ratio = totalValue / baseline;
-  if (ratio >= 1.5)  return { tier: 'legendary', label: 'great' };
-  if (ratio >= 1.15) return { tier: 'rare',      label: 'good' };
-  if (ratio >= 0.85) return { tier: 'uncommon',  label: 'fair' };
+
+  const coins = c.reward?.coins || 0;
+  const packs = c.reward?.packs || 0;
+
+  // Pack-bearing contract — the pack alone makes it worth doing.
+  // Bump to "great" if the coin reward on top is also generous.
+  if (packs > 0) {
+    const coinRatio = coins / baseline;
+    if (coinRatio >= 0.5) return { tier: 'legendary', label: 'great' };
+    return { tier: 'rare', label: 'good' };
+  }
+
+  // Coin-only — rate by how much the contract pays vs. just selling
+  // the crops at market baseline. ratio of 1.0 means contract pays
+  // about the same as harvest income alone (essentially doubles
+  // your take from those crops once harvest coins are added).
+  const ratio = coins / baseline;
+  if (ratio >= 1.0)  return { tier: 'legendary', label: 'great' };
+  if (ratio >= 0.7)  return { tier: 'rare',      label: 'good' };
+  if (ratio >= 0.4)  return { tier: 'uncommon',  label: 'fair' };
   return { tier: 'common', label: 'modest' };
 }
 
