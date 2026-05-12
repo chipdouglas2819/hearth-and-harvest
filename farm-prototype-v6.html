@@ -2500,21 +2500,21 @@ main {
 </main>
 
 <nav class="tab-bar" id="tabBar" role="tablist" aria-label="Main navigation">
-  <button class="tab-btn active" data-tab="farm" role="tab" aria-selected="true" aria-controls="tab-farm">
-    <span class="tab-icon">🌱</span>
-    <span class="tab-label">Farm</span>
-    <span class="tab-badge tab-badge-boon" id="tabBadgeFarmBoon" hidden></span>
-    <span class="tab-badge" id="tabBadgeFarmReady" hidden></span>
+  <button class="tab-btn" data-tab="cards" role="tab" aria-selected="false" aria-controls="tab-cards">
+    <span class="tab-icon">🎴</span>
+    <span class="tab-label">Cards</span>
+    <span class="tab-badge" id="tabBadgeCards" hidden></span>
   </button>
   <button class="tab-btn" data-tab="contracts" role="tab" aria-selected="false" aria-controls="tab-contracts">
     <span class="tab-icon">📜</span>
     <span class="tab-label">Contracts</span>
     <span class="tab-badge" id="tabBadgeContracts" hidden></span>
   </button>
-  <button class="tab-btn" data-tab="cards" role="tab" aria-selected="false" aria-controls="tab-cards">
-    <span class="tab-icon">🎴</span>
-    <span class="tab-label">Cards</span>
-    <span class="tab-badge" id="tabBadgeCards" hidden></span>
+  <button class="tab-btn active" data-tab="farm" role="tab" aria-selected="true" aria-controls="tab-farm">
+    <span class="tab-icon">🌱</span>
+    <span class="tab-label">Farm</span>
+    <span class="tab-badge tab-badge-boon" id="tabBadgeFarmBoon" hidden></span>
+    <span class="tab-badge" id="tabBadgeFarmReady" hidden></span>
   </button>
   <button class="tab-btn" data-tab="journal" role="tab" aria-selected="false" aria-controls="tab-journal">
     <span class="tab-icon">📔</span>
@@ -5728,7 +5728,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
 });
 
-const TAB_ORDER = ['farm', 'contracts', 'cards', 'journal', 'settings'];
+const TAB_ORDER = ['cards', 'contracts', 'farm', 'journal', 'settings'];
 function cycleTab(direction) {
   const idx = TAB_ORDER.indexOf(state.activeTab || 'farm');
   const next = (idx + direction + TAB_ORDER.length) % TAB_ORDER.length;
