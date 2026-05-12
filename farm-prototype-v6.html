@@ -4100,14 +4100,15 @@ function _playBirdChirp() {
   // timbre, varied phrases. Triangle oscillator + LFO modulation on
   // frequency gives the organic bird-call character.
   //
-  // 2–4 quick warbling chirps in a phrase, randomized "voice" per call.
-  const chirpCount = 2 + Math.floor(Math.random() * 3);
+  // 4–7 warbling chirps in a phrase — long enough to register as a
+  // "song fragment" rather than a brief blip. Randomized "voice" per call.
+  const chirpCount = 4 + Math.floor(Math.random() * 4);
   // Bird "voice" — base frequency for this entire phrase (2.0–3.4 kHz,
   // well below the 3–5 kHz smoke-alarm danger zone)
   const voiceFreq = 2000 + Math.random() * 1400;
   for (let i = 0; i < chirpCount; i++) {
-    const startAt = t0 + i * (0.085 + Math.random() * 0.06);
-    const duration = 0.06 + Math.random() * 0.05; // 60–110 ms per chirp
+    const startAt = t0 + i * (0.110 + Math.random() * 0.08);
+    const duration = 0.10 + Math.random() * 0.08; // 100–180 ms per chirp
     // Per-chirp pitch shifts within the phrase
     const f0 = voiceFreq + (Math.random() - 0.5) * 350;
     const f1 = f0 + (Math.random() - 0.4) * 250;
@@ -4145,22 +4146,23 @@ function _playCricketChirp() {
   const ag = _atmosphereGain();
   if (ag <= 0) return;
   const t0 = ctx.currentTime;
-  // 3–6 quick clicks (a cricket "chirp" is actually rapid ticks)
-  const clickCount = 3 + Math.floor(Math.random() * 4);
+  // 5–10 clicks (real cricket chirps are quick rapid-fire ticks, longer
+  // overall phrase makes them register as a "song" rather than a blip)
+  const clickCount = 5 + Math.floor(Math.random() * 6);
   const baseFreq = 4400 + Math.random() * 900;
   for (let i = 0; i < clickCount; i++) {
-    const startAt = t0 + i * (0.030 + Math.random() * 0.012);
+    const startAt = t0 + i * (0.035 + Math.random() * 0.015);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.value = baseFreq + (Math.random() - 0.5) * 200;
     gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.012 * ag, startAt + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.022);
+    gain.gain.exponentialRampToValueAtTime(0.012 * ag, startAt + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.032);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(startAt);
-    osc.stop(startAt + 0.025);
+    osc.stop(startAt + 0.035);
   }
 }
 
