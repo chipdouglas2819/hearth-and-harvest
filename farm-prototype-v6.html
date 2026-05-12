@@ -801,6 +801,34 @@ main {
 
 /* Exercise picker — three cards, player chooses tone for this session */
 .exercise-picker { max-width: 420px; text-align: center; padding: 28px 22px; }
+
+/* First-time intro card — shown once per exercise before its first run */
+.exercise-intro {
+  max-width: 420px;
+  text-align: center;
+  padding: 32px 24px;
+}
+.exercise-intro .ei-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+.exercise-intro h2 { margin-bottom: 14px; }
+.exercise-intro .ei-body {
+  color: var(--moss);
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 22px;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.exercise-intro .ei-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.exercise-intro .ei-actions .btn { min-width: 110px; }
 .exercise-options {
   display: flex;
   flex-direction: column;
@@ -2964,6 +2992,18 @@ main {
   </div>
 </div>
 
+<div class="modal" id="exerciseIntroModal" hidden>
+  <div class="modal-content exercise-intro">
+    <div class="ei-icon" id="exerciseIntroIcon">◯</div>
+    <h2 id="exerciseIntroTitle">What box breathing does</h2>
+    <p class="ei-body" id="exerciseIntroBody"></p>
+    <div class="ei-actions">
+      <button class="btn btn-ghost" id="exerciseIntroBackBtn">back</button>
+      <button class="btn btn-primary" id="exerciseIntroStartBtn">begin</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="breatheModal" hidden>
   <div class="modal-content breathe-modal">
     <h2 id="breatheTitle">Breathe with the radish</h2>
@@ -3671,6 +3711,20 @@ function sndLevelUp() {
 function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
 function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
 
+// Global soft-click feedback. Any <button> tap plays the gentle sndUiClick
+// chime — except buttons that already trigger their own richer sound
+// (harvest, pick) and the tab bar (which has its own gated handler that
+// only fires on tab-change, not on re-tapping the active tab).
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.classList.contains('tab-btn')) return;       // own handler
+  if (btn.classList.contains('btn-harvest')) return;   // sndHarvest plays
+  if (btn.classList.contains('btn-pick')) return;      // sndPick plays
+  if (btn.dataset.noClickSound != null) return;        // explicit opt-out
+  sndUiClick();
+}, true);
+
 // ============ AMBIENT WIND ============
 // Cozy "wind through leaves" sound — pink noise through a bandpass filter
 // modulated slowly to create natural-feeling wooshes. Pink noise is the
@@ -3819,6 +3873,10 @@ const EXERCISES = [
     icon: '◯',
     durationLabel: '~36s',
     visual: 'circle',  // pulsing circle that scales with breath
+    intro: {
+      title: 'What box breathing does',
+      body: 'A slow, even rhythm of inhale-hold-exhale calms the nervous system. Used by athletes and first responders to drop heart rate and refocus under pressure. Follow the circle — let it pace you.',
+    },
   },
   {
     id: 'ground',
@@ -3827,6 +3885,10 @@ const EXERCISES = [
     icon: '👀',
     durationLabel: '~40s',
     visual: 'text',
+    intro: {
+      title: 'What sensory grounding does',
+      body: 'Anxiety and racing thoughts pull you out of the present. Naming what you see, touch, hear, smell, and taste anchors you back in the room. A small reset for a busy mind.',
+    },
     phases: [
       { label: 'Notice 5 things you can see', icon: '👀', ms: 8000 },
       { label: '4 things you can touch',      icon: '✋', ms: 8000 },
@@ -3842,6 +3904,10 @@ const EXERCISES = [
     icon: '🧘',
     durationLabel: '~30s',
     visual: 'text',
+    intro: {
+      title: 'What a body scan does',
+      body: 'Tension hides in your jaw, shoulders, and hands without you noticing. Bringing attention to each spot and consciously softening it releases what your body was holding. A quick way to feel lighter.',
+    },
     phases: [
       { label: 'Unclench your jaw',          icon: '🧘', ms: 6000 },
       { label: 'Drop your shoulders',        icon: '🤲', ms: 6000 },
@@ -4368,6 +4434,7 @@ const state = {
   tendDayKey: null,          // 'YYYY-M-D' of the day the per-day counter belongs to
   tendSessionsToday: 0,      // count of sessions completed today (resets on day rollover)
   tendExerciseLog: {},       // lifetime per-exercise counts, keyed by exercise id ({box, ground, scan})
+  tendIntrosSeen: {},        // { box: true, ground: true, scan: true } — once seen, picker skips the intro
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -4745,6 +4812,7 @@ function saveGame() {
       tendDayKey: state.tendDayKey || null,
       tendSessionsToday: state.tendSessionsToday || 0,
       tendExerciseLog: state.tendExerciseLog || {},
+      tendIntrosSeen: state.tendIntrosSeen || {},
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -4820,6 +4888,7 @@ function loadGame() {
     state.tendDayKey = loaded.tendDayKey || null;
     state.tendSessionsToday = loaded.tendSessionsToday || 0;
     state.tendExerciseLog = loaded.tendExerciseLog || {};
+    state.tendIntrosSeen = loaded.tendIntrosSeen || {};
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -5085,7 +5154,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -5135,11 +5204,38 @@ function openBreathingExercise() {
     `;
     btn.onclick = () => {
       document.getElementById('exercisePickerModal').hidden = true;
-      startExercise(ex.id);
+      // First time picking this exercise → show the educational intro card.
+      // After they confirm, it runs and tendIntrosSeen[ex.id] is set so
+      // future picks of the same practice go straight to the exercise.
+      if (!state.tendIntrosSeen || !state.tendIntrosSeen[ex.id]) {
+        openExerciseIntro(ex.id);
+      } else {
+        startExercise(ex.id);
+      }
     };
     options.appendChild(btn);
   }
   document.getElementById('exercisePickerModal').hidden = false;
+}
+
+function openExerciseIntro(exerciseId) {
+  const ex = EXERCISES.find(e => e.id === exerciseId);
+  if (!ex || !ex.intro) { startExercise(exerciseId); return; }
+  document.getElementById('exerciseIntroIcon').textContent = ex.icon;
+  document.getElementById('exerciseIntroTitle').textContent = ex.intro.title;
+  document.getElementById('exerciseIntroBody').textContent = ex.intro.body;
+  document.getElementById('exerciseIntroStartBtn').onclick = () => {
+    document.getElementById('exerciseIntroModal').hidden = true;
+    if (!state.tendIntrosSeen) state.tendIntrosSeen = {};
+    state.tendIntrosSeen[exerciseId] = Date.now();
+    saveGame();
+    startExercise(exerciseId);
+  };
+  document.getElementById('exerciseIntroBackBtn').onclick = () => {
+    document.getElementById('exerciseIntroModal').hidden = true;
+    openBreathingExercise();  // re-open the picker
+  };
+  document.getElementById('exerciseIntroModal').hidden = false;
 }
 
 // Step 2: run the chosen exercise. Routes to circle-visual (box) or
@@ -5286,6 +5382,7 @@ function cancelBreathingExercise() {
   _breath = null;
   document.getElementById('breatheModal').hidden = true;
   document.getElementById('exercisePickerModal').hidden = true;
+  document.getElementById('exerciseIntroModal').hidden = true;
   // Reset stage classes so the next session opens cleanly
   const stage = document.getElementById('breatheStage');
   if (stage) stage.classList.remove('mode-text');
