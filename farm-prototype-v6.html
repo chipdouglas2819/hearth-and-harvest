@@ -3779,10 +3779,12 @@ function startAmbient() {
   // Master gain dropped from 0.022 to 0.012 — almost half. Should sit at the
   // very edge of perception, never competing with anything else on screen.
   master.gain.value = 0.012 * ambGain;
-  // LFO at slow breath pace (~8s). Modulation depth dialed way down so the
-  // rise/fall is felt rather than heard — was 0.006, now 0.0015 (quarter).
+  // LFO synced to box-breath pace (12s = 4-4-4 inhale-hold-exhale cycle).
+  // Player doing a Box Breath exercise feels the drone breathe in sync —
+  // a subtle "the world is breathing with you" detail. Modulation depth
+  // stays dialed-back so rise/fall is felt, not heard.
   const lfo = ctx.createOscillator();
-  lfo.frequency.value = 0.125; // 8s period
+  lfo.frequency.value = 1 / 12; // 12s period — matches box-breath cycle
   const lfoGain = ctx.createGain();
   lfoGain.gain.value = 0.0015;
   lfo.connect(lfoGain);
@@ -3794,9 +3796,105 @@ function startAmbient() {
   noise.start();
   lfo.start();
   _ambientNodes = { noise, bp, hs, master, lfo };
+  _scheduleNextAtmosphere();  // bird/cricket layer rides with the drone
+}
+
+// ============ ATMOSPHERE (BIRDS & CRICKETS) ============
+// Procedurally synthesized day-time bird chirps and night-time cricket
+// sounds — no asset files. Sparse and very quiet by design so they add
+// texture without ever competing for attention. Schedules via random
+// setTimeout so there's no constant-firing interval.
+let _atmosphereTimer = null;
+
+function _atmosphereGain() {
+  const ambGain = (state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100) / 100;
+  const soundGain = (state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100) / 100;
+  return ambGain * soundGain; // respects both sliders
+}
+
+function _isDayTime() {
+  const h = new Date().getHours();
+  return h >= 7 && h < 19;  // 7am–7pm matches theme system
+}
+
+function _playBirdChirp() {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const ag = _atmosphereGain();
+  if (ag <= 0) return;
+  const t0 = ctx.currentTime;
+  // 1–3 chirps in quick succession (a bird "calling")
+  const chirpCount = 1 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < chirpCount; i++) {
+    const startAt = t0 + i * (0.13 + Math.random() * 0.10);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const startFreq = 3200 + Math.random() * 1800;   // 3.2–5kHz
+    const endFreq = startFreq - 300 - Math.random() * 700;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(startFreq, startAt);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(800, endFreq), startAt + 0.08);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.020 * ag, startAt + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.095);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + 0.11);
+  }
+}
+
+function _playCricketChirp() {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const ag = _atmosphereGain();
+  if (ag <= 0) return;
+  const t0 = ctx.currentTime;
+  // 3–6 quick clicks (a cricket "chirp" is actually rapid ticks)
+  const clickCount = 3 + Math.floor(Math.random() * 4);
+  const baseFreq = 4400 + Math.random() * 900;
+  for (let i = 0; i < clickCount; i++) {
+    const startAt = t0 + i * (0.030 + Math.random() * 0.012);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = baseFreq + (Math.random() - 0.5) * 200;
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.012 * ag, startAt + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.022);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + 0.025);
+  }
+}
+
+function _scheduleNextAtmosphere() {
+  if (_atmosphereTimer) clearTimeout(_atmosphereTimer);
+  const day = _isDayTime();
+  // Birds: 25–65s between calls. Crickets: 12–28s.
+  const minMs = day ? 25000 : 12000;
+  const rangeMs = day ? 40000 : 16000;
+  const delay = minMs + Math.random() * rangeMs;
+  _atmosphereTimer = setTimeout(() => {
+    _atmosphereTimer = null;
+    if (!_ambientNodes) return;          // ambient stopped — don't chirp
+    if (document.hidden) return;         // tab hidden — don't chirp
+    if (_atmosphereGain() <= 0) return;  // muted — don't chirp
+    if (_isDayTime()) _playBirdChirp(); else _playCricketChirp();
+    _scheduleNextAtmosphere();
+  }, delay);
+}
+
+function _stopAtmosphere() {
+  if (_atmosphereTimer) {
+    clearTimeout(_atmosphereTimer);
+    _atmosphereTimer = null;
+  }
 }
 function stopAmbient() {
   if (!_ambientNodes) return;
+  _stopAtmosphere();
   const ctx = audioCtx();
   const nodes = _ambientNodes;
   _ambientNodes = null;
