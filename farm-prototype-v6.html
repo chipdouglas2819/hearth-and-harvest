@@ -760,9 +760,64 @@ main {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--moss);
-  margin-bottom: 10px;
+  margin-bottom: 4px;
   position: relative;
   z-index: 2;
+}
+.plot-next-boon {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--sage);
+  text-align: center;
+  margin-bottom: 10px;
+  letter-spacing: 0.04em;
+  font-style: italic;
+}
+.plot-contract-badge {
+  font-size: 12px;
+  margin-left: 4px;
+  filter: drop-shadow(0 0 4px rgba(244, 193, 71, 0.5));
+}
+
+/* "Perfect harvest" sparkle — gentle gleam on ready plots with a strong yield.
+   Subtle gold glow + a slow pulse so the player gets a quiet celebration
+   before they even hit Harvest. */
+.plot.perfect-harvest .crop-visual-wrap::after {
+  content: '✨';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 22px;
+  animation: perfectSparkle 2.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 4;
+}
+.plot.perfect-harvest {
+  box-shadow: 0 0 0 1px var(--gold), 0 4px 16px rgba(244, 193, 71, 0.25);
+}
+@keyframes perfectSparkle {
+  0%, 100% { opacity: 0.65; transform: scale(0.9) rotate(-8deg); }
+  50%      { opacity: 1.0;  transform: scale(1.15) rotate(8deg); }
+}
+
+/* Contract-wanted indicator on plant-select options */
+.plant-option .po-contract {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin: 4px 0;
+  padding: 2px 8px;
+  background: rgba(244, 193, 71, 0.12);
+  border-radius: 4px;
+  align-self: flex-start;
+}
+.plant-option.contract-wanted {
+  border-color: var(--gold);
+  box-shadow: 0 2px 8px rgba(244, 193, 71, 0.18);
 }
 
 .active-buffs {
@@ -3679,6 +3734,32 @@ function picksAvailable(plot) {
   if (plot.flags.noMorePicks) return 0;
   return Math.max(0, picksUnlockedAt(plot) - plot.picksTaken);
 }
+// True if the given crop appears in any active (accepted) contract's demands.
+// Used to show 📜 indicators on plots and plant-select cards so players can
+// tell at a glance which crops would contribute to their committed work.
+function isCropWantedByContract(crop) {
+  if (!state.activeContracts) return false;
+  for (const c of state.activeContracts) {
+    if (c.template === 'deliver_n_of_x' && c.params.crop === crop) return true;
+    if (c.template === 'deliver_mixed' && c.params.crops && c.params.crops[crop] !== undefined) return true;
+  }
+  return false;
+}
+// Returns ms until the next boon pick unlocks (or null if all unlocked / no picks)
+function msUntilNextPick(plot) {
+  if (!plot || !plot.crop) return null;
+  if (plot.flags.noMorePicks) return null;
+  const totalPicks = plot.totalPicks || 0;
+  if (totalPicks === 0) return null;
+  const unlocked = picksUnlockedAt(plot);
+  if (unlocked >= totalPicks) return null;
+  // picksUnlockedAt = min(totalPicks, 1 + floor(progress * totalPicks))
+  // So the next pick unlocks when floor advances by 1:
+  //   progress > unlocked / totalPicks
+  const progressForNext = unlocked / totalPicks;
+  const msForNext = progressForNext * plot.totalMs;
+  return Math.max(0, msForNext - plot.elapsedMs);
+}
 function isReady(plot) { return plot.crop && plot.elapsedMs >= plot.totalMs; }
 function progressOf(plot) { if (!plot.crop || plot.totalMs === 0) return 0; return Math.min(1, plot.elapsedMs / plot.totalMs); }
 function totalAvailablePicks() { return state.plots.reduce((a, p) => a + (p.locked ? 0 : picksAvailable(p)), 0); }
@@ -4744,8 +4825,13 @@ function openPlantModal(plotId) {
       reasonHtml = `<span class="po-reason locked">🔒 harvest ${need} more ${noun} to unlock</span>`;
     } else if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
     else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need <span class="coin-icon">◉</span> ${c.plantCost - state.money}</span>`;
+    const wanted = isCropWantedByContract(key);
+    const wantedBadge = wanted
+      ? `<span class="po-contract" title="An active contract wants this crop">📜 needed for contract</span>`
+      : '';
     btn.innerHTML = `
       ${reasonHtml}
+      ${wantedBadge}
       <div class="po-emoji">${c.emoji}</div>
       <div class="po-name">${c.name}</div>
       <div class="po-stats">
@@ -4755,6 +4841,7 @@ function openPlantModal(plotId) {
         <span>picks: ${c.pickCount}</span>
       </div>
     `;
+    if (wanted) btn.classList.add('contract-wanted');
     btn.onclick = () => !locked && plant(plotId, key);
     opts.appendChild(btn);
   }
@@ -5786,10 +5873,13 @@ function render() {
       // loadout strip — always shown for unlocked plots
       const loadout = state.loadouts[i] || [];
 
-      // Build top label
+      // Build top label — includes contract symbol when this crop matches an active demand
+      const contractBadge = plot.crop && isCropWantedByContract(plot.crop)
+        ? `<span class="plot-contract-badge" title="An active contract wants this crop">📜</span>`
+        : '';
       const labelHtml = `
         <div class="plot-label">
-          <span>plot ${i + 1}</span>
+          <span>plot ${i + 1} ${contractBadge}</span>
           ${plot.crop && (plot.tendSessionsThisCycle || 0) > 0 ? `<span class="tap-counter">⊹ tended ${plot.tendSessionsThisCycle}×</span>` : ''}
         </div>
       `;
@@ -5836,6 +5926,11 @@ function render() {
         const hasLegendary = plot.activeBuffs.some(b => b.rarity === 'legendary');
         if (hasMythic) el.classList.add('mythic-active');
         else if (hasLegendary) el.classList.add('legendary-active');
+        // "Perfect harvest" sparkle: a ready crop with a strong effective yield
+        // (>= 3× base) gets a gentle gleam to celebrate the run's outcome
+        // before the player even hits Harvest. Subtle, not loud.
+        const _perfectMult = plot.yieldMult * getPermaYieldMultForPlot(i);
+        if (ready && _perfectMult >= 3.0) el.classList.add('perfect-harvest');
 
         const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
         const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
@@ -5861,6 +5956,15 @@ function render() {
             <span>${ready ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left'}</span>
             <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
           </div>
+          ${(() => {
+            // Show "next boon in Xm" line ONLY when there's a future pick to wait for
+            // and there isn't already an available pick (in which case the FAB is the
+            // priority message).
+            if (ready || picks > 0) return '';
+            const ms = msUntilNextPick(plot);
+            if (ms == null) return '';
+            return `<div class="plot-next-boon">next boon in ${fmtTimeRemaining(ms)}</div>`;
+          })()}
           <div class="active-buffs">
             ${plot.activeBuffs.map(b => {
               const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
