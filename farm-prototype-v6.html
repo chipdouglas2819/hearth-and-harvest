@@ -537,15 +537,17 @@ main {
   to   { opacity: 1; transform: translateY(0); }
 }
 @media (max-width: 720px) {
-  /* On phones, stack Tend ABOVE Boon on the same (right) side rather than
-     facing-off across the bottom — full-width labels at narrow viewports
-     made them overlap in the middle. Boon (urgent) stays at thumb level;
-     Tend sits one row up. */
+  /* Default mobile: Tend sits at the natural FAB spot (bottom-right). When
+     Boon FAB is also visible, JS adds .stacked which lifts Tend above it.
+     Avoids the awkward "floating high alone" state when no boons pending. */
   .tend-fab {
     font-size: 13px;
     padding: 10px 16px;
     left: auto;
     right: 12px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+  .tend-fab.stacked {
     bottom: calc(124px + env(safe-area-inset-bottom));
   }
 }
@@ -3203,7 +3205,7 @@ setInterval(updateTimeOfDayTint, 60000);
 // at that milestone feels like the actual payoff.
 const STREAK_MILESTONES = [
   { day: 7,   reward: { type: 'pack', label: '7-day streak!',                rewardLabel: '+1 pack' } },
-  { day: 30,  reward: { type: 'card', floor: 'silver',    label: '30-day streak!',                rewardLabel: '+1 silver card' } },
+  { day: 30,  reward: { type: 'card', floor: 'rare', label: '30-day streak!',                rewardLabel: '+1 rare card' } },
   { day: 100, reward: { type: 'card', floor: 'legendary', label: '100-day streak — incredible!', rewardLabel: '+1 legendary card' } },
 ];
 function updateDailyStreak() {
@@ -4335,7 +4337,8 @@ function getCardSetBonus(crop) {
 // state.achievements as { id: timestamp }.
 // Reward tiers:
 //   { type: 'pack' }                       → +1 generic pack
-//   { type: 'card', floor: 'silver' }      → instant +1 silver-floor card
+//   { type: 'card', floor: 'uncommon' }    → instant +1 uncommon-or-better card
+//   { type: 'card', floor: 'rare' }        → instant +1 rare-or-better card
 //   { type: 'card', floor: 'legendary' }   → instant +1 legendary-floor card
 //   { type: 'card', floor: 'mythic' }      → instant +1 mythic-floor card (rare)
 // Quality > quantity. By the time a player hits 100+ packs opened, +1 more pack
@@ -4350,13 +4353,13 @@ const ACHIEVEMENTS = [
   { id: 'first_legendary',  name: 'Legendary Find',     icon: '✨', desc: 'Own your first legendary card',  test: s => s.collection.some(c => c.rarity === 'legendary') },
   { id: 'first_mythic',     name: 'Mythic Touch',       icon: '🌙', desc: 'Own your first mythic card',     test: s => s.collection.some(c => c.rarity === 'mythic') },
   { id: 'first_lucky',      name: 'Lucky Day',          icon: '🍀', desc: 'Get a lucky harvest',            test: s => (s.luckyHarvests || 0) >= 1 },
-  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'silver' } },
+  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'rare' } },
   // Volume milestones — packs
   { id: 'harvests_100',     name: 'Patient Gardener',   icon: '🌿', desc: '100 total harvests',             test: s => s.totalHarvests >= 100,            progress: s => `${Math.min(s.totalHarvests, 100)}/100`,          reward: { type: 'pack' } },
-  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500`,          reward: { type: 'card', floor: 'silver' } },
+  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500`,          reward: { type: 'card', floor: 'rare' } },
   { id: 'packs_50',         name: 'Pack Hoarder',       icon: '🎁', desc: 'Open 50 packs',                  test: s => s.packsOpened >= 50,               progress: s => `${Math.min(s.packsOpened, 50)}/50`,              reward: { type: 'pack' } },
   { id: 'contracts_10',     name: 'Reliable Partner',   icon: '📜', desc: 'Complete 10 contracts',          test: s => (s.contractsCompleted || 0) >= 10, progress: s => `${Math.min(s.contractsCompleted || 0, 10)}/10`,  reward: { type: 'pack' } },
-  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25`,        reward: { type: 'card', floor: 'silver' } },
+  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25`,        reward: { type: 'card', floor: 'uncommon' } },
   // Late-game goals — quality cards
   { id: 'plots_all',        name: 'Land Baron',         icon: '🏡', desc: 'Unlock all 8 plots',             test: s => s.plots.filter(p => !p.locked).length >= 8, progress: s => `${s.plots.filter(p => !p.locked).length}/8`, reward: { type: 'card', floor: 'legendary' } },
   { id: 'star_max',         name: 'Constellation',      icon: '💫', desc: 'Star up a card to ★5',           test: s => s.collection.some(c => (c.stars || 1) >= 5), reward: { type: 'card', floor: 'legendary' } },
@@ -4367,20 +4370,20 @@ const ACHIEVEMENTS = [
   { id: 'money_100k',       name: 'Tycoon',             icon: '💎', desc: 'Hold $100,000 at once',          test: s => s.money >= 100000, reward: { type: 'pack' } },
   { id: 'money_1m',         name: 'Estate Holder',      icon: '🏰', desc: 'Hold $1,000,000 at once',        test: s => s.money >= 1000000, reward: { type: 'card', floor: 'legendary' } },
   // Higher-end volume goals — months of cozy play
-  { id: 'harvests_1k',      name: 'Old Hand',           icon: '🌾', desc: '1,000 total harvests',           test: s => s.totalHarvests >= 1000,  progress: s => `${Math.min(s.totalHarvests, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'silver' } },
+  { id: 'harvests_1k',      name: 'Old Hand',           icon: '🌾', desc: '1,000 total harvests',           test: s => s.totalHarvests >= 1000,  progress: s => `${Math.min(s.totalHarvests, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'rare' } },
   { id: 'harvests_5k',      name: 'Land Whisperer',     icon: '🌲', desc: '5,000 total harvests',           test: s => s.totalHarvests >= 5000,  progress: s => `${Math.min(s.totalHarvests, 5000).toLocaleString()}/5,000`, reward: { type: 'card', floor: 'mythic' } },
   { id: 'packs_200',        name: 'Pack Rat',           icon: '📦', desc: 'Open 200 packs',                 test: s => s.packsOpened >= 200,     progress: s => `${Math.min(s.packsOpened, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
-  { id: 'contracts_50',     name: 'Local Legend',       icon: '🎖️', desc: 'Complete 50 contracts',          test: s => (s.contractsCompleted || 0) >= 50,  progress: s => `${Math.min(s.contractsCompleted || 0, 50)}/50`,  reward: { type: 'card', floor: 'silver' } },
+  { id: 'contracts_50',     name: 'Local Legend',       icon: '🎖️', desc: 'Complete 50 contracts',          test: s => (s.contractsCompleted || 0) >= 50,  progress: s => `${Math.min(s.contractsCompleted || 0, 50)}/50`,  reward: { type: 'card', floor: 'rare' } },
   { id: 'contracts_200',    name: 'Pillar of the Town', icon: '🏆', desc: 'Complete 200 contracts',         test: s => (s.contractsCompleted || 0) >= 200, progress: s => `${Math.min(s.contractsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
   // Deep mastery / collection — top-tier rewards
   { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3`, reward: { type: 'card', floor: 'mythic' } },
   // Prestige star ladder — ★6 through ★10, long-tail card chase
-  { id: 'star6_first',      name: 'Beyond the Bar',     icon: '✦', desc: 'Star up a card to ★6',           test: s => s.collection.some(c => (c.stars || 1) >= 6), reward: { type: 'card', floor: 'silver' } },
+  { id: 'star6_first',      name: 'Beyond the Bar',     icon: '✦', desc: 'Star up a card to ★6',           test: s => s.collection.some(c => (c.stars || 1) >= 6), reward: { type: 'card', floor: 'rare' } },
   { id: 'star10_first',     name: 'Perfect Star',       icon: '🌟', desc: 'Star up a card to ★10',          test: s => s.collection.some(c => (c.stars || 1) >= 10), reward: { type: 'card', floor: 'mythic' } },
   { id: 'star10_three',     name: 'Triple Perfection',  icon: '✨', desc: '3 cards at ★10',                 test: s => s.collection.filter(c => (c.stars || 1) >= 10).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 10).length}/3`, reward: { type: 'card', floor: 'mythic' } },
   // Garden achievements — gameplay-pattern milestones, not count thresholds
-  { id: 'diverse_garden',   name: 'Diverse Garden',     icon: '🌈', desc: '5 different crops growing at once',          test: s => new Set(s.plots.filter(p => !p.locked && p.crop).map(p => p.crop)).size >= 5, reward: { type: 'card', floor: 'silver' } },
-  { id: 'triple_fermenter', name: 'Triple Fermenter',   icon: '🫙', desc: '3 plots ripe and waiting at the same time', test: s => s.plots.filter(p => !p.locked && p.crop && p.elapsedMs >= p.totalMs).length >= 3, reward: { type: 'card', floor: 'silver' } },
+  { id: 'diverse_garden',   name: 'Diverse Garden',     icon: '🌈', desc: '5 different crops growing at once',          test: s => new Set(s.plots.filter(p => !p.locked && p.crop).map(p => p.crop)).size >= 5, reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'triple_fermenter', name: 'Triple Fermenter',   icon: '🫙', desc: '3 plots ripe and waiting at the same time', test: s => s.plots.filter(p => !p.locked && p.crop && p.elapsedMs >= p.totalMs).length >= 3, reward: { type: 'card', floor: 'uncommon' } },
   { id: 'set_builder',      name: 'Set Builder',        icon: '🎴', desc: 'Equip a full 4-card crop set on a single plot', test: s => { for (const set of CARD_SETS) { if (set.id === 'set_master') continue; for (let i = 0; i < (s.loadouts || []).length; i++) { const loadout = s.loadouts[i] || []; if (set.cardIds.every(id => loadout.includes(id))) return true; } } return false; }, reward: { type: 'card', floor: 'legendary' } },
   { id: 'boon_marathon',    name: 'Boon Marathon',      icon: '🌟', desc: '1,000 boon picks taken',                     test: s => (s.totalPicksTaken || 0) >= 1000, progress: s => `${Math.min(s.totalPicksTaken || 0, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'legendary' } },
   { id: 'greenhouse',       name: 'Greenhouse',         icon: '🏡', desc: 'Buy every upgrade on a single plot',         test: s => { const ks = Object.keys(PLOT_UPGRADES); for (let i = 0; i < (s.plotUpgrades || []).length; i++) { const ups = s.plotUpgrades[i] || {}; if (ks.every(k => ups[k])) return true; } return false; }, reward: { type: 'card', floor: 'legendary' } },
@@ -4389,19 +4392,19 @@ const ACHIEVEMENTS = [
   { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'mythic' } },
   { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}`, reward: { type: 'card', floor: 'mythic' } },
   // Long-tail mastery — named tier chase, year-1+ horizon
-  { id: 'mastery_adept',    name: 'Adept Cultivator',   icon: '🌾', desc: 'Reach Adept tier on any crop (500h)',           test: s => Object.values(s.mastery || {}).some(h => h >= 500),    progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 500).toLocaleString()}h/500h`; },     reward: { type: 'card', floor: 'silver' } },
+  { id: 'mastery_adept',    name: 'Adept Cultivator',   icon: '🌾', desc: 'Reach Adept tier on any crop (500h)',           test: s => Object.values(s.mastery || {}).some(h => h >= 500),    progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 500).toLocaleString()}h/500h`; },     reward: { type: 'card', floor: 'rare' } },
   { id: 'mastery_expert',   name: 'Expert Cultivator',  icon: '🌻', desc: 'Reach Expert tier on any crop (2,000h)',        test: s => Object.values(s.mastery || {}).some(h => h >= 2000),   progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 2000).toLocaleString()}h/2,000h`; },   reward: { type: 'card', floor: 'legendary' } },
   { id: 'mastery_master',   name: 'Master of the Soil', icon: '🏆', desc: 'Reach Master tier on any crop (10,000h)',       test: s => Object.values(s.mastery || {}).some(h => h >= 10000),  progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 10000).toLocaleString()}h/10,000h`; }, reward: { type: 'card', floor: 'mythic' } },
   { id: 'lucky_50',         name: 'Charmed Garden',     icon: '🍀', desc: '50 lucky harvests',              test: s => (s.luckyHarvests || 0) >= 50,     progress: s => `${Math.min(s.luckyHarvests || 0, 50)}/50`, reward: { type: 'card', floor: 'legendary' } },
   // Streak-aspirational
-  { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30,  progress: s => `${Math.min(s.bestStreak || 0, 30)}/30`,  reward: { type: 'card', floor: 'silver' } },
+  { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30,  progress: s => `${Math.min(s.bestStreak || 0, 30)}/30`,  reward: { type: 'card', floor: 'rare' } },
   { id: 'streak_100',       name: 'A Hundred Mornings', icon: '🌅', desc: '100-day daily streak',           test: s => (s.bestStreak || 0) >= 100, progress: s => `${Math.min(s.bestStreak || 0, 100)}/100`, reward: { type: 'card', floor: 'mythic' } },
   // Tend / mindfulness — total + per-exercise + variety
   { id: 'tend_50',          name: 'Calm Hands',         icon: '🌿', desc: 'Complete 50 breathing exercises', test: s => (s.tendSessionsCompleted || 0) >= 50, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 50)}/50`, reward: { type: 'pack' } },
   { id: 'tend_variety',     name: 'Three Practices',    icon: '🪷', desc: 'Try every kind of tending at least once', test: s => { const l = s.tendExerciseLog || {}; return (l.box || 0) >= 1 && (l.ground || 0) >= 1 && (l.scan || 0) >= 1; }, progress: s => { const l = s.tendExerciseLog || {}; const have = ['box','ground','scan'].filter(k => (l[k] || 0) >= 1).length; return `${have}/3`; }, reward: { type: 'pack' } },
-  { id: 'tend_box_25',      name: 'Steady Breath',      icon: '🌬️', desc: 'Box breath × 25',                test: s => ((s.tendExerciseLog || {}).box || 0) >= 25,    progress: s => `${Math.min((s.tendExerciseLog || {}).box || 0, 25)}/25`,    reward: { type: 'card', floor: 'silver' } },
-  { id: 'tend_ground_25',   name: 'Anchored',           icon: '⚓', desc: '5-4-3-2-1 grounding × 25',       test: s => ((s.tendExerciseLog || {}).ground || 0) >= 25, progress: s => `${Math.min((s.tendExerciseLog || {}).ground || 0, 25)}/25`, reward: { type: 'card', floor: 'silver' } },
-  { id: 'tend_scan_25',     name: 'Soft Body',          icon: '🧘', desc: 'Body scan × 25',                  test: s => ((s.tendExerciseLog || {}).scan || 0) >= 25,   progress: s => `${Math.min((s.tendExerciseLog || {}).scan || 0, 25)}/25`,   reward: { type: 'card', floor: 'silver' } },
+  { id: 'tend_box_25',      name: 'Steady Breath',      icon: '🌬️', desc: 'Box breath × 25',                test: s => ((s.tendExerciseLog || {}).box || 0) >= 25,    progress: s => `${Math.min((s.tendExerciseLog || {}).box || 0, 25)}/25`,    reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'tend_ground_25',   name: 'Anchored',           icon: '⚓', desc: '5-4-3-2-1 grounding × 25',       test: s => ((s.tendExerciseLog || {}).ground || 0) >= 25, progress: s => `${Math.min((s.tendExerciseLog || {}).ground || 0, 25)}/25`, reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'tend_scan_25',     name: 'Soft Body',          icon: '🧘', desc: 'Body scan × 25',                  test: s => ((s.tendExerciseLog || {}).scan || 0) >= 25,   progress: s => `${Math.min((s.tendExerciseLog || {}).scan || 0, 25)}/25`,   reward: { type: 'card', floor: 'uncommon' } },
   { id: 'tend_200',         name: 'Daily Devotion',     icon: '🕯️', desc: '200 breathing exercises',         test: s => (s.tendSessionsCompleted || 0) >= 200, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
 ];
 
@@ -4429,7 +4432,7 @@ function unlockAchievement(id, opts = {}) {
 }
 
 // Applies the reward to state and returns a player-facing label like
-// "+1 pack" or "+1 silver card". Returns null if no reward.
+// "+1 pack" or "+1 uncommon card". Returns null if no reward.
 function applyAchievementReward(reward) {
   if (!reward) return null;
   if (reward.type === 'pack') {
@@ -6828,6 +6831,9 @@ function switchTab(name) {
   state.activeTab = name;
   // scroll to top so player isn't dropped mid-page when switching
   window.scrollTo({ top: 0, behavior: 'instant' });
+  // Tend FAB is Farm-tab-only — refresh its visibility immediately on switch
+  // (otherwise it lingers on other tabs until the next full render).
+  if (typeof renderTendFab === 'function') renderTendFab();
   // Soft click cue on actual tab change (not on the no-op when re-tapping current tab)
   if (wasOnDifferentTab) sndUiClick();
 }
@@ -7243,11 +7249,18 @@ function renderTendFab() {
   const fab = document.getElementById('tendFab');
   if (!fab) return;
   const remaining = tendsRemainingToday();
-  const show = remaining > 0 && hasAnyGrowingPlot();
+  const onFarmTab = (state.activeTab || 'farm') === 'farm';
+  const show = onFarmTab && remaining > 0 && hasAnyGrowingPlot();
   if (show) {
     document.getElementById('tendFabCount').textContent = remaining;
     fab.hidden = false;
     fab.setAttribute('aria-hidden', 'false');
+    // When the Boon FAB is also showing, stack Tend above it (mobile CSS).
+    // When Boon FAB is hidden, drop Tend to the natural FAB position so it
+    // doesn't float oddly high on its own.
+    const boonFab = document.getElementById('boonFab');
+    const boonShowing = boonFab && !boonFab.hidden;
+    fab.classList.toggle('stacked', boonShowing);
   } else {
     fab.hidden = true;
     fab.setAttribute('aria-hidden', 'true');
