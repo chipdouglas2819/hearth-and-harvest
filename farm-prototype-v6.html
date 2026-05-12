@@ -4056,8 +4056,13 @@ const ACHIEVEMENTS = [
   // Streak-aspirational
   { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30,  progress: s => `${Math.min(s.bestStreak || 0, 30)}/30`,  reward: { type: 'card', floor: 'silver' } },
   { id: 'streak_100',       name: 'A Hundred Mornings', icon: '🌅', desc: '100-day daily streak',           test: s => (s.bestStreak || 0) >= 100, progress: s => `${Math.min(s.bestStreak || 0, 100)}/100`, reward: { type: 'card', floor: 'mythic' } },
-  // Tend / mindfulness
+  // Tend / mindfulness — total + per-exercise + variety
   { id: 'tend_50',          name: 'Calm Hands',         icon: '🌿', desc: 'Complete 50 breathing exercises', test: s => (s.tendSessionsCompleted || 0) >= 50, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 50)}/50`, reward: { type: 'pack' } },
+  { id: 'tend_variety',     name: 'Three Practices',    icon: '🪷', desc: 'Try every kind of tending at least once', test: s => { const l = s.tendExerciseLog || {}; return (l.box || 0) >= 1 && (l.ground || 0) >= 1 && (l.scan || 0) >= 1; }, progress: s => { const l = s.tendExerciseLog || {}; const have = ['box','ground','scan'].filter(k => (l[k] || 0) >= 1).length; return `${have}/3`; }, reward: { type: 'pack' } },
+  { id: 'tend_box_25',      name: 'Steady Breath',      icon: '🌬️', desc: 'Box breath × 25',                test: s => ((s.tendExerciseLog || {}).box || 0) >= 25,    progress: s => `${Math.min((s.tendExerciseLog || {}).box || 0, 25)}/25`,    reward: { type: 'card', floor: 'silver' } },
+  { id: 'tend_ground_25',   name: 'Anchored',           icon: '⚓', desc: '5-4-3-2-1 grounding × 25',       test: s => ((s.tendExerciseLog || {}).ground || 0) >= 25, progress: s => `${Math.min((s.tendExerciseLog || {}).ground || 0, 25)}/25`, reward: { type: 'card', floor: 'silver' } },
+  { id: 'tend_scan_25',     name: 'Soft Body',          icon: '🧘', desc: 'Body scan × 25',                  test: s => ((s.tendExerciseLog || {}).scan || 0) >= 25,   progress: s => `${Math.min((s.tendExerciseLog || {}).scan || 0, 25)}/25`,   reward: { type: 'card', floor: 'silver' } },
+  { id: 'tend_200',         name: 'Daily Devotion',     icon: '🕯️', desc: '200 breathing exercises',         test: s => (s.tendSessionsCompleted || 0) >= 200, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
 ];
 
 function unlockAchievement(id, opts = {}) {
@@ -5043,6 +5048,7 @@ function completeBreathingExercise() {
   });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
   showTendToast({ plotsAffected, reductionPct });
+  checkAchievements();
   render();
 }
 function showTendToast(info) {
