@@ -3253,12 +3253,13 @@ function startAmbient() {
   hs.gain.value = -6;
   const master = ctx.createGain();
   master.gain.value = 0.022 * ambGain; // buried in the background; scales with ambient slider
-  // Slow LFO so the wind "wooshes" gently — modulation depth kept small so
-  // peaks don't intrude on whatever the player is focused on.
+  // LFO at a slow breath-cycle pace (~8s period — slower than rapid breathing,
+  // close to a deep-belly inhale-exhale). Modulation depth deliberately small
+  // so the "rise" never spikes into noticeable territory.
   const lfo = ctx.createOscillator();
-  lfo.frequency.value = 0.08; // ~12s period
+  lfo.frequency.value = 0.125; // 8s period — slow calm breath
   const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.005;
+  lfoGain.gain.value = 0.006;
   lfo.connect(lfoGain);
   lfoGain.connect(master.gain);
   noise.connect(bp);
@@ -5473,6 +5474,7 @@ document.querySelectorAll('.modal').forEach(m => {
 // ============ TABS ============
 function switchTab(name) {
   if (anyModalOpen()) return; // tabs inert while modal is open
+  const wasOnDifferentTab = state.activeTab !== name;
   document.querySelectorAll('.tab-content').forEach(el => {
     el.classList.toggle('active', el.id === 'tab-' + name);
   });
@@ -5484,6 +5486,8 @@ function switchTab(name) {
   state.activeTab = name;
   // scroll to top so player isn't dropped mid-page when switching
   window.scrollTo({ top: 0, behavior: 'instant' });
+  // Soft click cue on actual tab change (not on the no-op when re-tapping current tab)
+  if (wasOnDifferentTab) sndUiClick();
 }
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => switchTab(btn.dataset.tab);
