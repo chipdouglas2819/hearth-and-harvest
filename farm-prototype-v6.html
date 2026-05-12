@@ -32,6 +32,31 @@
   --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* Dark theme — dusk in the garden. Swaps structural surfaces and text
+   while keeping the warm accent palette (terracotta/butter/gold) so the
+   cozy identity carries over. Applied via document.documentElement
+   data-theme attribute by applyTheme(). */
+:root[data-theme="dark"] {
+  --cream: #1B231D;
+  --paper: #28332A;
+  --forest: #D9E4CB;
+  --sage: #889E83;
+  --moss: #B6CBA0;
+  --terracotta: #E07A4F;
+  --rust: #C76C38;
+  --butter: #F4C147;
+  --gold: #E5B539;
+  --wood: #B07A3B;
+  --ink: #E8DFC8;
+  --mythic: #9667C8;
+  --mythic-glow: #BF96E5;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.38);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.50);
+  --border: rgba(232, 223, 200, 0.10);
+  --border-strong: rgba(232, 223, 200, 0.22);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
@@ -1358,6 +1383,20 @@ main {
 }
 .more-row-sub { font-size: 11px; color: var(--moss); letter-spacing: 0.04em; }
 .more-row-btn { white-space: nowrap; padding: 8px 14px; font-size: 13px; }
+.more-row-select {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--cream);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease;
+}
+.more-row-select:hover { border-color: var(--moss); }
+.more-row-select:focus { outline: 2px solid var(--moss); outline-offset: 1px; }
 
 /* Volume slider rows — label sits on top, slider underneath, label shows live % */
 .more-row-slider .more-row-label { width: 100%; }
@@ -2671,6 +2710,18 @@ main {
           <div class="more-row-sub">a gentle breeze drifting through the garden</div>
           <input type="range" min="0" max="100" step="5" value="100" id="settingsAmbientSlider" class="more-row-range" />
         </div>
+      </div>
+      <div class="more-row">
+        <div class="more-row-label">
+          <div class="more-row-title">Theme</div>
+          <div class="more-row-sub">light, dark, follow the clock, or match your device</div>
+        </div>
+        <select class="more-row-select" id="settingsThemeSelect">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="time">Time of day</option>
+          <option value="system">Match system</option>
+        </select>
       </div>
       <div class="more-row">
         <div class="more-row-label">
@@ -4155,6 +4206,7 @@ const state = {
   ambientEnabled: true,
   // UI
   activeTab: 'farm',
+  themeMode: 'system',  // 'light' | 'dark' | 'time' | 'system' — resolved by applyTheme()
   // Achievements + counters
   achievements: {},          // { id: unlockedAtTimestamp }
   luckyHarvests: 0,          // counter for "first lucky" achievement
@@ -4475,6 +4527,7 @@ function saveGame() {
       soundVolume: state.soundVolume == null ? 100 : state.soundVolume,
       ambientVolume: state.ambientVolume == null ? 100 : state.ambientVolume,
       activeTab: state.activeTab || 'farm',
+      themeMode: state.themeMode || 'system',
       achievements: { ...(state.achievements || {}) },
       luckyHarvests: state.luckyHarvests || 0,
       totalPicksTaken: state.totalPicksTaken || 0,
@@ -4565,6 +4618,7 @@ function loadGame() {
     state.bestStreak = loaded.bestStreak || 0;
     state.lastStreakMilestoneDay = loaded.lastStreakMilestoneDay || 0;
     state.activeTab = loaded.activeTab || 'farm';
+    state.themeMode = loaded.themeMode || 'system';
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -6048,6 +6102,44 @@ function syncSettingsLabels() {
   const as = document.getElementById('settingsAmbientSlider');
   const al = document.getElementById('ambientVolLabel');
   if (as && al) { as.value = state.ambientVolume; al.textContent = state.ambientVolume + '%'; }
+  const ts = document.getElementById('settingsThemeSelect');
+  if (ts) ts.value = state.themeMode || 'system';
+}
+
+// ============ THEME ============
+// Resolves themeMode to an active 'light' or 'dark' value and applies it via
+// the [data-theme] attribute on <html>. Light is the implicit default
+// (matches :root) so we only set the attribute for dark.
+function resolveActiveTheme() {
+  const mode = state.themeMode || 'system';
+  if (mode === 'light') return 'light';
+  if (mode === 'dark') return 'dark';
+  if (mode === 'time') {
+    const h = new Date().getHours();
+    // Dusk through morning: 19:00 (7pm) up to 06:59
+    return (h >= 19 || h < 7) ? 'dark' : 'light';
+  }
+  // 'system' — read the OS/browser preference
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+  return 'light';
+}
+function applyTheme() {
+  const active = resolveActiveTheme();
+  const root = document.documentElement;
+  if (active === 'dark') root.setAttribute('data-theme', 'dark');
+  else root.removeAttribute('data-theme');
+}
+// Re-check time-based theme once a minute. Cheap, and the user expects the
+// switch to happen automatically at 7pm/7am without reload.
+setInterval(() => {
+  if (state.themeMode === 'time') applyTheme();
+}, 60 * 1000);
+// React to OS theme changes when in system mode.
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => { if (state.themeMode === 'system') applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener('change', handler);
+  else if (mq.addListener) mq.addListener(handler); // legacy Safari
 }
 
 // Slider event handlers — input fires continuously so the player gets live
@@ -6074,6 +6166,11 @@ document.getElementById('settingsAmbientSlider').addEventListener('input', (e) =
 });
 document.getElementById('settingsAmbientSlider').addEventListener('change', () => saveGame());
 document.getElementById('settingsDebugBtn').onclick = openDebugModal;
+document.getElementById('settingsThemeSelect').addEventListener('change', (e) => {
+  state.themeMode = e.target.value;
+  applyTheme();
+  saveGame();
+});
 document.getElementById('cardsOpenPackBtn').onclick = () => {
   if (state.pendingPacks > 0) openPackModal();
 };
@@ -6943,6 +7040,7 @@ applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
 refreshSpeedButtons();
 syncSettingsLabels();
+applyTheme();
 // Generate today's contracts up front so the badge fires regardless of which tab
 // the player lands on. Without this, fresh saves see no notification until they
 // visit the Contracts tab — a bug, not the design intent.
