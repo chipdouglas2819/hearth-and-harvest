@@ -537,7 +537,17 @@ main {
   to   { opacity: 1; transform: translateY(0); }
 }
 @media (max-width: 720px) {
-  .tend-fab { font-size: 13px; padding: 10px 16px; left: 12px; }
+  /* On phones, stack Tend ABOVE Boon on the same (right) side rather than
+     facing-off across the bottom — full-width labels at narrow viewports
+     made them overlap in the middle. Boon (urgent) stays at thumb level;
+     Tend sits one row up. */
+  .tend-fab {
+    font-size: 13px;
+    padding: 10px 16px;
+    left: auto;
+    right: 12px;
+    bottom: calc(124px + env(safe-area-inset-bottom));
+  }
 }
 
 
