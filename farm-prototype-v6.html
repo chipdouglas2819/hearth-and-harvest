@@ -3471,10 +3471,6 @@ main {
   <div class="modal-content exercise-picker">
     <h2>Tend the garden</h2>
     <p class="modal-subtitle" id="exercisePickerSub">Choose a moment of quiet</p>
-    <div class="tend-reward-banner" id="tendRewardBanner">
-      <span class="trb-icon" id="trbIcon">🌿</span>
-      <span class="trb-text" id="trbText"></span>
-    </div>
     <div class="picker-section-title">Mindfulness practices</div>
     <div class="picker-section-sub">apply the daily reward when available</div>
     <div class="exercise-options" id="exerciseOptions"></div>
@@ -5997,31 +5993,15 @@ function openBreathingExercise() {
   if (anyModalOpen()) return;
   const remaining = tendsRemainingToday();
   const hasGrowing = hasAnyGrowingPlot();
-  // Picker opens at any state. The banner explains exactly what will (or
-  // won't) happen. No more silent blocking when state isn't ideal.
+  // Picker opens at any state. Per-exercise meta column shows the actual
+  // reward ("−8% farm time") or "no reward" — no separate banner needed.
   document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
-  const banner = document.getElementById('tendRewardBanner');
-  const trbText = document.getElementById('trbText');
-  const trbIcon = document.getElementById('trbIcon');
-  if (banner && trbText && trbIcon) {
-    const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
-    if (remaining > 0 && hasGrowing) {
-      banner.className = 'tend-reward-banner reward';
-      trbIcon.textContent = '🌿';
-      trbText.textContent = `Next session: −${reductionPct}% grow time · ${remaining} reward${remaining === 1 ? '' : 's'} left today`;
-    } else if (remaining > 0 && !hasGrowing) {
-      banner.className = 'tend-reward-banner practice';
-      trbIcon.textContent = '☁️';
-      trbText.textContent = `Practice only — nothing growing to reduce time on`;
-    } else {
-      banner.className = 'tend-reward-banner practice';
-      trbIcon.textContent = '☁️';
-      trbText.textContent = `Practice only — today's reward sessions are spent`;
-    }
-  }
   const options = document.getElementById('exerciseOptions');
   options.innerHTML = '';
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
+  // A breathing session only pays out if there's both reward capacity
+  // AND a growing plot to apply it to. Otherwise it's pure practice.
+  const willReward = remaining > 0 && hasGrowing;
   for (const ex of EXERCISES) {
     const btn = document.createElement('button');
     btn.className = 'exercise-option';
@@ -6033,9 +6013,9 @@ function openBreathingExercise() {
       </span>
       <span class="exercise-option-meta">
         <span>${ex.durationLabel}</span>
-        ${remaining > 0
-          ? `<span class="exercise-option-reward">−${reductionPct}%</span>`
-          : `<span class="exercise-option-practice">practice</span>`}
+        ${willReward
+          ? `<span class="exercise-option-reward">−${reductionPct}% farm time</span>`
+          : `<span class="exercise-option-practice">no reward</span>`}
       </span>
     `;
     btn.onclick = () => {
