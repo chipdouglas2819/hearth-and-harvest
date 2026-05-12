@@ -1026,6 +1026,17 @@ main {
 .harvest-entry .ha-rarity.rare      { color: var(--terracotta); }
 .harvest-entry .ha-rarity.legendary { color: var(--gold); }
 .harvest-entry .ha-rarity.mythic    { color: var(--mythic); }
+.harvest-entry .ach-row-reward {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--terracotta);
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(199, 93, 58, 0.10);
+  font-weight: 700;
+}
 .harvest-entry.lucky-harvest { animation: levelupFanfare 1.8s ease-out; border-radius: 4px; }
 
 /* === Contract panel === */
@@ -2025,6 +2036,15 @@ main {
   font-weight: 700;
 }
 .ach-toast .ach-toast-name { font-weight: 600; }
+.ach-toast .ach-toast-reward {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--terracotta);
+  margin-top: 2px;
+  letter-spacing: 0.04em;
+}
 @keyframes achToastIn {
   from { opacity: 0; transform: translate(-50%, 20px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
@@ -2753,10 +2773,13 @@ setInterval(updateTimeOfDayTint, 60000);
 //
 // Designed to be called ONCE per session at init. Same-day reloads are
 // short-circuited so a refresh doesn't double-count.
+// Streak rewards favour QUALITY over quantity — by day 100 the player has
+// many packs already; +3 more is forgettable. A guaranteed legendary card
+// at that milestone feels like the actual payoff.
 const STREAK_MILESTONES = [
-  { day: 7,   reward: { packs: 1, label: '7-day streak!' } },
-  { day: 30,  reward: { packs: 2, label: '30-day streak!' } },
-  { day: 100, reward: { packs: 3, label: '100-day streak — incredible!' } },
+  { day: 7,   reward: { type: 'pack', label: '7-day streak!',                rewardLabel: '+1 pack' } },
+  { day: 30,  reward: { type: 'card', floor: 'silver',    label: '30-day streak!',                rewardLabel: '+1 silver card' } },
+  { day: 100, reward: { type: 'card', floor: 'legendary', label: '100-day streak — incredible!', rewardLabel: '+1 legendary card' } },
 ];
 function updateDailyStreak() {
   const today = getCurrentDayKey();
@@ -2791,12 +2814,12 @@ function checkStreakMilestones() {
   for (const m of STREAK_MILESTONES) {
     if (state.streakDays >= m.day && (state.lastStreakMilestoneDay || 0) < m.day) {
       state.lastStreakMilestoneDay = m.day;
-      state.pendingPacks += m.reward.packs;
+      // Use the shared reward applier — same flow as achievements.
+      applyAchievementReward(m.reward);
       showStreakMilestoneToast(m);
-      // Activity log entry too, so the moment shows up in the journal
       state.harvestLog.unshift({
         type: 'info',
-        text: `🔥 ${m.reward.label} +${m.reward.packs} pack${m.reward.packs === 1 ? '' : 's'}`,
+        text: `🔥 ${m.reward.label} ${m.reward.rewardLabel}`,
         t: Date.now(),
       });
       if (state.harvestLog.length > 6) state.harvestLog.pop();
@@ -2812,7 +2835,7 @@ function showStreakMilestoneToast(m) {
     <span class="streak-toast-icon">🔥</span>
     <span>
       <div class="streak-toast-label">Daily streak</div>
-      <div class="streak-toast-detail">${m.reward.label} · +${m.reward.packs} pack${m.reward.packs === 1 ? '' : 's'} earned</div>
+      <div class="streak-toast-detail">${m.reward.label} · ${m.reward.rewardLabel}</div>
     </span>
   `;
   document.body.appendChild(toast);
@@ -3024,23 +3047,14 @@ function generateGoldContract() {
 // once the player has expanded enough to handle them. Duplicate crops between
 // slots are allowed — each slot rolls independently.
 function offeredTiersForState() {
-  // Roughly 1 contract per unlocked plot, capped at 5. Each plot you own adds
-  // more daily content; pacing scales with how invested the player is.
+  // Hard cap at 3 contracts max — even a 5-plot farm shouldn't drown the
+  // player in expirables. Tier mix grows with plot count so engaged players
+  // see better quality (more Silvers, occasional Gold) without more volume.
   const plotCount = state.plots.filter(p => !p.locked).length;
-  const slots = Math.min(5, Math.max(1, plotCount));
-  // Tier mix:
-  //   1 slot  → 1 Bronze
-  //   2 slots → Bronze + Bronze
-  //   3 slots → Bronze + Silver + Silver
-  //   4 slots → Bronze + Silver + Silver + (25% Gold else Silver)
-  //   5 slots → Bronze + Silver + Silver + Silver + (50% Gold else Silver)
-  const tiers = [];
-  if (slots >= 1) tiers.push('bronze');
-  if (slots >= 2) tiers.push('bronze');
-  if (slots >= 3) tiers[1] = 'silver';
-  if (slots >= 3) tiers.push('silver');
-  if (slots >= 4) tiers.push(Math.random() < 0.25 ? 'gold' : 'silver');
-  if (slots >= 5) tiers.push(Math.random() < 0.50 ? 'gold' : 'silver');
+  if (plotCount <= 1) return ['bronze'];
+  if (plotCount === 2) return ['bronze', 'silver'];
+  // 3+ plots: 1 Bronze + 1 Silver + (25% Gold else Silver)
+  const tiers = ['bronze', 'silver', Math.random() < 0.25 ? 'gold' : 'silver'];
   return tiers;
 }
 
@@ -3314,26 +3328,29 @@ function startAmbient() {
   const ctx = audioCtx();
   if (!ctx) return;
   const noise = _makePinkNoiseSource(ctx);
-  // Bandpass at ~1.2kHz with low Q gives a "wind through leaves" character —
-  // not too low (rumble) not too high (hiss).
+  // Bandpass at ~700Hz: less hissy, more "wind through trees in the distance"
+  // character. The lower center keeps the sound from fatiguing the ear over
+  // long sessions, where 1.2kHz had a subtle "shhhh" that got tiring.
   const bp = ctx.createBiquadFilter();
   bp.type = 'bandpass';
-  bp.frequency.value = 1200;
+  bp.frequency.value = 700;
   bp.Q.value = 0.7;
-  // High-shelf gentle attenuation to keep sibilance in check
+  // High-shelf cut: more aggressive attenuation of upper frequencies so
+  // sibilance never pokes through, even on louder system volumes.
   const hs = ctx.createBiquadFilter();
   hs.type = 'highshelf';
-  hs.frequency.value = 4000;
-  hs.gain.value = -6;
+  hs.frequency.value = 3000;
+  hs.gain.value = -10;
   const master = ctx.createGain();
-  master.gain.value = 0.022 * ambGain; // buried in the background; scales with ambient slider
-  // LFO at a slow breath-cycle pace (~8s period — slower than rapid breathing,
-  // close to a deep-belly inhale-exhale). Modulation depth deliberately small
-  // so the "rise" never spikes into noticeable territory.
+  // Master gain dropped from 0.022 to 0.012 — almost half. Should sit at the
+  // very edge of perception, never competing with anything else on screen.
+  master.gain.value = 0.012 * ambGain;
+  // LFO at slow breath pace (~8s). Modulation depth dialed way down so the
+  // rise/fall is felt rather than heard — was 0.006, now 0.0015 (quarter).
   const lfo = ctx.createOscillator();
-  lfo.frequency.value = 0.125; // 8s period — slow calm breath
+  lfo.frequency.value = 0.125; // 8s period
   const lfoGain = ctx.createGain();
-  lfoGain.gain.value = 0.006;
+  lfoGain.gain.value = 0.0015;
   lfo.connect(lfoGain);
   lfoGain.connect(master.gain);
   noise.connect(bp);
@@ -3416,6 +3433,63 @@ const LUCKY_FLAVORS = [
   '✨ the soil rewarded you.',
 ];
 const LUCKY_HARVEST_CHANCE = 0.03;
+
+// Cozy attribution variants — short journal-margin notes that appear under
+// a harvest entry when the run was meaningfully above or below average.
+// Multiple variants per tone so the activity log never feels repeated.
+// Templates use {name}, {rarity}, {crop} which get substituted at render.
+const ATTRIB_VARIANTS = {
+  lucky: [
+    'fortune touched this one',
+    'a rare bright morning',
+    'lucky soil today',
+    'something smiled on the harvest',
+  ],
+  market_bonus: [
+    'fetched a fine price at market',
+    'the market called for this',
+    'sold above the day\'s average',
+    'a welcome day for {crop}',
+  ],
+  market_penalty: [
+    'the market was glutted today',
+    'a quieter price than hoped',
+    '{crop} sold soft today',
+  ],
+  set: [
+    'the {crop} set held its promise',
+    'wisdom of the {crop} family',
+    'every card in the set sang together',
+  ],
+  boon: [
+    '{rarity} {name} carried this one',
+    'guided by {name}',
+    '{name} showed its work',
+    'the field bent toward {name}',
+  ],
+  slow: [
+    'patient growth, modest reward',
+    'the long wait kept it small',
+    'slow soil, gentle yield',
+  ],
+  quiet: [
+    'a quiet harvest',
+    'modest but earnest',
+    'a small thing, well-grown',
+    'gentle yield today',
+  ],
+};
+function pickAttribVariant(tone, ctx) {
+  const arr = ATTRIB_VARIANTS[tone];
+  if (!arr || arr.length === 0) return null;
+  let template = arr[Math.floor(Math.random() * arr.length)];
+  if (ctx) {
+    if (ctx.name) template = template.replace(/\{name\}/g, ctx.name);
+    if (ctx.rarity) template = template.replace(/\{rarity\}/g, ctx.rarity);
+    if (ctx.crop && CROPS[ctx.crop]) template = template.replace(/\{crop\}/g, CROPS[ctx.crop].name.toLowerCase());
+  }
+  return template;
+}
 // Mastery: each crop gains a small permanent yield bonus per harvests-of-that-crop.
 const MASTERY_BONUS_PER_5 = 0.001; // +0.1% per 5 harvests of the same crop
 
@@ -3622,77 +3696,120 @@ function getCardSetBonus(crop) {
 // Each defines a `test(state)` predicate, with optional `progress(state)` for
 // trackers ("47/100 harvests"). Unlocked achievements are stored in
 // state.achievements as { id: timestamp }.
+// Reward tiers:
+//   { type: 'pack' }                       → +1 generic pack
+//   { type: 'card', floor: 'silver' }      → instant +1 silver-floor card
+//   { type: 'card', floor: 'legendary' }   → instant +1 legendary-floor card
+//   { type: 'card', floor: 'mythic' }      → instant +1 mythic-floor card (rare)
+// Quality > quantity. By the time a player hits 100+ packs opened, +1 more pack
+// is forgettable; a guaranteed silver card actually feels like a reward.
 const ACHIEVEMENTS = [
-  // First-time moments
+  // First-time moments — small celebratory packs
   { id: 'first_harvest',    name: 'First Sprout',       icon: '🌱', desc: 'Harvest your first crop',         test: s => s.totalHarvests >= 1 },
   { id: 'first_pack',       name: 'First Cards',        icon: '🎴', desc: 'Open your first pack',           test: s => s.packsOpened >= 1 },
   { id: 'first_boon',       name: 'Drafted',            icon: '🌟', desc: 'Pick your first in-run boon',    test: s => (s.totalPicksTaken || 0) >= 1 },
-  { id: 'first_contract',   name: 'Promising Start',    icon: '🤝', desc: 'Complete your first contract',   test: s => (s.contractsCompleted || 0) >= 1 },
+  { id: 'first_contract',   name: 'Promising Start',    icon: '🤝', desc: 'Complete your first contract',   test: s => (s.contractsCompleted || 0) >= 1, reward: { type: 'pack' } },
   { id: 'first_starup',     name: 'Rising Star',        icon: '⭐', desc: 'Star up a card to ★2',           test: s => s.collection.some(c => (c.stars || 1) >= 2) },
   { id: 'first_legendary',  name: 'Legendary Find',     icon: '✨', desc: 'Own your first legendary card',  test: s => s.collection.some(c => c.rarity === 'legendary') },
   { id: 'first_mythic',     name: 'Mythic Touch',       icon: '🌙', desc: 'Own your first mythic card',     test: s => s.collection.some(c => c.rarity === 'mythic') },
   { id: 'first_lucky',      name: 'Lucky Day',          icon: '🍀', desc: 'Get a lucky harvest',            test: s => (s.luckyHarvests || 0) >= 1 },
-  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))) },
-  // Volume milestones
-  { id: 'harvests_100',     name: 'Patient Gardener',   icon: '🌿', desc: '100 total harvests',             test: s => s.totalHarvests >= 100,            progress: s => `${Math.min(s.totalHarvests, 100)}/100` },
-  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500` },
-  { id: 'packs_50',         name: 'Pack Hoarder',       icon: '🎁', desc: 'Open 50 packs',                  test: s => s.packsOpened >= 50,               progress: s => `${Math.min(s.packsOpened, 50)}/50` },
-  { id: 'contracts_10',     name: 'Reliable Partner',   icon: '📜', desc: 'Complete 10 contracts',          test: s => (s.contractsCompleted || 0) >= 10, progress: s => `${Math.min(s.contractsCompleted || 0, 10)}/10` },
-  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25` },
-  // Late-game goals
-  { id: 'plots_all',        name: 'Land Baron',         icon: '🏡', desc: 'Unlock all 8 plots',             test: s => s.plots.filter(p => !p.locked).length >= 8, progress: s => `${s.plots.filter(p => !p.locked).length}/8` },
-  { id: 'star_max',         name: 'Constellation',      icon: '💫', desc: 'Star up a card to ★5',           test: s => s.collection.some(c => (c.stars || 1) >= 5) },
-  { id: 'master_crop',      name: 'Master of Earth',    icon: '🎨', desc: 'Master a crop (100h grow-time)', test: s => Object.values(s.mastery || {}).some(h => h >= 100), progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 100)}h/100h`; } },
-  { id: 'collection_full',  name: 'Master Collection',  icon: '👑', desc: 'Own all cards in the game',      test: s => s.collection.length >= PERMA_POOL.length, progress: s => `${s.collection.length}/${PERMA_POOL.length}` },
-  // Money thresholds (running balance, not lifetime)
+  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'silver' } },
+  // Volume milestones — packs
+  { id: 'harvests_100',     name: 'Patient Gardener',   icon: '🌿', desc: '100 total harvests',             test: s => s.totalHarvests >= 100,            progress: s => `${Math.min(s.totalHarvests, 100)}/100`,          reward: { type: 'pack' } },
+  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500`,          reward: { type: 'card', floor: 'silver' } },
+  { id: 'packs_50',         name: 'Pack Hoarder',       icon: '🎁', desc: 'Open 50 packs',                  test: s => s.packsOpened >= 50,               progress: s => `${Math.min(s.packsOpened, 50)}/50`,              reward: { type: 'pack' } },
+  { id: 'contracts_10',     name: 'Reliable Partner',   icon: '📜', desc: 'Complete 10 contracts',          test: s => (s.contractsCompleted || 0) >= 10, progress: s => `${Math.min(s.contractsCompleted || 0, 10)}/10`,  reward: { type: 'pack' } },
+  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25`,        reward: { type: 'card', floor: 'silver' } },
+  // Late-game goals — quality cards
+  { id: 'plots_all',        name: 'Land Baron',         icon: '🏡', desc: 'Unlock all 8 plots',             test: s => s.plots.filter(p => !p.locked).length >= 8, progress: s => `${s.plots.filter(p => !p.locked).length}/8`, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'star_max',         name: 'Constellation',      icon: '💫', desc: 'Star up a card to ★5',           test: s => s.collection.some(c => (c.stars || 1) >= 5), reward: { type: 'card', floor: 'legendary' } },
+  { id: 'master_crop',      name: 'Master of Earth',    icon: '🎨', desc: 'Master a crop (100h grow-time)', test: s => Object.values(s.mastery || {}).some(h => h >= 100), progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 100)}h/100h`; }, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'collection_full',  name: 'Master Collection',  icon: '👑', desc: 'Own all cards in the game',      test: s => s.collection.length >= PERMA_POOL.length, progress: s => `${s.collection.length}/${PERMA_POOL.length}`, reward: { type: 'card', floor: 'mythic' } },
+  // Money thresholds — small but visible
   { id: 'money_10k',        name: 'Penny Saved',        icon: '💰', desc: 'Hold $10,000 at once',           test: s => s.money >= 10000 },
-  { id: 'money_100k',       name: 'Tycoon',             icon: '💎', desc: 'Hold $100,000 at once',          test: s => s.money >= 100000 },
-  { id: 'money_1m',         name: 'Estate Holder',      icon: '🏰', desc: 'Hold $1,000,000 at once',        test: s => s.money >= 1000000 },
+  { id: 'money_100k',       name: 'Tycoon',             icon: '💎', desc: 'Hold $100,000 at once',          test: s => s.money >= 100000, reward: { type: 'pack' } },
+  { id: 'money_1m',         name: 'Estate Holder',      icon: '🏰', desc: 'Hold $1,000,000 at once',        test: s => s.money >= 1000000, reward: { type: 'card', floor: 'legendary' } },
   // Higher-end volume goals — months of cozy play
-  { id: 'harvests_1k',      name: 'Old Hand',           icon: '🌾', desc: '1,000 total harvests',           test: s => s.totalHarvests >= 1000,  progress: s => `${Math.min(s.totalHarvests, 1000).toLocaleString()}/1,000` },
-  { id: 'harvests_5k',      name: 'Land Whisperer',     icon: '🌲', desc: '5,000 total harvests',           test: s => s.totalHarvests >= 5000,  progress: s => `${Math.min(s.totalHarvests, 5000).toLocaleString()}/5,000` },
-  { id: 'packs_200',        name: 'Pack Rat',           icon: '📦', desc: 'Open 200 packs',                 test: s => s.packsOpened >= 200,     progress: s => `${Math.min(s.packsOpened, 200)}/200` },
-  { id: 'contracts_50',     name: 'Local Legend',       icon: '🎖️', desc: 'Complete 50 contracts',          test: s => (s.contractsCompleted || 0) >= 50, progress: s => `${Math.min(s.contractsCompleted || 0, 50)}/50` },
-  { id: 'contracts_200',    name: 'Pillar of the Town', icon: '🏆', desc: 'Complete 200 contracts',         test: s => (s.contractsCompleted || 0) >= 200, progress: s => `${Math.min(s.contractsCompleted || 0, 200)}/200` },
-  // Deep mastery / collection
-  { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3` },
-  { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))) },
-  { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}` },
-  { id: 'lucky_50',         name: 'Charmed Garden',     icon: '🍀', desc: '50 lucky harvests',              test: s => (s.luckyHarvests || 0) >= 50,     progress: s => `${Math.min(s.luckyHarvests || 0, 50)}/50` },
+  { id: 'harvests_1k',      name: 'Old Hand',           icon: '🌾', desc: '1,000 total harvests',           test: s => s.totalHarvests >= 1000,  progress: s => `${Math.min(s.totalHarvests, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'silver' } },
+  { id: 'harvests_5k',      name: 'Land Whisperer',     icon: '🌲', desc: '5,000 total harvests',           test: s => s.totalHarvests >= 5000,  progress: s => `${Math.min(s.totalHarvests, 5000).toLocaleString()}/5,000`, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'packs_200',        name: 'Pack Rat',           icon: '📦', desc: 'Open 200 packs',                 test: s => s.packsOpened >= 200,     progress: s => `${Math.min(s.packsOpened, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'contracts_50',     name: 'Local Legend',       icon: '🎖️', desc: 'Complete 50 contracts',          test: s => (s.contractsCompleted || 0) >= 50,  progress: s => `${Math.min(s.contractsCompleted || 0, 50)}/50`,  reward: { type: 'card', floor: 'silver' } },
+  { id: 'contracts_200',    name: 'Pillar of the Town', icon: '🏆', desc: 'Complete 200 contracts',         test: s => (s.contractsCompleted || 0) >= 200, progress: s => `${Math.min(s.contractsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
+  // Deep mastery / collection — top-tier rewards
+  { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3`, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'mythic' } },
+  { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}`, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'lucky_50',         name: 'Charmed Garden',     icon: '🍀', desc: '50 lucky harvests',              test: s => (s.luckyHarvests || 0) >= 50,     progress: s => `${Math.min(s.luckyHarvests || 0, 50)}/50`, reward: { type: 'card', floor: 'legendary' } },
   // Streak-aspirational
-  { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30, progress: s => `${Math.min(s.bestStreak || 0, 30)}/30` },
-  { id: 'streak_100',       name: 'A Hundred Mornings', icon: '🌅', desc: '100-day daily streak',           test: s => (s.bestStreak || 0) >= 100, progress: s => `${Math.min(s.bestStreak || 0, 100)}/100` },
+  { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30,  progress: s => `${Math.min(s.bestStreak || 0, 30)}/30`,  reward: { type: 'card', floor: 'silver' } },
+  { id: 'streak_100',       name: 'A Hundred Mornings', icon: '🌅', desc: '100-day daily streak',           test: s => (s.bestStreak || 0) >= 100, progress: s => `${Math.min(s.bestStreak || 0, 100)}/100`, reward: { type: 'card', floor: 'mythic' } },
   // Tend / mindfulness
-  { id: 'tend_50',          name: 'Calm Hands',         icon: '🌿', desc: 'Complete 50 breathing exercises', test: s => (s.tendSessionsCompleted || 0) >= 50, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 50)}/50` },
+  { id: 'tend_50',          name: 'Calm Hands',         icon: '🌿', desc: 'Complete 50 breathing exercises', test: s => (s.tendSessionsCompleted || 0) >= 50, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 50)}/50`, reward: { type: 'pack' } },
 ];
 
 function unlockAchievement(id, opts = {}) {
   if (!state.achievements) state.achievements = {};
   if (state.achievements[id]) return false; // already unlocked
   state.achievements[id] = Date.now();
-  if (opts.silent) return true;
-  // Surface in harvest log + play a chime + toast
+  // Silent path: used at init to retroactively credit existing saves without
+  // spamming toasts/sounds — but we DO still apply rewards on init credit
+  // so a player who has 100 harvests in their old save gets the rewards.
   const a = ACHIEVEMENTS.find(x => x.id === id);
+  let rewardLabel = null;
+  if (a && a.reward) {
+    rewardLabel = applyAchievementReward(a.reward);
+  }
+  if (opts.silent) return true;
   if (a) {
-    state.harvestLog.unshift({ type: 'achievement', name: a.name, icon: a.icon, t: Date.now() });
+    const rewardSuffix = rewardLabel ? ` · ${rewardLabel}` : '';
+    state.harvestLog.unshift({ type: 'achievement', name: a.name, icon: a.icon, rewardLabel, t: Date.now() });
     if (state.harvestLog.length > 6) state.harvestLog.pop();
     if (typeof sndLevelUp === 'function') sndLevelUp();
-    showAchievementToast(a);
+    showAchievementToast(a, rewardLabel);
   }
   return true;
 }
 
-function showAchievementToast(a) {
+// Applies the reward to state and returns a player-facing label like
+// "+1 pack" or "+1 silver card". Returns null if no reward.
+function applyAchievementReward(reward) {
+  if (!reward) return null;
+  if (reward.type === 'pack') {
+    state.pendingPacks = (state.pendingPacks || 0) + 1;
+    return '+1 pack';
+  }
+  if (reward.type === 'card') {
+    // Instant-grant: one card at the rarity floor, added directly to collection.
+    // Bypasses the pack-modal flow so the player feels the reward immediately.
+    try {
+      const cards = draftPermaPack(1, reward.floor || null, 0);
+      if (cards && cards.length > 0) {
+        cards.forEach(c => addToCollection(c));
+        return `+1 ${reward.floor || 'random'} card`;
+      }
+    } catch (e) { /* fall through */ }
+    // Fallback to pack if draft fails
+    state.pendingPacks = (state.pendingPacks || 0) + 1;
+    return '+1 pack';
+  }
+  return null;
+}
+
+function showAchievementToast(a, rewardLabel) {
   // Coalesce: if a toast is already up, replace it (multiple unlocks in one event)
   const existing = document.querySelector('.ach-toast');
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = 'ach-toast';
+  const rewardHtml = rewardLabel
+    ? `<div class="ach-toast-reward">${rewardLabel}</div>`
+    : '';
   toast.innerHTML = `
     <span class="ach-toast-icon">${a.icon}</span>
     <span>
       <div class="ach-toast-label">Achievement</div>
       <div class="ach-toast-name">${a.name}</div>
+      ${rewardHtml}
     </span>
   `;
   document.body.appendChild(toast);
@@ -4604,18 +4721,38 @@ function harvest(plotId, ev) {
   let flavor = null;
   if (isLucky) flavor = LUCKY_FLAVORS[Math.floor(Math.random() * LUCKY_FLAVORS.length)];
   else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
-  // Cozy story bit: when a harvest is meaningfully big (>=2× the crop's base),
-  // attribute it to the standout boon — the highest-rarity buff that was
-  // active for the run. Gives every great harvest a little "why" the player
-  // can read back in the activity log.
-  let starBuff = null;
-  if (plot.activeBuffs && plot.activeBuffs.length > 0 && mult >= 2.0) {
-    const rarityOrder = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
-    starBuff = plot.activeBuffs.reduce((best, b) => {
-      const br = rarityOrder.indexOf(b.rarity);
-      const bestR = best ? rarityOrder.indexOf(best.rarity) : -1;
-      return br > bestR ? b : best;
-    }, null);
+  // Cozy story bit: attribute the harvest to whatever genuinely drove the
+  // result. Priority order picks the *real* standout, not just "highest rarity":
+  //   lucky > strong market bonus > completed set > top-rarity boon
+  // Below-average runs get a gentle "why" too — never punishing, just observed.
+  // Threshold tuned higher than initial: ≥3× = above-average attribution,
+  // ≤1.5× = below-average. Between = no attribution (most harvests).
+  const setBonusMult = getCardSetBonus(plot.crop);
+  let attribution = null;
+  if (mult >= 3.0) {
+    if (isLucky) {
+      attribution = { tone: 'lucky' };
+    } else if (marketMult > 1.05) {
+      attribution = { tone: 'market_bonus', crop: plot.crop };
+    } else if (setBonusMult > 1.0) {
+      attribution = { tone: 'set', crop: plot.crop };
+    } else if (plot.activeBuffs && plot.activeBuffs.length > 0) {
+      const rarityOrder = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+      const top = plot.activeBuffs.reduce((best, b) => {
+        const br = rarityOrder.indexOf(b.rarity);
+        const bestR = best ? rarityOrder.indexOf(best.rarity) : -1;
+        return br > bestR ? b : best;
+      }, null);
+      if (top) attribution = { tone: 'boon', name: top.name, rarity: top.rarity };
+    }
+  } else if (mult <= 1.5) {
+    if (marketMult < 0.95) {
+      attribution = { tone: 'market_penalty' };
+    } else if (plot.activeBuffs && plot.activeBuffs.some(b => b.timeMult && b.timeMult > 1.05)) {
+      attribution = { tone: 'slow' };
+    } else {
+      attribution = { tone: 'quiet' };
+    }
   }
   state.harvestLog.unshift({
     crop: plot.crop,
@@ -4624,7 +4761,7 @@ function harvest(plotId, ev) {
     marketPenalty: marketMult < 1,
     lucky: isLucky,
     flavor,
-    starBuff: starBuff ? { name: starBuff.name, rarity: starBuff.rarity } : null,
+    attribution,
     yieldMult: mult,
     t: Date.now(),
   });
@@ -5824,7 +5961,7 @@ function renderStreakPanel() {
     return `
       <div class="streak-row ${earned ? 'earned' : ''}">
         <div class="streak-row-day">Day ${m.day}</div>
-        <div class="streak-row-reward">+${m.reward.packs} pack${m.reward.packs === 1 ? '' : 's'}</div>
+        <div class="streak-row-reward">${m.reward.rewardLabel}</div>
         <div class="streak-row-status">${earned ? '✓ earned' : (cur >= m.day ? 'ready' : `${remain} day${remain === 1 ? '' : 's'} to go`)}</div>
       </div>
     `;
@@ -6097,11 +6234,11 @@ function render() {
         const hasLegendary = plot.activeBuffs.some(b => b.rarity === 'legendary');
         if (hasMythic) el.classList.add('mythic-active');
         else if (hasLegendary) el.classList.add('legendary-active');
-        // "Perfect harvest" sparkle: a ready crop with a strong effective yield
-        // (>= 3× base) gets a gentle gleam to celebrate the run's outcome
-        // before the player even hits Harvest. Subtle, not loud.
+        // "Perfect harvest" sparkle: top-decile runs only. Optimal-AI mean is
+        // ~3.4×, so ≥5.0× actually feels rare and earned. Sparkle only fires
+        // when the player has built something genuinely standout.
         const _perfectMult = plot.yieldMult * getPermaYieldMultForPlot(i);
-        if (ready && _perfectMult >= 3.0) el.classList.add('perfect-harvest');
+        if (ready && _perfectMult >= 5.0) el.classList.add('perfect-harvest');
 
         const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
         const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
@@ -6241,7 +6378,8 @@ function render() {
       if (h.type === 'levelup') {
         e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
       } else if (h.type === 'achievement') {
-        e.innerHTML = `<span class="what">${h.icon} ${h.name}</span><span class="amount levelup">achievement</span>`;
+        const rewardChip = h.rewardLabel ? ` <span class="ach-row-reward">${h.rewardLabel}</span>` : '';
+        e.innerHTML = `<span class="what">${h.icon} ${h.name}${rewardChip}</span><span class="amount levelup">achievement</span>`;
       } else if (h.type === 'contract_complete') {
         const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
         const packBit = h.packs ? ` +${h.packs} pack` : '';
@@ -6253,15 +6391,27 @@ function render() {
         e.innerHTML = `<span class="what">${h.text}</span><span class="amount"></span>`;
       } else {
         // Optional: small atmospheric flavor or a "lucky" celebration.
-        // When a harvest is meaningfully boosted, we also attribute it to
-        // the standout boon — short cozy "why" line, like a journal margin note.
+        // Cozy attribution: short journal-margin note about WHY the harvest
+        // performed how it did. Above-avg → top contributor; below-avg →
+        // gentle observation. Wording pulled from rotating variants.
         const flavor = h.flavor ? `<span class="harvest-flavor">· ${h.flavor}</span>` : '';
-        const buffAttribution = h.starBuff
-          ? `<span class="harvest-attribution"><span class="ha-rarity ${h.starBuff.rarity}">${h.starBuff.rarity}</span> ${h.starBuff.name} carried this one</span>`
-          : '';
-        const amountClass = h.lucky ? 'amount lucky' : (h.marketBonus ? 'amount market-bonus' : 'amount');
+        let attribLine = '';
+        if (h.attribution) {
+          const a = h.attribution;
+          const ctx = { name: a.name, rarity: a.rarity, crop: a.crop || h.crop };
+          const text = pickAttribVariant(a.tone, ctx);
+          if (text) {
+            const rarityChip = a.tone === 'boon' && a.rarity
+              ? `<span class="ha-rarity ${a.rarity}">${a.rarity}</span> `
+              : '';
+            attribLine = `<span class="harvest-attribution">${rarityChip}${text}</span>`;
+          }
+        }
+        // Lucky stays gold; market bonus no longer changes the amount color
+        // (icons in the activity row already differentiate the row type).
+        const amountClass = h.lucky ? 'amount lucky' : 'amount';
         if (h.lucky) e.classList.add('lucky-harvest');
-        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}${buffAttribution}</span><span class="${amountClass}">+${h.amount}</span>`;
+        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}${attribLine}</span><span class="${amountClass}">+${h.amount}</span>`;
       }
       log.appendChild(e);
     });
