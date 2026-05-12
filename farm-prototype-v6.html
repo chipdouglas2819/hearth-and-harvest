@@ -27,6 +27,7 @@
   --shadow-lg: 0 12px 32px rgba(45, 74, 62, 0.18);
   --border: rgba(45, 74, 62, 0.14);
   --border-strong: rgba(45, 74, 62, 0.28);
+  --plot-growing-bottom: #F7F2DD;  /* warm cream at the bottom of growing plots */
   --serif: 'Fraunces', Georgia, serif;
   --sans: 'DM Sans', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -55,6 +56,7 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.50);
   --border: rgba(232, 223, 200, 0.10);
   --border-strong: rgba(232, 223, 200, 0.22);
+  --plot-growing-bottom: #2F3D33;  /* slight lift over --paper, stays dark so text readable */
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -669,7 +671,7 @@ main {
   opacity: 0.3;
 }
 
-.plot.growing { background: linear-gradient(to bottom, var(--paper) 0%, #F7F2DD 100%); }
+.plot.growing { background: linear-gradient(to bottom, var(--paper) 0%, var(--plot-growing-bottom) 100%); }
 
 .plot.legendary-active::after {
   content: '';
