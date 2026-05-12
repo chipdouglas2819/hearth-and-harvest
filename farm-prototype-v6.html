@@ -6922,14 +6922,17 @@ function renderContract() {
   const offerableNow = state.offeredContracts.slice(0, slotsLeft);
 
   // Today's market sub-header — gives contract pricing context without redundant panel
+  // Use the same farm-market-strip component as the Farm tab so the two
+  // pages render identically (mobile-aligned grid, consistent styling).
   let marketLine = '';
   if (state.marketFeaturedCrop) {
     const f = CROPS[state.marketFeaturedCrop];
     const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
     const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
     const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
-    marketLine = `<div class="contract-market-line"><span class="cml-label">Today's market</span> ${f.emoji} ${f.name} <span class="cml-up">+${fPct}%</span>`;
-    if (s) marketLine += ` <span class="cml-divider">·</span> ${s.emoji} ${s.name} <span class="cml-down">−${sPct}%</span>`;
+    marketLine = `<div class="farm-market-strip"><span class="fm-label">Today's Market</span>` +
+      `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span><span class="fm-name">${f.name}</span><span class="fm-up">+${fPct}%</span></span>`;
+    if (s) marketLine += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span><span class="fm-name">${s.name}</span><span class="fm-down">−${sPct}%</span></span>`;
     marketLine += '</div>';
   }
 
