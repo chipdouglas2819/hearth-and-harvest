@@ -1910,87 +1910,127 @@ main {
   color: var(--moss);
 }
 
+/* Loadout modal — sticky top section keeps slots visible while collection
+   scrolls below, so player never loses sight of what's equipped. */
+.lm-content { display: flex; flex-direction: column; padding-top: 0; }
+.lm-sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
+  padding-top: 24px;
+  margin: 0 -32px 12px;
+  padding-left: 32px;
+  padding-right: 32px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.lm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.lm-header-info h2 { margin-bottom: 2px; }
+.lm-header-info .lm-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+
+/* Compact slots — small enough to all stay visible while scrolling.
+   Empty slots invite a tap with a soft "+" affordance. */
 .lm-slots {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: 8px;
 }
 .lm-slot {
-  border-radius: 10px;
-  padding: 14px;
-  min-height: 92px;
-  background: rgba(143, 166, 142, 0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-height: 58px;
+  background: rgba(143, 166, 142, 0.06);
   border: 1px dashed var(--border);
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  gap: 2px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--sage);
   text-align: center;
   position: relative;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.lm-slot:not(.filled) .ls-plus {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--sage);
+  margin-bottom: 2px;
+}
+.lm-slot:not(.filled) .ls-label-hint {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  opacity: 0.7;
+}
+.lm-slot:hover {
+  border-color: var(--moss);
+  background: rgba(143, 166, 142, 0.10);
 }
 .lm-slot.filled {
   background: var(--paper);
   border: 1px solid var(--border);
-  cursor: pointer;
-  text-align: left;
-  text-transform: none;
+  border-style: solid;
+  text-align: center;
   letter-spacing: 0;
+  text-transform: none;
   color: var(--ink);
+  align-items: stretch;
+  gap: 1px;
 }
 .lm-slot.filled::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0; height: 3px;
-  border-radius: 10px 10px 0 0;
+  border-radius: 8px 8px 0 0;
   background: var(--sage);
 }
-.lm-slot.filled.uncommon::before { background: var(--moss); }
-.lm-slot.filled.rare::before { background: var(--terracotta); }
+.lm-slot.filled.uncommon::before  { background: var(--moss); }
+.lm-slot.filled.rare::before      { background: var(--terracotta); }
 .lm-slot.filled.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
-.lm-slot.filled.mythic::before { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
-.lm-slot.filled.inactive { opacity: 0.5; }
-.lm-slot.filled .ls-rarity {
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--sage);
+.lm-slot.filled.mythic::before    { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.lm-slot.filled.inactive { opacity: 0.55; }
+.lm-slot.filled .ls-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.lm-slot.filled .ls-name {
+  font-family: var(--serif);
+  font-size: 11px;
   font-weight: 600;
+  font-style: italic;
+  color: var(--forest);
+  line-height: 1.15;
+  text-align: center;
+  word-break: break-word;
 }
-.lm-slot.filled.uncommon .ls-rarity { color: var(--moss); }
-.lm-slot.filled.rare .ls-rarity { color: var(--terracotta); }
-.lm-slot.filled.legendary .ls-rarity { color: var(--rust); }
-.lm-slot.filled.mythic .ls-rarity { color: var(--mythic); }
-.lm-slot.filled .ls-name { font-family: var(--serif); font-size: 14px; font-weight: 600; font-style: italic; color: var(--forest); margin-top: 2px; line-height: 1.1; }
-.lm-slot.filled .ls-stars { font-size: 12px; color: var(--gold); letter-spacing: 1px; margin-top: 2px; }
-.lm-slot.filled .ls-stars .empty { color: var(--border); }
-.lm-slot.filled .ls-desc { font-size: 11px; color: var(--moss); margin-top: 4px; }
-.lm-slot.filled .ls-tag {
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--sage);
-  margin-top: 6px;
-}
-.lm-slot.filled .ls-tag.inactive-text { color: var(--rust); }
-.lm-slot.filled .ls-remove {
-  position: absolute;
-  top: 8px; right: 8px;
+.lm-slot.filled .ls-stars {
   font-size: 10px;
-  font-family: var(--mono);
-  color: var(--sage);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  opacity: 0;
-  transition: opacity 0.15s;
+  color: var(--gold);
+  letter-spacing: 0.5px;
 }
-.lm-slot.filled:hover .ls-remove { opacity: 1; }
+.lm-slot.filled .ls-stars .empty { color: var(--border); }
+@media (max-width: 540px) {
+  .lm-sticky-top { margin: 0 -22px 10px; padding-left: 22px; padding-right: 22px; }
+  .lm-slot { min-height: 54px; padding: 6px 8px; }
+  .lm-slot.filled .ls-name { font-size: 10px; }
+}
 
 .lm-section-title {
   font-family: var(--serif);
@@ -2144,8 +2184,112 @@ main {
   padding: 4px 10px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .lm-clear-btn:hover { background: var(--rust); color: var(--cream); }
+
+/* Plot Upgrades — moved out of the main flow into a collapsible accordion
+   below the collection. Player wanted upgrades to be a sub-menu, not
+   stuck between equipped slots and collection. */
+.lm-upgrades-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  margin-top: 14px;
+  background: rgba(143, 166, 142, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--moss);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.lm-upgrades-toggle:hover { background: rgba(143, 166, 142, 0.12); border-color: var(--moss); }
+.lm-upgrades-toggle .lm-upgrades-chev {
+  display: inline-block;
+  transition: transform 0.2s ease;
+  color: var(--sage);
+  font-size: 12px;
+}
+.lm-upgrades-toggle[aria-expanded="true"] .lm-upgrades-chev { transform: rotate(90deg); }
+.lm-upgrades-toggle .lm-upgrades-summary {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sage);
+}
+.lm-upgrades-body { margin-top: 10px; }
+.lm-upgrades-body[hidden] { display: none; }
+
+/* Slot picker — opens when player taps an empty (or filled) slot to choose
+   which card goes there. Reuses the loadout grid styles for consistency. */
+.slot-picker { max-width: 600px; padding: 28px 22px; }
+.slot-picker h2 { text-align: center; }
+.slot-picker .modal-subtitle { text-align: center; }
+
+/* Swap picker — shown when player taps a collection card while loadout
+   is full. Lets them pick WHICH slot to replace, not just bumping oldest. */
+.swap-picker { max-width: 420px; padding: 28px 22px; text-align: center; }
+.swap-picker h2 { margin-bottom: 4px; }
+.swap-picker .modal-subtitle { margin-bottom: 18px; }
+.swap-picker #swapPickerCardName {
+  font-style: italic;
+  font-family: var(--serif);
+  color: var(--forest);
+  font-weight: 600;
+}
+.swap-slots {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.swap-slot {
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  text-align: left;
+  position: relative;
+}
+.swap-slot:hover { border-color: var(--terracotta); background: rgba(199, 93, 58, 0.04); }
+.swap-slot::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 3px;
+  border-radius: 10px 10px 0 0;
+  background: var(--sage);
+}
+.swap-slot.uncommon::before  { background: var(--moss); }
+.swap-slot.rare::before      { background: var(--terracotta); }
+.swap-slot.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
+.swap-slot.mythic::before    { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
+.swap-slot .ss-pos {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--sage);
+  margin-top: 6px;
+}
+.swap-slot .ss-name {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--forest);
+  margin-top: 2px;
+}
 
 /* Filter chip rows above the collection grid */
 .lm-filters {
@@ -3000,22 +3144,17 @@ main {
 </div>
 
 <div class="modal" id="loadoutModal" hidden>
-  <div class="modal-content wide">
-    <div class="lm-header">
-      <div class="lm-header-info">
-        <h2 id="lmTitle">Plot 1 Loadout</h2>
-        <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
+  <div class="modal-content wide lm-content">
+    <div class="lm-sticky-top">
+      <div class="lm-header">
+        <div class="lm-header-info">
+          <h2 id="lmTitle">Plot 1 Loadout</h2>
+          <div class="lm-sub" id="lmSub">tomato · 2/4 slots filled</div>
+        </div>
+        <button class="lm-clear-btn" id="lmClearAllBtn" hidden>Clear all</button>
       </div>
+      <div class="lm-slots" id="lmSlots"></div>
     </div>
-    <div class="lm-section-title">
-      <span>Equipped boons</span>
-      <button class="lm-clear-btn" id="lmClearAllBtn" hidden>Clear all</button>
-    </div>
-    <div class="lm-slots" id="lmSlots"></div>
-    <div class="lm-section-title">
-      <span>Plot Upgrades</span>
-    </div>
-    <div class="lm-upgrades" id="lmUpgrades"></div>
     <div class="lm-section-title">
       <span>Collection</span>
       <span class="lm-sec-meta" id="lmCollectionMeta"></span>
@@ -3025,7 +3164,39 @@ main {
       <div class="lm-filter-row" id="lmFilterRarity"></div>
     </div>
     <div class="lm-grid" id="lmGrid"></div>
+    <button class="lm-upgrades-toggle" id="lmUpgradesToggle" aria-expanded="false" aria-controls="lmUpgradesBody">
+      <span class="lm-upgrades-chev">▸</span>
+      <span>Plot Upgrades</span>
+      <span class="lm-upgrades-summary" id="lmUpgradesSummary"></span>
+    </button>
+    <div class="lm-upgrades-body" id="lmUpgradesBody" hidden>
+      <div class="lm-upgrades" id="lmUpgrades"></div>
+    </div>
     <button class="modal-close" data-close>done</button>
+  </div>
+</div>
+
+<!-- Slot-tap workflow: tapping a loadout slot opens this mini-picker to fill it -->
+<div class="modal" id="slotPickerModal" hidden>
+  <div class="modal-content slot-picker">
+    <h2 id="slotPickerTitle">Fill slot 1</h2>
+    <p class="modal-subtitle" id="slotPickerSub">tap a card from your collection</p>
+    <div class="lm-filters">
+      <div class="lm-filter-row" id="slotPickerFilterState"></div>
+      <div class="lm-filter-row" id="slotPickerFilterRarity"></div>
+    </div>
+    <div class="lm-grid" id="slotPickerGrid"></div>
+    <button class="modal-close" data-close>cancel</button>
+  </div>
+</div>
+
+<!-- Swap modal: shown when tapping a collection card while loadout is full -->
+<div class="modal" id="swapPickerModal" hidden>
+  <div class="modal-content swap-picker">
+    <h2>Loadout full</h2>
+    <p class="modal-subtitle">Choose a slot to replace with <span id="swapPickerCardName">this card</span></p>
+    <div class="swap-slots" id="swapPickerSlots"></div>
+    <button class="modal-close" data-close>cancel</button>
   </div>
 </div>
 
@@ -5386,7 +5557,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'slotPickerModal', 'swapPickerModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -6529,51 +6700,125 @@ function passesLoadoutFilters(buff, plotId, currentCrop, filtersOverride) {
   return true;
 }
 
+// Build a compact slot element — fits in the sticky top row.
+// Filled: rarity-tinted card with icon + name + ★ count. Tap → swap picker.
+// Empty: dashed outline with "+ tap to fill" hint. Tap → slot picker.
+function _buildLoadoutSlot(plotId, plot, slotIdx, loadout) {
+  const id = loadout[slotIdx];
+  const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+  const slot = document.createElement('div');
+  if (buff) {
+    const active = isBuffActiveOnPlot(buff, plot);
+    slot.className = `lm-slot filled ${buff.rarity} ${active ? '' : 'inactive'}`;
+    const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
+    const stars = getStarsForBuff(buff.id);
+    slot.innerHTML = `
+      <div class="ls-icon">${icon}</div>
+      <div class="ls-name">${buff.name}</div>
+      <div class="ls-stars">${renderStarGlyphs(stars)}</div>
+    `;
+    slot.title = `${buff.name} · ${buff.rarity}${active ? '' : ' (inactive)'} — tap to change`;
+    slot.onclick = () => openSlotPicker(plotId, slotIdx);
+  } else {
+    slot.className = 'lm-slot';
+    slot.innerHTML = `<div class="ls-plus">+</div><div class="ls-label-hint">slot ${slotIdx + 1}</div>`;
+    slot.title = `Empty slot ${slotIdx + 1} — tap to fill`;
+    slot.onclick = () => openSlotPicker(plotId, slotIdx);
+  }
+  return slot;
+}
+
+// Render the collection grid into a target element with the loadout sort
+// priority. Used by both the main loadout modal AND the slot picker.
+function _renderCollectionGrid(targetEl, plotId, plot, onCardClick, opts = {}) {
+  targetEl.innerHTML = '';
+  if (state.collection.length === 0) {
+    targetEl.innerHTML = '<div class="lm-empty">no boons yet — open a pack to start</div>';
+    return;
+  }
+  const currentCrop = plot.crop;
+  const filtered = state.collection.filter(b => passesLoadoutFilters(b, plotId, currentCrop));
+  if (filtered.length === 0) {
+    targetEl.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
+    return;
+  }
+  const sorted = [...filtered].sort((a, b) => {
+    const ae = isEquippedOnPlot(a.id, plotId) ? 0 : 1;
+    const be = isEquippedOnPlot(b.id, plotId) ? 0 : 1;
+    if (ae !== be) return ae - be;
+    const aActive = !a.cropOnly || a.cropOnly === currentCrop ? 0 : 1;
+    const bActive = !b.cropOnly || b.cropOnly === currentCrop ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return br - ar;
+    return a.name.localeCompare(b.name);
+  });
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    const equipped = isEquippedOnPlot(buff.id, plotId);
+    const active = !buff.cropOnly || buff.cropOnly === currentCrop;
+    const otherPlot = findCurrentPlotForBuff(buff.id);
+    const onOtherPlot = otherPlot >= 0 && otherPlot !== plotId;
+    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''} ${onOtherPlot ? 'on-other-plot' : ''}`;
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    const stars = buff.stars || 1;
+    const prog = dupesTowardNextStar(buff.count, stars);
+    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
+    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
+    const tagSuffix = equipped ? ' · ✓ here'
+                    : onOtherPlot ? ` · on Plot ${otherPlot + 1} → tap to move`
+                    : '';
+    card.innerHTML = `
+      <div class="lc-rarity">${buff.rarity}</div>
+      <div class="lc-name">${buff.name}</div>
+      <div class="lc-stars">
+        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
+        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
+      </div>
+      <div class="lc-desc">${dynamicDesc}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${tagSuffix}</div>
+    `;
+    card.onclick = () => onCardClick(buff, { equipped, onOtherPlot });
+    targetEl.appendChild(card);
+  });
+}
+
 function renderLoadoutModal() {
   const plotId = state.loadoutModalPlotId;
   const plot = state.plots[plotId];
   const loadout = state.loadouts[plotId] || [];
 
-  // Clear-all button — only visible when there's at least one equipped boon
+  // Clear-all button (now in the sticky header)
   const clearBtn = document.getElementById('lmClearAllBtn');
   if (clearBtn) {
     clearBtn.hidden = loadout.length === 0;
     clearBtn.onclick = () => clearAllSlotsOnPlot(plotId);
   }
 
-  // slots
+  // Compact slots — tappable. Empty slots open slot picker; filled slots
+  // open slot picker so the player can replace that specific card.
   const slotsEl = document.getElementById('lmSlots');
   slotsEl.innerHTML = '';
   for (let i = 0; i < MAX_PERMA_SLOTS; i++) {
-    const id = loadout[i];
-    const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
-    const slot = document.createElement('div');
-    if (buff) {
-      const active = isBuffActiveOnPlot(buff, plot);
-      slot.className = `lm-slot filled ${buff.rarity} ${active ? '' : 'inactive'}`;
-      const cropTag = buff.cropOnly
-        ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}${!active ? ' (inactive)' : ''}`
-        : 'general';
-      const stars = getStarsForBuff(buff.id);
-      const starGlyphs = `${renderStarGlyphs(stars)}`;
-      const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
-      slot.innerHTML = `
-        <div class="ls-rarity">${buff.rarity}</div>
-        <div class="ls-name">${buff.name}</div>
-        <div class="ls-stars">${starGlyphs}</div>
-        <div class="ls-desc">${dynamicDesc}</div>
-        <div class="ls-tag ${!active ? 'inactive-text' : ''}">${cropTag}</div>
-        <div class="ls-remove">tap to remove</div>
-      `;
-      slot.onclick = () => { unequipFromPlot(plotId, buff.id); renderLoadoutModal(); render(); };
-    } else {
-      slot.className = 'lm-slot';
-      slot.innerHTML = `slot ${i + 1}`;
-    }
-    slotsEl.appendChild(slot);
+    slotsEl.appendChild(_buildLoadoutSlot(plotId, plot, i, loadout));
   }
 
-  // plot upgrades
+  // Plot upgrades — collapsible accordion, summary shows owned count
+  const upBody = document.getElementById('lmUpgradesBody');
+  const upToggle = document.getElementById('lmUpgradesToggle');
+  const upSummary = document.getElementById('lmUpgradesSummary');
+  if (upToggle && upBody && upSummary) {
+    const upgradesOwned = Object.values(getPlotUpgrades(plotId)).filter(Boolean).length;
+    const upgradesTotal = Object.keys(PLOT_UPGRADES).length;
+    upSummary.textContent = `${upgradesOwned}/${upgradesTotal} owned`;
+    upToggle.onclick = () => {
+      const willOpen = upBody.hidden;
+      upBody.hidden = !willOpen;
+      upToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    };
+  }
+  // Populate the upgrades grid regardless of expanded state — first open is instant
   const upEl = document.getElementById('lmUpgrades');
   if (upEl) {
     upEl.innerHTML = '';
@@ -6600,76 +6845,160 @@ function renderLoadoutModal() {
     }
   }
 
-  // collection metadata
+  // Collection metadata + filters
   const meta = document.getElementById('lmCollectionMeta');
   meta.textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} owned`;
-
-  // Filter chips — state (all/active/equipped/unequipped) + rarity tiers
   renderLoadoutFilters(plotId, plot);
 
-  // collection grid (filtered/sorted: relevant first)
+  // Collection grid — card tap behavior:
+  //   already-equipped here  → unequip
+  //   on another plot        → move to this plot (replaces or fills here)
+  //   not equipped, full     → swap picker (player chooses which slot)
+  //   not equipped, not full → equip to first empty slot
   const grid = document.getElementById('lmGrid');
-  grid.innerHTML = '';
-  if (state.collection.length === 0) {
-    grid.innerHTML = '<div class="lm-empty">no boons yet — open a pack to start</div>';
-    return;
-  }
-
-  const currentCrop = plot.crop;
-  const filtered = state.collection.filter(b => passesLoadoutFilters(b, plotId, currentCrop));
-  if (filtered.length === 0) {
-    grid.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
-    return;
-  }
-  const sorted = [...filtered].sort((a, b) => {
-    // priority 1: equipped here come first
-    const ae = isEquippedOnPlot(a.id, plotId) ? 0 : 1;
-    const be = isEquippedOnPlot(b.id, plotId) ? 0 : 1;
-    if (ae !== be) return ae - be;
-    // priority 2: active for current crop (general or matching) come before inactive
-    const aActive = !a.cropOnly || a.cropOnly === currentCrop ? 0 : 1;
-    const bActive = !b.cropOnly || b.cropOnly === currentCrop ? 0 : 1;
-    if (aActive !== bActive) return aActive - bActive;
-    // priority 3: rarity desc
-    const ar = RARITY_ORDER.indexOf(a.rarity);
-    const br = RARITY_ORDER.indexOf(b.rarity);
-    if (ar !== br) return br - ar;
-    return a.name.localeCompare(b.name);
+  _renderCollectionGrid(grid, plotId, plot, (buff, ctx) => {
+    if (ctx.equipped) {
+      unequipFromPlot(plotId, buff.id);
+      renderLoadoutModal();
+      render();
+      return;
+    }
+    if (ctx.onOtherPlot) {
+      // moves from other plot — fills first empty slot or replaces if full
+      const curLoadout = state.loadouts[plotId] || [];
+      if (curLoadout.length >= MAX_PERMA_SLOTS) {
+        openSwapPicker(plotId, buff.id);
+        return;
+      }
+      equipToPlot(plotId, buff.id);
+      renderLoadoutModal();
+      render();
+      return;
+    }
+    const curLoadout = state.loadouts[plotId] || [];
+    if (curLoadout.length >= MAX_PERMA_SLOTS) {
+      openSwapPicker(plotId, buff.id);
+      return;
+    }
+    equipToPlot(plotId, buff.id);
+    renderLoadoutModal();
+    render();
   });
+}
 
-  sorted.forEach(buff => {
-    const card = document.createElement('div');
-    const equipped = isEquippedOnPlot(buff.id, plotId);
-    const active = !buff.cropOnly || buff.cropOnly === currentCrop;
-    const otherPlot = findCurrentPlotForBuff(buff.id); // -1 if nowhere, plotId if here, else other plot
-    const onOtherPlot = otherPlot >= 0 && otherPlot !== plotId;
-    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''} ${onOtherPlot ? 'on-other-plot' : ''}`;
-    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
-    const stars = buff.stars || 1;
-    const prog = dupesTowardNextStar(buff.count, stars);
-    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
-    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
-    const tagSuffix = equipped ? ' · ✓ here'
-                    : onOtherPlot ? ` · on Plot ${otherPlot + 1} → tap to move`
-                    : '';
+// Slot picker — opens when player taps a slot. Shows their collection
+// filtered for relevance. Picking a card fills the targeted slot.
+let _slotPickerCtx = null;
+function openSlotPicker(plotId, slotIdx) {
+  state.loadoutModalPlotId = plotId;
+  _slotPickerCtx = { plotId, slotIdx };
+  document.getElementById('slotPickerTitle').textContent = `Slot ${slotIdx + 1}`;
+  const currentId = (state.loadouts[plotId] || [])[slotIdx];
+  const currentBuff = currentId ? PERMA_POOL.find(b => b.id === currentId) : null;
+  document.getElementById('slotPickerSub').textContent = currentBuff
+    ? `Replace "${currentBuff.name}" with…`
+    : `Tap a card from your collection`;
+  // Render filter chips into the slot picker (reuse the loadout filter logic)
+  _renderSlotPickerFilters();
+  _renderSlotPickerGrid();
+  document.getElementById('slotPickerModal').hidden = false;
+}
+function _renderSlotPickerFilters() {
+  const ctx = _slotPickerCtx; if (!ctx) return;
+  const plot = state.plots[ctx.plotId];
+  // Temporarily replace the IDs with the slot-picker ones so renderLoadoutFilters works.
+  const stateRow = document.getElementById('slotPickerFilterState');
+  const rarityRow = document.getElementById('slotPickerFilterRarity');
+  const _stateOrig = document.getElementById('lmFilterState');
+  const _rarOrig = document.getElementById('lmFilterRarity');
+  // Trick: swap their IDs temporarily so renderLoadoutFilters fills the picker version,
+  // then swap back. Cleaner than duplicating renderLoadoutFilters.
+  if (_stateOrig) _stateOrig.id = '_lmFilterStateTmp';
+  if (_rarOrig) _rarOrig.id = '_lmFilterRarityTmp';
+  if (stateRow) stateRow.id = 'lmFilterState';
+  if (rarityRow) rarityRow.id = 'lmFilterRarity';
+  try {
+    renderLoadoutFilters(ctx.plotId, plot);
+  } finally {
+    // Wrap filter chip onclick to re-render the SLOT PICKER grid, not the main modal
+    // We'll just override by re-binding after the fact:
+    const newStateRow = document.getElementById('lmFilterState');
+    const newRarRow = document.getElementById('lmFilterRarity');
+    [newStateRow, newRarRow].forEach(row => {
+      if (!row) return;
+      row.querySelectorAll('.lm-filter-chip').forEach(chip => {
+        const orig = chip.onclick;
+        chip.onclick = () => { orig && orig(); _renderSlotPickerGrid(); };
+      });
+    });
+    // Restore IDs
+    if (newStateRow) newStateRow.id = 'slotPickerFilterState';
+    if (newRarRow) newRarRow.id = 'slotPickerFilterRarity';
+    if (_stateOrig) _stateOrig.id = 'lmFilterState';
+    if (_rarOrig) _rarOrig.id = 'lmFilterRarity';
+  }
+}
+function _renderSlotPickerGrid() {
+  const ctx = _slotPickerCtx; if (!ctx) return;
+  const plot = state.plots[ctx.plotId];
+  const grid = document.getElementById('slotPickerGrid');
+  _renderCollectionGrid(grid, ctx.plotId, plot, (buff) => {
+    // Place chosen card into the targeted slot — replace whatever's there
+    placeCardInSlot(ctx.plotId, ctx.slotIdx, buff.id);
+    document.getElementById('slotPickerModal').hidden = true;
+    _slotPickerCtx = null;
+    renderLoadoutModal();
+    render();
+  });
+}
+
+// Swap picker — shown when player taps a collection card while loadout
+// is full. Lets them choose WHICH of the 4 slots to replace.
+function openSwapPicker(plotId, incomingBuffId) {
+  const incoming = PERMA_POOL.find(b => b.id === incomingBuffId);
+  if (!incoming) return;
+  document.getElementById('swapPickerCardName').textContent = incoming.name;
+  const slotsEl = document.getElementById('swapPickerSlots');
+  slotsEl.innerHTML = '';
+  const loadout = state.loadouts[plotId] || [];
+  for (let i = 0; i < loadout.length; i++) {
+    const equippedBuff = PERMA_POOL.find(b => b.id === loadout[i]);
+    if (!equippedBuff) continue;
+    const card = document.createElement('button');
+    card.className = `swap-slot ${equippedBuff.rarity}`;
     card.innerHTML = `
-      <div class="lc-rarity">${buff.rarity}</div>
-      <div class="lc-name">${buff.name}</div>
-      <div class="lc-stars">
-        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
-        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
-      </div>
-      <div class="lc-desc">${dynamicDesc}</div>
-      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${tagSuffix}</div>
+      <div class="ss-pos">Slot ${i + 1}</div>
+      <div class="ss-name">${equippedBuff.name}</div>
     `;
     card.onclick = () => {
-      if (equipped) unequipFromPlot(plotId, buff.id);
-      else equipToPlot(plotId, buff.id); // moves from other plot if needed
+      placeCardInSlot(plotId, i, incomingBuffId);
+      document.getElementById('swapPickerModal').hidden = true;
       renderLoadoutModal();
       render();
     };
-    grid.appendChild(card);
-  });
+    slotsEl.appendChild(card);
+  }
+  document.getElementById('swapPickerModal').hidden = false;
+}
+
+// Place a specific buff into a specific slot index, handling cross-plot moves.
+function placeCardInSlot(plotId, slotIdx, buffId) {
+  // First, take the card off whatever plot it might currently be on (one-card-per-plot rule)
+  const currentPlot = findCurrentPlotForBuff(buffId);
+  if (currentPlot >= 0 && currentPlot !== plotId) {
+    unequipFromPlot(currentPlot, buffId);
+  } else if (currentPlot === plotId) {
+    // Already on this plot — remove first so we can place it cleanly
+    unequipFromPlot(plotId, buffId);
+  }
+  // Now place. If slot was filled with another buff, that buff drops off.
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  // Pad array to slotIdx
+  while (state.loadouts[plotId].length <= slotIdx) state.loadouts[plotId].push(null);
+  state.loadouts[plotId][slotIdx] = buffId;
+  // Remove any leading nulls (compact representation kept consistent)
+  state.loadouts[plotId] = state.loadouts[plotId].filter(x => x);
+  saveGame();
 }
 
 function closeAllModals() {
@@ -6689,6 +7018,11 @@ function closeAllModals() {
   packModal.hidden = true;
   document.getElementById('loadoutModal').hidden = true;
   document.getElementById('debugModal').hidden = true;
+  const slotPicker = document.getElementById('slotPickerModal');
+  if (slotPicker) slotPicker.hidden = true;
+  const swapPicker = document.getElementById('swapPickerModal');
+  if (swapPicker) swapPicker.hidden = true;
+  _slotPickerCtx = null;
   // Closing during a breathing exercise = no reward, but cancel cleanly so
   // we don't leave timers running.
   if (typeof cancelBreathingExercise === 'function') cancelBreathingExercise();
