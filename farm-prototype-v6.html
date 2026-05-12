@@ -4286,7 +4286,7 @@ const state = {
   ambientEnabled: true,
   // UI
   activeTab: 'farm',
-  themeMode: 'system',  // 'light' | 'dark' | 'time' | 'system' — resolved by applyTheme()
+  themeMode: 'time',    // 'light' | 'dark' | 'time' | 'system' — resolved by applyTheme()
   // Achievements + counters
   achievements: {},          // { id: unlockedAtTimestamp }
   luckyHarvests: 0,          // counter for "first lucky" achievement
@@ -4607,7 +4607,7 @@ function saveGame() {
       soundVolume: state.soundVolume == null ? 100 : state.soundVolume,
       ambientVolume: state.ambientVolume == null ? 100 : state.ambientVolume,
       activeTab: state.activeTab || 'farm',
-      themeMode: state.themeMode || 'system',
+      themeMode: state.themeMode || 'time',
       achievements: { ...(state.achievements || {}) },
       luckyHarvests: state.luckyHarvests || 0,
       totalPicksTaken: state.totalPicksTaken || 0,
@@ -4698,7 +4698,7 @@ function loadGame() {
     state.bestStreak = loaded.bestStreak || 0;
     state.lastStreakMilestoneDay = loaded.lastStreakMilestoneDay || 0;
     state.activeTab = loaded.activeTab || 'farm';
-    state.themeMode = loaded.themeMode || 'system';
+    state.themeMode = loaded.themeMode || 'time';
 
     state.plots = loaded.plots.map(p => p.locked
       ? { id: p.id, locked: true }
@@ -6196,7 +6196,7 @@ function syncSettingsLabels() {
   const al = document.getElementById('ambientVolLabel');
   if (as && al) { as.value = state.ambientVolume; al.textContent = state.ambientVolume + '%'; }
   const ts = document.getElementById('settingsThemeSelect');
-  if (ts) ts.value = state.themeMode || 'system';
+  if (ts) ts.value = state.themeMode || 'time';
 }
 
 // ============ THEME ============
@@ -6204,7 +6204,7 @@ function syncSettingsLabels() {
 // the [data-theme] attribute on <html>. Light is the implicit default
 // (matches :root) so we only set the attribute for dark.
 function resolveActiveTheme() {
-  const mode = state.themeMode || 'system';
+  const mode = state.themeMode || 'time';
   if (mode === 'light') return 'light';
   if (mode === 'dark') return 'dark';
   if (mode === 'time') {
@@ -6828,6 +6828,34 @@ function getFermentBonusText(plot) {
   return `+${ticks * 8}%`;
 }
 
+// Format overripe time as "0:47 past ripe" / "1:23 past ripe" — used by
+// timing-sensitive buffs so the player can SEE the clock running.
+function fmtOverripeSec(realSec) {
+  const s = Math.max(0, Math.floor(realSec));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
+}
+
+// The "ready" label on a plot. Default is "ready to harvest", but when a
+// time-sensitive buff is active we replace it with live ticker text so the
+// player can see the mechanic happen:
+//  - skillFerment: "ready · 0:47 past ripe" (rewards waiting)
+//  - skillWindow10: "ready · 7s window left" / "ready · window closed"
+function readyLabelForPlot(plot) {
+  if (!plot || !isReady(plot)) return 'ready to harvest';
+  const overripeMs = plot.elapsedMs - plot.totalMs;
+  const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+  if (plot.flags && plot.flags.skillWindow10) {
+    const left = 10 - overripeRealSec;
+    if (left > 0) return `ready · ${Math.ceil(left)}s window left`;
+    return 'ready · window closed';
+  }
+  if (plot.flags && plot.flags.skillFerment) {
+    return `ready · ${fmtOverripeSec(overripeRealSec)} past ripe`;
+  }
+  return 'ready to harvest';
+}
+
 function render() {
   document.getElementById('moneyValue').textContent = fmtMoney(state.money);
 
@@ -6963,7 +6991,7 @@ function render() {
             <div class="progress-fill" style="width: ${prog * 100}%"></div>
           </div>
           <div class="plot-info">
-            <span>${ready ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left'}</span>
+            <span>${ready ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left'}</span>
             <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
           </div>
           ${(() => {
@@ -6984,7 +7012,10 @@ function render() {
                 const fresh = (Date.now() - (b._appliedAt || 0)) < 2000;
                 outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}${fresh ? ' fresh' : ''}">${b._outcome}</span>`;
               }
-              return `<span class="buff-chip ${b.rarity}">${b.name}${outcome}${extra}</span>`;
+              // Tooltip: tap-and-hold on mobile, hover on desktop. Strips
+              // HTML tags from desc since title= can't render them.
+              const tip = (b.desc || '').replace(/<[^>]+>/g, '');
+              return `<span class="buff-chip ${b.rarity}" title="${tip}">${b.name}${outcome}${extra}</span>`;
             }).join('')}
           </div>
         `;
@@ -7115,7 +7146,7 @@ function updatePlotTick(plot) {
   const info = plotEl.querySelector('.plot-info');
   if (info && info.children.length >= 2) {
     const remain = plot.totalMs - plot.elapsedMs;
-    info.children[0].textContent = isReady(plot) ? 'ready to harvest' : fmtTimeRemaining(remain) + ' left';
+    info.children[0].textContent = isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left';
   }
   // live ferment counter
   if (plot.flags && plot.flags.skillFerment) {
