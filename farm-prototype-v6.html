@@ -3229,19 +3229,46 @@ updateTimeOfDayTint();
 setInterval(updateTimeOfDayTint, 60000);
 
 // ============ DAILY STREAK ============
-// Cozy-genre engagement loop. Players who return daily get rewarded; missing
-// one day is forgiven (no reset); missing two+ days resets to 1.
+// Cozy-genre engagement loop. Players who return daily get a small login
+// bonus AND build a streak; milestones reward sustained returns.
 //
-// Designed to be called ONCE per session at init. Same-day reloads are
-// short-circuited so a refresh doesn't double-count.
-// Streak rewards favour QUALITY over quantity — by day 100 the player has
-// many packs already; +3 more is forgettable. A guaranteed legendary card
-// at that milestone feels like the actual payoff.
+// Grace: up to 3 missed days don't break the streak (was 1). Real life
+// happens. 4+ day gap resets to 1 — until streak-revival ad is implemented
+// (separate follow-up).
+//
+// Milestone ladder is escalating but modest — user feedback said the
+// previous "30d = silver card" felt unrewarding because player already
+// had rares from packs, AND that the cadence felt too sparse:
+//   7d:   +1 pack
+//   14d:  +1 uncommon card  (new — fills the 1→30 gap)
+//   30d:  +1 rare card
+//   100d: +1 legendary card
+//   365d: +1 mythic card    (new capstone)
 const STREAK_MILESTONES = [
-  { day: 7,   reward: { type: 'pack', label: '7-day streak!',                rewardLabel: '+1 pack' } },
-  { day: 30,  reward: { type: 'card', floor: 'rare', label: '30-day streak!',                rewardLabel: '+1 rare card' } },
-  { day: 100, reward: { type: 'card', floor: 'legendary', label: '100-day streak — incredible!', rewardLabel: '+1 legendary card' } },
+  { day: 7,   reward: { type: 'pack',                          label: '7-day streak!',                  rewardLabel: '+1 pack' } },
+  { day: 14,  reward: { type: 'card', floor: 'uncommon',       label: '2-week streak!',                 rewardLabel: '+1 uncommon card' } },
+  { day: 30,  reward: { type: 'card', floor: 'rare',           label: '30-day streak!',                 rewardLabel: '+1 rare card' } },
+  { day: 100, reward: { type: 'card', floor: 'legendary',      label: '100-day streak — incredible!',   rewardLabel: '+1 legendary card' } },
+  { day: 365, reward: { type: 'card', floor: 'mythic',         label: 'A year of care!',                rewardLabel: '+1 mythic card' } },
 ];
+
+// Daily login bonus — small coin reward for showing up, separate from streak
+// so it always pays even on day 1 or after a broken streak. Scales with
+// plot count so it stays meaningful as the player progresses (1 plot = 50
+// coins, 8 plots = 400 coins — small relative to balance, but visible).
+function applyDailyLoginBonus() {
+  const plots = state.plots.filter(p => !p.locked).length || 1;
+  const bonus = 50 * plots;
+  state.money = (state.money || 0) + bonus;
+  state.lifetimeCoins = (state.lifetimeCoins || 0) + bonus;
+  state.harvestLog.unshift({
+    type: 'info',
+    text: `☀️ Welcome back — daily bonus +${bonus.toLocaleString()} coins`,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+}
+
 function updateDailyStreak() {
   const today = getCurrentDayKey();
   if (state.lastPlayedDayKey === today) return;     // already counted today
@@ -3257,18 +3284,19 @@ function updateDailyStreak() {
     } catch (e) { dayDiff = null; }
   }
 
-  if (dayDiff === null || dayDiff > 2 || dayDiff < 0) {
-    // First-ever day OR streak broken (3+ day gap) OR clock went backwards: reset
+  if (dayDiff === null || dayDiff > 3 || dayDiff < 0) {
+    // First-ever day OR streak broken (4+ day gap) OR clock went backwards: reset
     state.streakDays = 1;
     state.lastStreakMilestoneDay = 0; // milestones re-award on each fresh streak
   } else if (dayDiff >= 1) {
-    // Either consecutive (1) or 1-day-forgiven (2) — both extend the streak
+    // Consecutive (1) or up-to-3-days forgiven — all extend the streak
     state.streakDays = (state.streakDays || 0) + 1;
   }
   // dayDiff === 0 was handled by the early-return above.
 
   state.lastPlayedDayKey = today;
   state.bestStreak = Math.max(state.bestStreak || 0, state.streakDays);
+  applyDailyLoginBonus();
   checkStreakMilestones();
 }
 function checkStreakMilestones() {
@@ -7222,7 +7250,7 @@ function renderStreakPanel() {
       <span class="streak-sub">${cur === 0 ? 'start a streak by visiting daily' : `day${cur === 1 ? '' : 's'} in a row${best > cur ? ` · best ${best}` : ''}`}</span>
     </div>
     <div class="streak-milestones">${milestoneRows}</div>
-    <div class="streak-note">Miss one day, no penalty. Miss two or more and the streak resets.</div>
+    <div class="streak-note">Miss up to 3 days, no penalty. Miss 4 or more and the streak resets.</div>
   `;
 }
 
