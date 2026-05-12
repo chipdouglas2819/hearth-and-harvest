@@ -730,6 +730,88 @@ main {
   color: var(--forest);
   letter-spacing: 0.02em;
   pointer-events: none;
+  text-align: center;
+  max-width: 280px;
+  line-height: 1.4;
+}
+/* Text-mode visual: replaces the circle for 5-4-3-2-1 and Body Scan.
+   Big emoji that fades in as each prompt changes — calmer than animation. */
+.breathe-text-icon {
+  font-size: 72px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.breathe-text-icon.fade-in {
+  opacity: 1;
+  transform: scale(1);
+}
+.breathe-stage.mode-text .breathe-instruction {
+  position: static;
+  margin-top: 20px;
+}
+
+/* Exercise picker — three cards, player chooses tone for this session */
+.exercise-picker { max-width: 420px; text-align: center; padding: 28px 22px; }
+.exercise-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0 16px;
+}
+.exercise-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--paper);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--sans);
+  color: var(--ink);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.exercise-option:hover {
+  border-color: var(--moss);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.exercise-option-icon {
+  font-size: 28px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(127, 191, 191, 0.18);
+  flex-shrink: 0;
+}
+.exercise-option-body { flex: 1; min-width: 0; }
+.exercise-option-name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--forest);
+  margin-bottom: 2px;
+}
+.exercise-option-blurb {
+  font-size: 12px;
+  color: var(--moss);
+  line-height: 1.4;
+}
+.exercise-option-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--moss);
+  opacity: 0.7;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 .breathe-progress {
   font-family: var(--mono);
@@ -2651,12 +2733,22 @@ main {
   </div>
 </div>
 
+<div class="modal" id="exercisePickerModal" hidden>
+  <div class="modal-content exercise-picker">
+    <h2>Tend the garden</h2>
+    <p class="modal-subtitle" id="exercisePickerSub">Choose a moment of quiet</p>
+    <div class="exercise-options" id="exerciseOptions"></div>
+    <button class="modal-close" data-close>not now</button>
+  </div>
+</div>
+
 <div class="modal" id="breatheModal" hidden>
   <div class="modal-content breathe-modal">
     <h2 id="breatheTitle">Breathe with the radish</h2>
     <p class="modal-subtitle" id="breatheSub">Inhale 4 · Hold 4 · Exhale 4. Three cycles.</p>
-    <div class="breathe-stage">
+    <div class="breathe-stage" id="breatheStage">
       <div class="breathe-circle phase-ready" id="breatheCircle"></div>
+      <div class="breathe-text-icon" id="breatheTextIcon" hidden></div>
       <div class="breathe-instruction" id="breatheInstruction">Get ready…</div>
     </div>
     <div class="breathe-progress" id="breatheProgress"></div>
@@ -3471,6 +3563,50 @@ const TEND_MAX_SESSIONS_PER_DAY = 4;      // cap per real day (resets on day rol
 const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
 const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
 
+// Mindfulness exercises — player picks one each tend session. Variety keeps
+// the practice from feeling rote. All three apply the same -8% reduction;
+// the choice is for the player's mood, not the math.
+const EXERCISES = [
+  {
+    id: 'box',
+    name: 'Box breath',
+    blurb: 'Inhale 4 · Hold 4 · Exhale 4 · three rounds',
+    icon: '◯',
+    durationLabel: '~36s',
+    visual: 'circle',  // pulsing circle that scales with breath
+  },
+  {
+    id: 'ground',
+    name: '5-4-3-2-1',
+    blurb: 'Notice your senses, one by one',
+    icon: '👀',
+    durationLabel: '~40s',
+    visual: 'text',
+    phases: [
+      { label: 'Notice 5 things you can see', icon: '👀', ms: 8000 },
+      { label: '4 things you can touch',      icon: '✋', ms: 8000 },
+      { label: '3 things you can hear',       icon: '👂', ms: 8000 },
+      { label: '2 things you can smell',      icon: '👃', ms: 8000 },
+      { label: '1 thing you can taste',       icon: '👅', ms: 8000 },
+    ],
+  },
+  {
+    id: 'scan',
+    name: 'Body scan',
+    blurb: 'Soften each part in turn',
+    icon: '🧘',
+    durationLabel: '~30s',
+    visual: 'text',
+    phases: [
+      { label: 'Unclench your jaw',          icon: '🧘', ms: 6000 },
+      { label: 'Drop your shoulders',        icon: '🤲', ms: 6000 },
+      { label: 'Soften your hands',          icon: '✋', ms: 6000 },
+      { label: 'Feel your feet on the ground', icon: '🦶', ms: 6000 },
+      { label: 'One slow breath',            icon: '🌿', ms: 6000 },
+    ],
+  },
+];
+
 // Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
 const HARVEST_FLAVORS = [
   'a perfect crop.',
@@ -3966,6 +4102,7 @@ const state = {
   tendSessionsCompleted: 0,  // lifetime count of completed breathing exercises
   tendDayKey: null,          // 'YYYY-M-D' of the day the per-day counter belongs to
   tendSessionsToday: 0,      // count of sessions completed today (resets on day rollover)
+  tendExerciseLog: {},       // lifetime per-exercise counts, keyed by exercise id ({box, ground, scan})
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -4283,6 +4420,7 @@ function saveGame() {
       tendSessionsCompleted: state.tendSessionsCompleted || 0,
       tendDayKey: state.tendDayKey || null,
       tendSessionsToday: state.tendSessionsToday || 0,
+      tendExerciseLog: state.tendExerciseLog || {},
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -4357,6 +4495,7 @@ function loadGame() {
     state.tendSessionsCompleted = loaded.tendSessionsCompleted || 0;
     state.tendDayKey = loaded.tendDayKey || null;
     state.tendSessionsToday = loaded.tendSessionsToday || 0;
+    state.tendExerciseLog = loaded.tendExerciseLog || {};
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -4618,7 +4757,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -4640,18 +4779,65 @@ function tendsRemainingToday() {
 function hasAnyGrowingPlot() {
   return state.plots.some(p => !p.locked && p.crop && !isReady(p));
 }
+// Step 1 of the tend flow: open the exercise picker.
+// Player chooses Box / 5-4-3-2-1 / Body Scan, then that exercise runs.
 function openBreathingExercise() {
   if (anyModalOpen()) return;
   if (tendsRemainingToday() <= 0) return;
-  if (!hasAnyGrowingPlot()) return; // nothing to tend
-  // Open modal + reset state
-  document.getElementById('breatheModal').hidden = false;
-  document.getElementById('breatheTitle').textContent = 'Breathe with the garden';
-  document.getElementById('breatheSub').textContent = `Inhale 4 · Hold 4 · Exhale 4. Three cycles.`;
-  _breath = { cycle: 0, phase: 'ready', timeoutId: null };
-  setBreathPhase('ready', 'Get ready…');
-  _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
+  if (!hasAnyGrowingPlot()) return;
+  const remaining = tendsRemainingToday();
+  document.getElementById('exercisePickerSub').textContent =
+    `Choose a moment of quiet · ${remaining} left today`;
+  const options = document.getElementById('exerciseOptions');
+  options.innerHTML = '';
+  for (const ex of EXERCISES) {
+    const btn = document.createElement('button');
+    btn.className = 'exercise-option';
+    btn.innerHTML = `
+      <span class="exercise-option-icon">${ex.icon}</span>
+      <span class="exercise-option-body">
+        <div class="exercise-option-name">${ex.name}</div>
+        <div class="exercise-option-blurb">${ex.blurb}</div>
+      </span>
+      <span class="exercise-option-meta">${ex.durationLabel}</span>
+    `;
+    btn.onclick = () => {
+      document.getElementById('exercisePickerModal').hidden = true;
+      startExercise(ex.id);
+    };
+    options.appendChild(btn);
+  }
+  document.getElementById('exercisePickerModal').hidden = false;
 }
+
+// Step 2: run the chosen exercise. Routes to circle-visual (box) or
+// text-visual (ground / scan) based on the exercise config.
+function startExercise(exerciseId) {
+  const ex = EXERCISES.find(e => e.id === exerciseId);
+  if (!ex) return;
+  document.getElementById('breatheModal').hidden = false;
+  document.getElementById('breatheTitle').textContent = ex.name;
+  document.getElementById('breatheSub').textContent = ex.blurb;
+  const stage = document.getElementById('breatheStage');
+  const circle = document.getElementById('breatheCircle');
+  const textIcon = document.getElementById('breatheTextIcon');
+  if (ex.visual === 'circle') {
+    stage.classList.remove('mode-text');
+    circle.hidden = false;
+    textIcon.hidden = true;
+    _breath = { exerciseId, mode: 'circle', cycle: 0, phase: 'ready', timeoutId: null };
+    setBreathPhase('ready', 'Get ready…');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
+  } else {
+    stage.classList.add('mode-text');
+    circle.hidden = true;
+    textIcon.hidden = false;
+    _breath = { exerciseId, mode: 'text', phases: ex.phases, step: -1, timeoutId: null };
+    setTextStage('Get ready…', '✨');
+    _breath.timeoutId = setTimeout(() => runTextStep(0), 1500);
+  }
+}
+
 function setBreathPhase(phase, label) {
   const circle = document.getElementById('breatheCircle');
   const inst = document.getElementById('breatheInstruction');
@@ -4685,8 +4871,38 @@ function runBreathPhase(phase) {
     }, BREATH_PHASE_MS);
   }
 }
+
+// Text-mode runner — for 5-4-3-2-1 and Body Scan. Walks through phases,
+// fading the icon between prompts so the visual settles each step.
+function setTextStage(label, icon) {
+  const inst = document.getElementById('breatheInstruction');
+  const iconEl = document.getElementById('breatheTextIcon');
+  if (inst) inst.textContent = label;
+  if (iconEl) {
+    iconEl.classList.remove('fade-in');
+    iconEl.textContent = icon || '';
+    // double-RAF to retrigger the fade-in transition
+    requestAnimationFrame(() => requestAnimationFrame(() => iconEl.classList.add('fade-in')));
+  }
+}
+function runTextStep(stepIdx) {
+  if (!_breath || _breath.mode !== 'text') return;
+  const phases = _breath.phases || [];
+  if (stepIdx >= phases.length) {
+    completeBreathingExercise();
+    return;
+  }
+  const step = phases[stepIdx];
+  _breath.step = stepIdx;
+  setTextStage(step.label, step.icon);
+  const prog = document.getElementById('breatheProgress');
+  if (prog) prog.textContent = `Step ${stepIdx + 1} of ${phases.length}`;
+  _breath.timeoutId = setTimeout(() => runTextStep(stepIdx + 1), step.ms);
+}
+
 function completeBreathingExercise() {
   if (!_breath) return;
+  const exerciseId = _breath.exerciseId || 'box';
   cancelBreathingExercise();
   rotateTendDayIfNeeded();
   // Apply the reduction to EVERY growing plot. Already-ready plots are
@@ -4700,6 +4916,8 @@ function completeBreathingExercise() {
   }
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
   state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
+  if (!state.tendExerciseLog) state.tendExerciseLog = {};
+  state.tendExerciseLog[exerciseId] = (state.tendExerciseLog[exerciseId] || 0) + 1;
   if (typeof sndLevelUp === 'function') sndLevelUp();
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
   state.harvestLog.unshift({
@@ -4730,6 +4948,12 @@ function cancelBreathingExercise() {
   if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
   _breath = null;
   document.getElementById('breatheModal').hidden = true;
+  document.getElementById('exercisePickerModal').hidden = true;
+  // Reset stage classes so the next session opens cleanly
+  const stage = document.getElementById('breatheStage');
+  if (stage) stage.classList.remove('mode-text');
+  const textIcon = document.getElementById('breatheTextIcon');
+  if (textIcon) textIcon.classList.remove('fade-in');
 }
 
 function harvest(plotId, ev) {
