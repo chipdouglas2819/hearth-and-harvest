@@ -1978,6 +1978,23 @@ main {
 }
 .lm-card .lc-stars-glyphs { letter-spacing: 1px; }
 .lm-card .lc-stars-glyphs .empty { color: var(--border); }
+/* Prestige chip — shown only at ★6+, the "+N" past the familiar 5-star bar */
+.lc-stars-glyphs .prestige,
+.ls-stars .prestige {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, var(--gold), var(--terracotta));
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: 2px;
+  box-shadow: 0 1px 3px rgba(199, 93, 58, 0.3);
+}
 .lm-card .lc-progress { font-family: var(--mono); font-size: 9px; color: var(--sage); letter-spacing: 0.04em; }
 .lm-card .lc-progress.max { color: var(--gold); font-weight: 700; }
 .lm-card .lc-rarity {
@@ -4136,6 +4153,10 @@ const ACHIEVEMENTS = [
   { id: 'contracts_200',    name: 'Pillar of the Town', icon: '🏆', desc: 'Complete 200 contracts',         test: s => (s.contractsCompleted || 0) >= 200, progress: s => `${Math.min(s.contractsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
   // Deep mastery / collection — top-tier rewards
   { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3`, reward: { type: 'card', floor: 'mythic' } },
+  // Prestige star ladder — ★6 through ★10, long-tail card chase
+  { id: 'star6_first',      name: 'Beyond the Bar',     icon: '✦', desc: 'Star up a card to ★6',           test: s => s.collection.some(c => (c.stars || 1) >= 6), reward: { type: 'card', floor: 'silver' } },
+  { id: 'star10_first',     name: 'Perfect Star',       icon: '🌟', desc: 'Star up a card to ★10',          test: s => s.collection.some(c => (c.stars || 1) >= 10), reward: { type: 'card', floor: 'mythic' } },
+  { id: 'star10_three',     name: 'Triple Perfection',  icon: '✨', desc: '3 cards at ★10',                 test: s => s.collection.filter(c => (c.stars || 1) >= 10).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 10).length}/3`, reward: { type: 'card', floor: 'mythic' } },
   { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'mythic' } },
   { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}`, reward: { type: 'card', floor: 'mythic' } },
   // Long-tail mastery — named tier chase, year-1+ horizon
@@ -4427,10 +4448,16 @@ function isBuffActiveOnPlot(buff, plot) {
 }
 
 // ============ CARD STAR-LEVELING ============
-// Each card has 1-5 stars. Each dupe contributes toward the next star tier.
-// Cumulative dupes needed: ★1=0, ★2=1, ★3=3, ★4=7, ★5=14.
-// Each star adds 20% of the card's base effect (so ★5 = 1.8x original effect).
-const STAR_THRESHOLDS = [0, 1, 3, 7, 14]; // dupes needed to REACH that star tier (idx 0 = ★1)
+// Each card has 1-10 stars. Dupes contribute toward the next tier.
+// Cumulative dupes needed (idx 0 = ★1):
+//   ★1=0,  ★2=1,    ★3=3,    ★4=7,    ★5=14
+//   ★6=30, ★7=60,   ★8=110,  ★9=180,  ★10=280
+// Multiplier per star has diminishing returns past ★5 so the prestige
+// tiers don't run away with reward inflation. ★5 stays the old "max"
+// at 1.8×; ★10 is 2.4× — a meaningful but earned bump.
+const STAR_THRESHOLDS  = [0,   1,   3,   7,   14,  30,   60,   110,  180,  280];
+const STAR_MULTIPLIERS = [1.0, 1.2, 1.4, 1.6, 1.8, 1.95, 2.10, 2.20, 2.30, 2.40];
+const MAX_STARS = STAR_THRESHOLDS.length;
 
 function starsFromCount(count) {
   const dupes = Math.max(0, count - 1);
@@ -4441,7 +4468,8 @@ function starsFromCount(count) {
 }
 
 function getStarMultiplier(stars) {
-  return 1.0 + 0.2 * (stars - 1);
+  const idx = Math.max(0, Math.min(STAR_MULTIPLIERS.length - 1, stars - 1));
+  return STAR_MULTIPLIERS[idx];
 }
 
 function getStarsForBuff(buffId) {
@@ -4451,11 +4479,23 @@ function getStarsForBuff(buffId) {
 
 // Returns { current, needed, isMax } for showing "1/4 to ★4" style progress
 function dupesTowardNextStar(count, stars) {
-  if (stars >= 5) return { isMax: true };
+  if (stars >= MAX_STARS) return { isMax: true };
   const dupes = Math.max(0, count - 1);
   const prev = STAR_THRESHOLDS[stars - 1];
   const next = STAR_THRESHOLDS[stars];
   return { current: dupes - prev, needed: next - prev, isMax: false };
+}
+
+// ★1-5 render as literal stars (the familiar bar). ★6-10 add a "+N"
+// prestige chip after the bar so the player sees both the base tier and
+// the prestige push. Avoids cramming 10 ★ glyphs into a tight space.
+function renderStarGlyphs(stars) {
+  const filled = Math.min(5, stars);
+  const empty = Math.max(0, 5 - filled);
+  let html = '★'.repeat(filled);
+  if (empty > 0) html += `<span class="empty">${'☆'.repeat(empty)}</span>`;
+  if (stars > 5) html += ` <span class="prestige">+${stars - 5}</span>`;
+  return html;
 }
 
 // Compute the effective yield/time multipliers a card produces at its current star level
@@ -5908,7 +5948,7 @@ function renderCardsCollection() {
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
       <div class="lc-stars">
-        <span class="lc-stars-glyphs">${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span></span>
+        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
         <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
@@ -6042,7 +6082,7 @@ function renderLoadoutModal() {
         ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}${!active ? ' (inactive)' : ''}`
         : 'general';
       const stars = getStarsForBuff(buff.id);
-      const starGlyphs = `${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span>`;
+      const starGlyphs = `${renderStarGlyphs(stars)}`;
       const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
       slot.innerHTML = `
         <div class="ls-rarity">${buff.rarity}</div>
@@ -6143,7 +6183,7 @@ function renderLoadoutModal() {
       <div class="lc-rarity">${buff.rarity}</div>
       <div class="lc-name">${buff.name}</div>
       <div class="lc-stars">
-        <span class="lc-stars-glyphs">${'★'.repeat(stars)}<span class="empty">${'☆'.repeat(5 - stars)}</span></span>
+        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
         <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
       </div>
       <div class="lc-desc">${dynamicDesc}</div>
