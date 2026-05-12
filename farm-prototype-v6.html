@@ -4400,13 +4400,24 @@ function picksAvailable(plot) {
   return Math.max(0, picksUnlockedAt(plot) - plot.picksTaken);
 }
 // True if the given crop appears in any active (accepted) contract's demands.
-// Used to show 📜 indicators on plots and plant-select cards so players can
-// tell at a glance which crops would contribute to their committed work.
+// 📜 indicator helper. Returns true only when growing MORE of this crop
+// would still benefit an active contract — i.e. (delivered + currently
+// growing) < target. Once the player has enough committed to fulfill,
+// the badge disappears so they're not nudged to over-plant.
 function isCropWantedByContract(crop) {
   if (!state.activeContracts) return false;
+  // Count plots actively committed to this crop (growing OR ready-to-harvest).
+  const growingCount = state.plots.filter(p => !p.locked && p.crop === crop).length;
   for (const c of state.activeContracts) {
-    if (c.template === 'deliver_n_of_x' && c.params.crop === crop) return true;
-    if (c.template === 'deliver_mixed' && c.params.crops && c.params.crops[crop] !== undefined) return true;
+    if (c.template === 'deliver_n_of_x' && c.params.crop === crop) {
+      const remaining = c.params.count - (c.progress || 0) - growingCount;
+      if (remaining > 0) return true;
+    } else if (c.template === 'deliver_mixed' && c.params.crops && c.params.crops[crop] !== undefined) {
+      const target = c.params.crops[crop];
+      const delivered = (c.progress && c.progress[crop]) || 0;
+      const remaining = target - delivered - growingCount;
+      if (remaining > 0) return true;
+    }
   }
   return false;
 }
