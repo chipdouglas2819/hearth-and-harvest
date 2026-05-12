@@ -1158,6 +1158,17 @@ main {
 .mastery-row .name { display: flex; align-items: center; gap: 8px; color: var(--moss); }
 .mastery-row .count { font-family: var(--mono); color: var(--forest); font-weight: 600; }
 .mastery-row .next-unlock { font-size: 10px; color: var(--sage); font-style: italic; }
+.mastery-row .mastery-tier {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--moss);
+  background: rgba(143, 166, 142, 0.15);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-weight: 700;
+}
 
 .harvest-entry {
   display: flex;
@@ -4127,6 +4138,10 @@ const ACHIEVEMENTS = [
   { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3`, reward: { type: 'card', floor: 'mythic' } },
   { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'mythic' } },
   { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}`, reward: { type: 'card', floor: 'mythic' } },
+  // Long-tail mastery — named tier chase, year-1+ horizon
+  { id: 'mastery_adept',    name: 'Adept Cultivator',   icon: '🌾', desc: 'Reach Adept tier on any crop (500h)',           test: s => Object.values(s.mastery || {}).some(h => h >= 500),    progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 500).toLocaleString()}h/500h`; },     reward: { type: 'card', floor: 'silver' } },
+  { id: 'mastery_expert',   name: 'Expert Cultivator',  icon: '🌻', desc: 'Reach Expert tier on any crop (2,000h)',        test: s => Object.values(s.mastery || {}).some(h => h >= 2000),   progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 2000).toLocaleString()}h/2,000h`; },   reward: { type: 'card', floor: 'legendary' } },
+  { id: 'mastery_master',   name: 'Master of the Soil', icon: '🏆', desc: 'Reach Master tier on any crop (10,000h)',       test: s => Object.values(s.mastery || {}).some(h => h >= 10000),  progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 10000).toLocaleString()}h/10,000h`; }, reward: { type: 'card', floor: 'mythic' } },
   { id: 'lucky_50',         name: 'Charmed Garden',     icon: '🍀', desc: '50 lucky harvests',              test: s => (s.luckyHarvests || 0) >= 50,     progress: s => `${Math.min(s.luckyHarvests || 0, 50)}/50`, reward: { type: 'card', floor: 'legendary' } },
   // Streak-aspirational
   { id: 'streak_30',        name: 'A Month of Care',    icon: '🔥', desc: '30-day daily streak',            test: s => (s.bestStreak || 0) >= 30,  progress: s => `${Math.min(s.bestStreak || 0, 30)}/30`,  reward: { type: 'card', floor: 'silver' } },
@@ -4516,6 +4531,34 @@ const MASTERY_TIERS = [
   { upTo: 200,      hoursPerTick: 10 },
   { upTo: Infinity, hoursPerTick: 20 },
 ];
+
+// Named breakpoints — purely cosmetic/progression-signal. The bonus curve
+// (MASTERY_TIERS) is unchanged; this just gives the player a tier name
+// and a visible "next stop" so the long-tail grow-hour accumulation has
+// a destination. 10,000h is genuinely a year+ chase even for engaged
+// players — fits the "long-chase" framing.
+const MASTERY_BREAKPOINTS = [
+  { hours: 0,     name: 'Seedling'   },
+  { hours: 50,    name: 'Apprentice' },
+  { hours: 200,   name: 'Practiced'  },
+  { hours: 500,   name: 'Adept'      },
+  { hours: 2000,  name: 'Expert'     },
+  { hours: 10000, name: 'Master'     },
+];
+function masteryTierForHours(hours) {
+  let tier = MASTERY_BREAKPOINTS[0];
+  for (const bp of MASTERY_BREAKPOINTS) {
+    if (hours >= bp.hours) tier = bp;
+    else break;
+  }
+  return tier;
+}
+function nextMasteryBreakpoint(hours) {
+  for (const bp of MASTERY_BREAKPOINTS) {
+    if (hours < bp.hours) return bp;
+  }
+  return null; // already at top tier
+}
 function masteryTicksAtHours(hours) {
   let ticks = 0;
   let tierStart = 0;
@@ -7057,7 +7100,9 @@ function render() {
   renderTodayPanel();
   renderContract();
 
-  // mastery — grow-hours invested per crop, +0.1% per 20 hours
+  // mastery — grow-hours invested per crop. Curve is +0.1% per N hours
+  // (N grows by tier), and named breakpoints (Seedling → Master) give the
+  // long-tail grow-hours a visible destination.
   const mList = document.getElementById('masteryList');
   mList.innerHTML = '';
   const grownEntries = Object.entries(CROPS).filter(([key]) => state.mastery[key] > 0);
@@ -7067,14 +7112,18 @@ function render() {
     for (const [key, c] of grownEntries) {
       const hours = state.mastery[key];
       const bonusPct = ((masteryBonusForHours(hours) - 1) * 100).toFixed(1);
-      const toNext = hoursToNextMasteryTick(hours);
+      const tier = masteryTierForHours(hours);
+      const next = nextMasteryBreakpoint(hours);
+      const nextLine = next
+        ? `${Math.ceil(next.hours - hours).toLocaleString()}h to ${next.name}`
+        : 'top tier reached';
       const row = document.createElement('div');
       row.className = 'mastery-row';
       row.innerHTML = `
-        <span class="name">${c.emoji} ${c.name}</span>
+        <span class="name">${c.emoji} ${c.name} <span class="mastery-tier">${tier.name}</span></span>
         <span style="text-align:right;">
-          <div class="count">${Math.floor(hours)}h · +${bonusPct}%</div>
-          <div class="next-unlock">${toNext.toFixed(1)}h to next +0.1%</div>
+          <div class="count">${Math.floor(hours).toLocaleString()}h · +${bonusPct}%</div>
+          <div class="next-unlock">${nextLine}</div>
         </span>
       `;
       mList.appendChild(row);
