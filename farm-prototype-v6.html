@@ -810,6 +810,24 @@ main {
   position: static;
   margin-top: 20px;
 }
+/* Anchor tap ripple — appears at the tap position on the breath stage
+   during an active exercise. Optional micro-engagement: the player can
+   tap to mark their attention without it affecting rewards. */
+.breathe-ripple {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(127, 191, 191, 0.22);
+  border: 1px solid rgba(127, 191, 191, 0.35);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: breatheRippleExpand 700ms ease-out forwards;
+}
+@keyframes breatheRippleExpand {
+  0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0.7; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
 
 /* Exercise picker — three cards, player chooses tone for this session */
 .exercise-picker { max-width: 420px; text-align: center; padding: 28px 22px; }
@@ -4260,29 +4278,45 @@ const PEAK_RIPENESS_WINDOW_SEC = 30;      // Peak Ripeness boon: real-seconds pa
 // Mindfulness exercises — player picks one each tend session. Variety keeps
 // the practice from feeling rote. All three apply the same -8% reduction;
 // the choice is for the player's mood, not the math.
+// Picker blurbs describe INTENT — when you'd reach for this practice —
+// not just the mechanic. Players pick based on mood/need, not just label.
 const EXERCISES = [
   {
     id: 'box',
     name: 'Box breath',
-    blurb: 'Inhale 4 · Hold 4 · Exhale 4 · three rounds',
+    blurb: 'Balanced breath for focus and calm',
     icon: '◯',
     durationLabel: '~36s',
-    visual: 'circle',  // pulsing circle that scales with breath
+    visual: 'circle',
+    phaseDurations: { inhale: 4000, hold: 4000, exhale: 4000 },
     intro: {
       title: 'What box breathing does',
-      body: 'A slow, even rhythm of inhale-hold-exhale calms the nervous system. Used by athletes and first responders to drop heart rate and refocus under pressure. Follow the circle — let it pace you.',
+      body: 'A slow, even rhythm of inhale-hold-exhale calms the nervous system. Used by athletes and first responders to drop heart rate and refocus under pressure. Reach for it when you need centering or to refocus.',
+    },
+  },
+  {
+    id: 'four_seven_eight',
+    name: '4-7-8 breath',
+    blurb: 'Long exhale to truly unwind',
+    icon: '🌙',
+    durationLabel: '~57s',
+    visual: 'circle',
+    phaseDurations: { inhale: 4000, hold: 7000, exhale: 8000 },
+    intro: {
+      title: 'What 4-7-8 breathing does',
+      body: 'The prolonged exhale activates the parasympathetic nervous system more strongly than balanced breathing — a quick sedative for an anxious or wired state. Often used before sleep, or to come down from stress. Slower and longer than box breath.',
     },
   },
   {
     id: 'ground',
     name: '5-4-3-2-1',
-    blurb: 'Notice your senses, one by one',
+    blurb: 'Anchor your senses to the present',
     icon: '👀',
     durationLabel: '~40s',
     visual: 'text',
     intro: {
       title: 'What sensory grounding does',
-      body: 'Anxiety and racing thoughts pull you out of the present. Naming what you see, touch, hear, smell, and taste anchors you back in the room. A small reset for a busy mind.',
+      body: 'Anxiety and racing thoughts pull you out of the present. Naming what you see, touch, hear, smell, and taste anchors you back in the room. Reach for it when your mind is busy or scattered.',
     },
     phases: [
       { label: 'Notice 5 things you can see', icon: '👀', ms: 8000 },
@@ -4295,13 +4329,13 @@ const EXERCISES = [
   {
     id: 'scan',
     name: 'Body scan',
-    blurb: 'Soften each part in turn',
+    blurb: 'Release tension, part by part',
     icon: '🧘',
     durationLabel: '~30s',
     visual: 'text',
     intro: {
       title: 'What a body scan does',
-      body: 'Tension hides in your jaw, shoulders, and hands without you noticing. Bringing attention to each spot and consciously softening it releases what your body was holding. A quick way to feel lighter.',
+      body: 'Tension hides in your jaw, shoulders, and hands without you noticing. Bringing attention to each spot and consciously softening it releases what your body was holding. Reach for it when you feel physically tight or after sitting too long.',
     },
     phases: [
       { label: 'Unclench your jaw',          icon: '🧘', ms: 6000 },
@@ -4309,6 +4343,25 @@ const EXERCISES = [
       { label: 'Soften your hands',          icon: '✋', ms: 6000 },
       { label: 'Feel your feet on the ground', icon: '🦶', ms: 6000 },
       { label: 'One slow breath',            icon: '🌿', ms: 6000 },
+    ],
+  },
+  {
+    id: 'loving_kindness',
+    name: 'Loving-kindness',
+    blurb: 'Send quiet warmth to yourself and others',
+    icon: '💗',
+    durationLabel: '~30s',
+    visual: 'text',
+    intro: {
+      title: 'What loving-kindness does',
+      body: 'A few moments of directed warmth — for yourself, then someone you care about, then wider. Even brief loving-kindness reflection lowers stress hormones and increases reported well-being in studies. Reach for it when you feel disconnected or harsh with yourself.',
+    },
+    phases: [
+      { label: 'Soften your shoulders. Notice your breath.',     icon: '🤲', ms: 6000 },
+      { label: 'May you be at peace.',                           icon: '🌿', ms: 6000 },
+      { label: 'Bring to mind someone you love.',                icon: '💗', ms: 6000 },
+      { label: 'May they be well.',                              icon: '✨', ms: 6000 },
+      { label: 'May all who tend a garden, anywhere, be at peace.', icon: '🌍', ms: 6000 },
     ],
   },
 ];
@@ -5738,7 +5791,11 @@ function startExercise(exerciseId) {
     stage.classList.remove('mode-text');
     circle.hidden = false;
     textIcon.hidden = true;
-    _breath = { exerciseId, mode: 'circle', cycle: 0, phase: 'ready', timeoutId: null };
+    // Per-phase durations (defaults to 4-4-4 box pattern if exercise doesn't
+    // specify). 4-7-8 breath uses 4000 / 7000 / 8000 — the long exhale is
+    // the whole point of the practice, so the visual must match.
+    const phaseDurations = ex.phaseDurations || { inhale: 4000, hold: 4000, exhale: 4000 };
+    _breath = { exerciseId, mode: 'circle', cycle: 0, phase: 'ready', timeoutId: null, phaseDurations };
     setBreathPhase('ready', 'Get ready…');
     _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
   } else {
@@ -5756,6 +5813,17 @@ function setBreathPhase(phase, label) {
   const inst = document.getElementById('breatheInstruction');
   const prog = document.getElementById('breatheProgress');
   if (!circle || !inst) return;
+  // Apply per-phase transition duration so the circle's scale animation
+  // matches the actual phase length. Critical for 4-7-8 where exhale is
+  // 8 seconds — a 4s CSS transition would finish 4s before the phase ends.
+  if (_breath && _breath.phaseDurations) {
+    const durs = _breath.phaseDurations;
+    const ease = 'cubic-bezier(0.4, 0, 0.2, 1)';
+    if (phase === 'inhale')      circle.style.transition = `transform ${durs.inhale}ms ${ease}, background 0.6s ease`;
+    else if (phase === 'hold')   circle.style.transition = `transform 0ms, background 0.6s ease`;
+    else if (phase === 'exhale') circle.style.transition = `transform ${durs.exhale}ms ${ease}, background 0.6s ease`;
+    else                         circle.style.transition = `transform 600ms ${ease}, background 0.6s ease`;
+  }
   circle.className = 'breathe-circle phase-' + phase;
   inst.textContent = label;
   if (_breath) {
@@ -5766,12 +5834,13 @@ function setBreathPhase(phase, label) {
 }
 function runBreathPhase(phase) {
   if (!_breath) return;
+  const durs = _breath.phaseDurations || { inhale: BREATH_PHASE_MS, hold: BREATH_PHASE_MS, exhale: BREATH_PHASE_MS };
   if (phase === 'inhale') {
     setBreathPhase('inhale', 'Breathe in…');
-    _breath.timeoutId = setTimeout(() => runBreathPhase('hold'), BREATH_PHASE_MS);
+    _breath.timeoutId = setTimeout(() => runBreathPhase('hold'), durs.inhale);
   } else if (phase === 'hold') {
     setBreathPhase('hold', 'Hold');
-    _breath.timeoutId = setTimeout(() => runBreathPhase('exhale'), BREATH_PHASE_MS);
+    _breath.timeoutId = setTimeout(() => runBreathPhase('exhale'), durs.hold);
   } else if (phase === 'exhale') {
     setBreathPhase('exhale', 'Breathe out…');
     _breath.timeoutId = setTimeout(() => {
@@ -5781,7 +5850,7 @@ function runBreathPhase(phase) {
       } else {
         runBreathPhase('inhale');
       }
-    }, BREATH_PHASE_MS);
+    }, durs.exhale);
   }
 }
 
@@ -7172,6 +7241,28 @@ document.getElementById('boonFab').onclick = () => {
   if (p) openBuffModal(p.id);
 };
 document.getElementById('tendFab').onclick = () => openBreathingExercise();
+
+// Optional anchor tap during a breathing exercise — tapping anywhere on
+// the stage spawns a soft ripple at the tap point. No reward effect; just
+// gives a casual player something to do with their hand without breaking
+// the practice. Curious players can ignore it.
+(function bindBreathAnchorTap() {
+  const stage = document.getElementById('breatheStage');
+  if (!stage) return;
+  stage.addEventListener('pointerdown', (e) => {
+    if (!_breath || !_breath.exerciseId) return;        // only during active exercise
+    if (e.target.closest('button')) return;             // never on the stop button
+    const rect = stage.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const ripple = document.createElement('div');
+    ripple.className = 'breathe-ripple';
+    ripple.style.left = x + 'px';
+    ripple.style.top = y + 'px';
+    stage.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 800);
+  });
+})();
 document.getElementById('achToggleBtn').onclick = () => {
   _achShowAll = !_achShowAll;
   renderAchievements();
