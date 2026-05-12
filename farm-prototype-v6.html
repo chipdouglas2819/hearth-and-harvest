@@ -997,11 +997,18 @@ main {
 .harvest-entry:last-child { border-bottom: none; }
 .harvest-entry .what { color: var(--moss); }
 .harvest-entry .amount { font-family: var(--mono); color: var(--terracotta); font-weight: 600; }
-.harvest-entry .amount.levelup { color: var(--gold); }
+/* Activity log amount colors. Each color means EXACTLY one thing so the
+   player can read the column at a glance:
+     - default (terracotta) → regular harvest yield
+     - gold + bold + sparkle → contract complete OR celebration (star-up,
+       achievement) OR lucky harvest. Each row icon disambiguates which.
+     - rust  → contract expired / failed reward
+   (Market-bonus harvests previously also turned the amount gold — removed.
+   The crop name carries the market story; the amount stays neutral.) */
+.harvest-entry .amount.levelup       { color: var(--gold); }
 .harvest-entry .amount.contract-good { color: var(--gold); }
 .harvest-entry .amount.contract-fail { color: var(--rust); opacity: 0.7; }
-.harvest-entry .amount.lucky { color: var(--gold); font-weight: 700; }
-.harvest-entry .amount.market-bonus { color: var(--gold); }
+.harvest-entry .amount.lucky         { color: var(--gold); font-weight: 700; text-shadow: 0 0 6px rgba(244, 193, 71, 0.5); }
 .harvest-entry .harvest-flavor { font-style: italic; font-size: 10px; color: var(--sage); margin-left: 4px; }
 .harvest-entry .harvest-attribution {
   display: block;
