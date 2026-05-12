@@ -622,7 +622,6 @@ main {
 }
 .crop-visual-wrap {
   display: inline-block;
-  cursor: pointer;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.1s ease;
@@ -631,15 +630,7 @@ main {
   height: 130px;
   pointer-events: auto;
 }
-.crop-visual-wrap:active:not(.exhausted) { transform: scale(0.96); }
-.crop-visual-wrap.tapped { animation: tapBounce 0.32s ease; }
-.crop-visual-wrap.exhausted { cursor: default; pointer-events: none; }
-@keyframes tapBounce {
-  0% { transform: scale(1); }
-  35% { transform: scale(1.18); }
-  70% { transform: scale(0.96); }
-  100% { transform: scale(1); }
-}
+.crop-visual-wrap.exhausted { pointer-events: none; }
 
 /* Mindful breathing exercise modal — taught box-breathing visual.
    The circle's scale changes match each breath phase exactly, so the
@@ -1950,6 +1941,46 @@ main {
   color: var(--forest);
 }
 
+/* Tend-completion toast — calming green/cyan palette to distinguish from
+   contract (mossy) and achievement (gold). Same bottom-center stacking. */
+.tend-toast {
+  position: fixed;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: linear-gradient(135deg, rgba(127, 191, 191, 0.20), rgba(143, 166, 142, 0.14));
+  color: var(--ink);
+  border-radius: 999px;
+  border: 1px solid var(--moss);
+  box-shadow: 0 8px 24px rgba(58, 90, 64, 0.20), 0 2px 8px rgba(0,0,0,0.10);
+  animation: achToastIn 0.32s ease-out, achToastOut 0.3s ease-in 3.0s forwards;
+  font-family: var(--serif);
+  font-size: 14px;
+  pointer-events: none;
+}
+.tend-toast .tend-toast-icon { font-size: 22px; line-height: 1; }
+.tend-toast .tend-toast-label {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--moss);
+}
+.tend-toast .tend-toast-detail {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--forest);
+}
+
 /* Daily streak milestone toast — sits above contract toast so they can stack.
    z-index above welcome-back banner backdrop (90) so the toast is visible
    if a milestone fires the same session the player returns to a banner. */
@@ -2186,6 +2217,10 @@ main {
   </div>
 
   <div id="tab-journal" class="tab-content" role="tabpanel">
+    <div class="panel">
+      <h3>Recent Activity</h3>
+      <div id="harvestLog"></div>
+    </div>
     <div class="panel stats-panel">
       <h3>Stats</h3>
       <div class="stats-section-label">Today</div>
@@ -2204,10 +2239,6 @@ main {
       <h3>Mastery</h3>
       <div id="masteryList"></div>
     </div>
-    <div class="panel">
-      <h3>Activity</h3>
-      <div id="harvestLog"></div>
-    </div>
   </div>
 
   <div id="tab-settings" class="tab-content" role="tabpanel">
@@ -2222,7 +2253,7 @@ main {
       <div class="more-row">
         <div class="more-row-label">
           <div class="more-row-title">Ambient</div>
-          <div class="more-row-sub">soft background drone for cozy atmosphere</div>
+          <div class="more-row-sub">a gentle breeze drifting through the garden</div>
         </div>
         <button class="btn btn-ghost more-row-btn" id="settingsAmbientBtn">🎵 On</button>
       </div>
@@ -4180,13 +4211,34 @@ function completeBreathingExercise() {
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
   // Friendly success cue
   if (typeof sndLevelUp === 'function') sndLevelUp();
+  const cropName = CROPS[plot.crop].name;
+  const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
   state.harvestLog.unshift({
     type: 'info',
-    text: `🌿 Tended ${CROPS[plot.crop].name.toLowerCase()} — ${Math.round(TEND_REDUCTION_PER_SESSION * 100)}% time saved`,
+    text: `🌿 Tended ${cropName.toLowerCase()} — ${reductionPct}% time saved`,
     t: Date.now(),
   });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
+  // Instant on-screen feedback — player shouldn't have to check the Journal
+  // to see what they got. Brief toast at bottom-center, distinct from other
+  // toasts via its mossy/cyan color.
+  showTendToast({ cropName, reductionPct });
   render();
+}
+function showTendToast(info) {
+  const existing = document.querySelector('.tend-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'tend-toast';
+  toast.innerHTML = `
+    <span class="tend-toast-icon">🌿</span>
+    <span>
+      <div class="tend-toast-label">Tended ${info.cropName}</div>
+      <div class="tend-toast-detail">−${info.reductionPct}% grow time</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3700);
 }
 function cancelBreathingExercise() {
   if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
@@ -5308,7 +5360,7 @@ function rewardLabel(reward) {
   const parts = [`<span class="coin-icon">◉</span> +${reward.coins}`];
   if (reward.packs > 0) parts.push(`+${reward.packs} pack`);
   if (reward.packChance > 0 && reward.packs === 0) {
-    parts.push(`${Math.round(reward.packChance * 100)}% pack`);
+    parts.push(`${Math.round(reward.packChance * 100)}% chance: +1 pack`);
   }
   return parts.join(' · ');
 }
