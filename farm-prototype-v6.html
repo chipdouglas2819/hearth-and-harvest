@@ -1025,24 +1025,25 @@ main {
 }
 .slow-rhythm-ripple {
   position: absolute;
-  width: 24px;
-  height: 24px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  border: 2px solid rgba(127, 191, 191, 0.6);
-  background: rgba(127, 191, 191, 0.15);
+  border: 3px solid rgba(127, 191, 191, 0.85);
+  background: rgba(127, 191, 191, 0.22);
   pointer-events: none;
   transform: translate(-50%, -50%) scale(0);
-  animation: slowRhythmRippleAnim 800ms ease-out forwards;
+  animation: slowRhythmRippleAnim 1000ms ease-out forwards;
 }
 /* On-beat tap — gold ripple confirms timing without scoring */
 .slow-rhythm-ripple.on-beat {
-  border-color: rgba(244, 193, 71, 0.85);
-  background: rgba(244, 193, 71, 0.20);
-  box-shadow: 0 0 18px rgba(244, 193, 71, 0.45);
+  border-color: rgba(244, 193, 71, 1.0);
+  background: rgba(244, 193, 71, 0.30);
+  box-shadow: 0 0 30px rgba(244, 193, 71, 0.65);
 }
 @keyframes slowRhythmRippleAnim {
-  0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0.7; }
-  100% { transform: translate(-50%, -50%) scale(4); opacity: 0; }
+  0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0.85; border-width: 3px; }
+  60%  { transform: translate(-50%, -50%) scale(4);   opacity: 0.45; border-width: 2px; }
+  100% { transform: translate(-50%, -50%) scale(6);   opacity: 0;    border-width: 1px; }
 }
 
 /* Soft "you can step away" prompt that fades in around 30s into a game */
@@ -1176,6 +1177,10 @@ main {
   color: var(--moss);
   line-height: 1.4;
 }
+/* Meta column — duration on the left, reward on the right, both
+   top-aligned. Reward wraps inside its narrow column so "farm time"
+   drops to a second line under "−8%", while duration stays one line
+   and aligns with the "−8%" top line. */
 .exercise-option-meta {
   font-family: var(--mono);
   font-size: 10px;
@@ -1186,23 +1191,34 @@ main {
   margin-left: 8px;
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
   line-height: 1.3;
+  max-width: 120px;
+}
+.exercise-option-meta > span:first-child {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .exercise-option-reward {
   color: var(--terracotta);
   font-weight: 700;
   opacity: 1;
+  text-align: right;
+  max-width: 56px;
+  white-space: normal;
 }
-/* Shown in the picker when daily reward sessions are spent — the exercise
-   still runs as pure practice, just without the time-skip bonus. */
+/* Shown in the picker when daily reward sessions are spent OR for active
+   practices — the exercise still runs without the time-skip bonus. */
 .exercise-option-practice {
   color: var(--sage);
   font-style: italic;
   font-weight: 500;
   opacity: 0.85;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .breathe-progress {
   font-family: var(--mono);
@@ -6022,7 +6038,7 @@ function openBreathingExercise() {
       <span class="exercise-option-meta">
         <span>${ex.durationLabel}</span>
         ${willReward
-          ? `<span class="exercise-option-reward">−${reductionPct}%<br>farm time</span>`
+          ? `<span class="exercise-option-reward">−${reductionPct}% farm time</span>`
           : `<span class="exercise-option-practice">no reward</span>`}
       </span>
     `;
@@ -6352,8 +6368,21 @@ function openPollenDrift() {
   // Re-measure on next frame in case modal layout is still resolving
   requestAnimationFrame(updateRect);
 
-  // Particle drifts on a low-frequency Lissajous-ish curve, slow speed
+  // Particle drifts on a low-frequency Lissajous-ish curve, slow speed.
+  // Per-session randomized phases + jittered frequencies so the visible
+  // path doesn't repeat — each opening feels like a different drift.
+  // Frequencies are kept slow (sub-Hz) for calm motion.
   const startedAt = performance.now();
+  const seed = {
+    phaseX1: Math.random() * Math.PI * 2,
+    phaseY1: Math.random() * Math.PI * 2,
+    phaseX2: Math.random() * Math.PI * 2,
+    phaseY2: Math.random() * Math.PI * 2,
+    fX1: 0.28 + Math.random() * 0.14,  // 0.28–0.42 Hz
+    fY1: 0.22 + Math.random() * 0.12,  // 0.22–0.34
+    fX2: 0.09 + Math.random() * 0.08,  // 0.09–0.17 (non-commensurate with fX1)
+    fY2: 0.07 + Math.random() * 0.07,
+  };
   let cursorX = -9999, cursorY = -9999;
   let lastTrailAt = 0;
 
@@ -6375,9 +6404,9 @@ function openPollenDrift() {
     const w = stageRect.width || stage.offsetWidth;
     const h = stageRect.height || stage.offsetHeight;
     const t = (now - startedAt) / 1000;
-    // Slow drift: two summed sines, slow frequencies
-    const px = w * (0.5 + 0.35 * Math.sin(t * 0.35) + 0.05 * Math.sin(t * 0.13));
-    const py = h * (0.5 + 0.30 * Math.cos(t * 0.27) + 0.05 * Math.cos(t * 0.11));
+    // Slow drift: two summed sines per axis, randomized per session
+    const px = w * (0.5 + 0.35 * Math.sin(t * seed.fX1 + seed.phaseX1) + 0.05 * Math.sin(t * seed.fX2 + seed.phaseX2));
+    const py = h * (0.5 + 0.30 * Math.cos(t * seed.fY1 + seed.phaseY1) + 0.05 * Math.cos(t * seed.fY2 + seed.phaseY2));
     particle.style.left = px + 'px';
     particle.style.top = py + 'px';
     halo.style.left = px + 'px';
@@ -6457,30 +6486,72 @@ function openSandMandala() {
   let drawing = false;
   let lastX = 0, lastY = 0;
 
+  // Audio: filtered pink noise plays while drawing — "drawing in sand" feel.
+  // Pink noise through bandpass (3 kHz) + highpass keeps it grainy/scratchy
+  // without low-end rumble. Fades in/out so taps aren't jarring.
+  let scratchNoise = null, scratchGain = null;
+  const startScratchSound = () => {
+    if (scratchNoise) return;
+    const ac = (typeof audioCtx === 'function') ? audioCtx() : null;
+    if (!ac) return;
+    const soundGain = (state.soundVolume == null ? 100 : state.soundVolume) / 100;
+    if (soundGain <= 0) return;
+    try {
+      scratchNoise = _makePinkNoiseSource(ac);
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 2800; bp.Q.value = 1.5;
+      const hp = ac.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 1500;
+      scratchGain = ac.createGain();
+      scratchGain.gain.setValueAtTime(0.0001, ac.currentTime);
+      scratchGain.gain.linearRampToValueAtTime(0.06 * soundGain, ac.currentTime + 0.06);
+      scratchNoise.connect(bp); bp.connect(hp); hp.connect(scratchGain);
+      scratchGain.connect(ac.destination);
+      scratchNoise.start();
+    } catch (e) { scratchNoise = null; scratchGain = null; }
+  };
+  const stopScratchSound = () => {
+    if (!scratchNoise) return;
+    const ac = (typeof audioCtx === 'function') ? audioCtx() : null;
+    if (ac && scratchGain) {
+      try {
+        scratchGain.gain.cancelScheduledValues(ac.currentTime);
+        scratchGain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.10);
+      } catch (e) { /* ignore */ }
+    }
+    const node = scratchNoise;
+    scratchNoise = null; scratchGain = null;
+    setTimeout(() => { try { node.stop(); } catch (e) {} }, 120);
+  };
+
   const start = (e) => {
     drawing = true;
     const r = canvas.getBoundingClientRect();
     lastX = e.clientX - r.left;
     lastY = e.clientY - r.top;
+    startScratchSound();
   };
   const move = (e) => {
     if (!drawing) return;
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    ctx.strokeStyle = 'rgba(244, 193, 71, 0.85)';
-    ctx.lineWidth = 6;
+    // No shadowBlur — it was leaving sub-1% alpha pixels around strokes
+    // that the destination-out fade couldn't remove fast enough, so faint
+    // marks persisted forever. Cleaner edges + slightly bigger lineWidth
+    // gives the same "soft sand" look without the residual.
+    ctx.strokeStyle = 'rgba(244, 193, 71, 0.80)';
+    ctx.lineWidth = 7;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.shadowColor = 'rgba(244, 193, 71, 0.6)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 0;
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
     ctx.lineTo(x, y);
     ctx.stroke();
     lastX = x; lastY = y;
   };
-  const end = () => { drawing = false; };
+  const end = () => { drawing = false; stopScratchSound(); };
   canvas.addEventListener('pointerdown', start);
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', end);
@@ -6509,6 +6580,7 @@ function openSandMandala() {
     startedAt: performance.now(),
     timer: null,
     cleanup: () => {
+      stopScratchSound();
       canvas.removeEventListener('pointerdown', start);
       canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', end);
@@ -6538,8 +6610,13 @@ function openSlowRhythm() {
   // .beat-flash class, providing a second redundant cue. Player taps a
   // ripple anywhere — taps within 250 ms of the tick get a gold "on-beat"
   // treatment as confirmation. Every tap is welcome regardless.
-  const BEAT_INTERVAL = 1000;
-  const ON_BEAT_WINDOW = 250;
+  //
+  // Tempo: 50 BPM (1200ms interval). Below resting heart rate so the
+  // body reads it as "calm down" rather than "match my baseline." 60 BPM
+  // (the prior tempo) felt close to heart rate; this is intentionally
+  // slower for a more meditative feel.
+  const BEAT_INTERVAL = 1200;
+  const ON_BEAT_WINDOW = 280;
   let lastBeatAt = 0;
 
   const beat = () => {
