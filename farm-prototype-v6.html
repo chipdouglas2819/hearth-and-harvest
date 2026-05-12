@@ -417,13 +417,27 @@ main {
   text-align: center;
   margin-bottom: -2px;
 }
-/* On narrow screens, stack pairs in a column so +% and −% line up under each other */
+/* On narrow screens, stack pairs in a column and grid-lock each pair's
+   internal columns so +% and −% line up directly under each other,
+   regardless of crop name length. */
 @media (max-width: 540px) {
   .farm-market-strip {
     flex-direction: column;
     gap: 4px;
     align-items: center;
   }
+  .farm-market-strip .fm-pair {
+    display: grid;
+    grid-template-columns: 22px 1fr 56px;
+    column-gap: 8px;
+    align-items: center;
+    width: 100%;
+    max-width: 260px;
+  }
+  .farm-market-strip .fm-emoji { justify-self: center; }
+  .farm-market-strip .fm-name  { justify-self: start; }
+  .farm-market-strip .fm-up,
+  .farm-market-strip .fm-down  { justify-self: end; }
 }
 
 /* === Boon FAB — pending picks call-to-action === */
@@ -2611,14 +2625,14 @@ main {
 /* === Journal tab: lifetime stats grid === */
 .lifetime-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 4px 18px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 2px 18px;
 }
 .lifetime-cell {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 6px 0;
+  padding: 4px 0;
   border-bottom: 1px dashed var(--border);
   font-size: 12px;
   gap: 8px;
@@ -2740,7 +2754,14 @@ main {
       <div class="card-sets" id="cardSetsList"></div>
     </div>
     <div class="panel">
-      <h3>Collection</h3>
+      <div class="panel-header-row">
+        <h3>Collection</h3>
+        <span class="lm-sec-meta" id="cardsCollectionMeta"></span>
+      </div>
+      <div class="lm-filters">
+        <div class="lm-filter-row" id="cardsFilterRarity"></div>
+        <div class="lm-filter-row" id="cardsFilterScope"></div>
+      </div>
       <div class="lm-grid" id="cardsCollectionGrid"></div>
     </div>
   </div>
@@ -3785,6 +3806,7 @@ const TEND_REDUCTION_PER_SESSION = 0.08;  // -8% time per session, all plots
 const TEND_MAX_SESSIONS_PER_DAY = 4;      // cap per real day (resets on day rollover)
 const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
 const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
+const PEAK_RIPENESS_WINDOW_SEC = 30;      // Peak Ripeness boon: real-seconds past ripe still earning the ×1.6 bonus
 
 // Mindfulness exercises — player picks one each tend session. Variety keeps
 // the practice from feeling rote. All three apply the same -8% reduction;
@@ -3940,7 +3962,7 @@ const BUFF_POOL = [
   { id: 'twofold',  name: 'Twofold Path',    desc: '+15% yield. then apply a random uncommon-or-lower boon.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.15, custom: 'twofold', flavor: 'the soil decides what else.' },
   { id: 'cross_a',  name: 'Wild Pollen',     desc: '+15% yield to ALL other active plots',     rarity: 'uncommon', archetype: 'cross',    custom: 'cross_yield_15', flavor: 'the wind carries gifts.' },
   { id: 'lock_time', name: 'Steady Hand',    desc: '+25% yield. no time buffs after this.',    rarity: 'uncommon', archetype: 'commit',   yieldMult: 1.25, custom: 'lock_time', flavor: 'a craftsman\'s tempo.' },
-  { id: 'skill_a',  name: 'Peak Ripeness',   desc: 'harvest within 10s of ripe = ×1.6 yield', rarity: 'uncommon', archetype: 'skill',    custom: 'skill_window_10', flavor: 'timing is taste.' },
+  { id: 'skill_a',  name: 'Peak Ripeness',   desc: 'harvest within 30s of ripe = ×1.6 yield', rarity: 'uncommon', archetype: 'skill',    custom: 'skill_window_10', flavor: 'timing is taste.' },
   { id: 'devour',   name: 'Eat the Roots',   desc: '+35% yield, −20% from next planting',     rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.35, custom: 'next_penalty_20', flavor: 'today\'s feast, tomorrow\'s hunger.' },
 
   // ============ RARE ============
@@ -5274,7 +5296,7 @@ function harvest(plotId, ev) {
   if (plot.flags.skillWindow10) {
     const overripeMs = plot.elapsedMs - plot.totalMs;
     const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
-    if (overripeRealSec <= 10) mult *= 1.6;
+    if (overripeRealSec <= PEAK_RIPENESS_WINDOW_SEC) mult *= 1.6;
   }
   if (plot.flags.skillFerment) {
     const overripeMs = plot.elapsedMs - plot.totalMs;
@@ -5935,19 +5957,84 @@ function renderCardSets() {
   el.innerHTML = rows;
 }
 
+// Cards-tab filter state — session-scoped so each visit is fresh
+let _cardsFilters = { rarity: 'all', scope: 'all' };
+
+function passesCardsFilters(buff) {
+  const f = _cardsFilters;
+  if (f.rarity !== 'all' && buff.rarity !== f.rarity) return false;
+  if (f.scope === 'general' && buff.cropOnly) return false;
+  if (f.scope === 'crop' && !buff.cropOnly) return false;
+  if (f.scope === 'equipped' && findCurrentPlotForBuff(buff.id) < 0) return false;
+  if (f.scope === 'unequipped' && findCurrentPlotForBuff(buff.id) >= 0) return false;
+  return true;
+}
+
+function renderCardsFilters() {
+  const rarityRow = document.getElementById('cardsFilterRarity');
+  const scopeRow  = document.getElementById('cardsFilterScope');
+  if (!rarityRow || !scopeRow) return;
+  const rarityOptions = [
+    { id: 'all',       label: 'All rarities' },
+    { id: 'uncommon',  label: 'Uncommon' },
+    { id: 'rare',      label: 'Rare' },
+    { id: 'legendary', label: 'Legendary' },
+    { id: 'mythic',    label: 'Mythic' },
+  ];
+  const scopeOptions = [
+    { id: 'all',        label: 'All' },
+    { id: 'general',    label: 'General' },
+    { id: 'crop',       label: 'Crop-specific' },
+    { id: 'equipped',   label: 'Equipped' },
+    { id: 'unequipped', label: 'Unequipped' },
+  ];
+  const countWith = (axisKey, optId) => {
+    const overrides = { ..._cardsFilters, [axisKey]: optId };
+    const prev = _cardsFilters;
+    _cardsFilters = overrides;
+    const n = state.collection.filter(passesCardsFilters).length;
+    _cardsFilters = prev;
+    return n;
+  };
+  const build = (opts, axisKey, row) => {
+    row.innerHTML = '';
+    opts.forEach(opt => {
+      const chip = document.createElement('button');
+      const active = _cardsFilters[axisKey] === opt.id;
+      chip.className = 'lm-filter-chip' + (active ? ' active' : '');
+      chip.innerHTML = `${opt.label} <span class="chip-count">${countWith(axisKey, opt.id)}</span>`;
+      chip.onclick = () => { _cardsFilters[axisKey] = opt.id; renderCardsCollection(); };
+      row.appendChild(chip);
+    });
+  };
+  build(rarityOptions, 'rarity', rarityRow);
+  build(scopeOptions, 'scope', scopeRow);
+}
+
 // Renders the full owned-cards collection into the Cards tab grid.
 function renderCardsCollection() {
   const grid = document.getElementById('cardsCollectionGrid');
   if (!grid) return;
   grid.innerHTML = '';
 
+  const meta = document.getElementById('cardsCollectionMeta');
+  if (meta) meta.textContent = `${state.collection.length} of ${PERMA_POOL.length} owned`;
+
+  renderCardsFilters();
+
   if (state.collection.length === 0) {
     grid.innerHTML = '<div class="lm-empty">no boons yet — earn packs by harvesting</div>';
     return;
   }
 
+  const filtered = state.collection.filter(passesCardsFilters);
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
+    return;
+  }
+
   // sort: rarity desc, then name
-  const sorted = [...state.collection].sort((a, b) => {
+  const sorted = filtered.sort((a, b) => {
     const ar = RARITY_ORDER.indexOf(a.rarity);
     const br = RARITY_ORDER.indexOf(b.rarity);
     if (ar !== br) return br - ar;
@@ -6528,8 +6615,12 @@ document.querySelectorAll('.speed-btn').forEach(b => {
 });
 
 // ============ RENDER ============
+// Plant visual swells with yield multiplier so a big harvest looks big.
+// Curve: 1× → 1.0 scale, 3× → ~1.32, 5× → ~1.52, capped at 1.65 to keep
+// the sprite inside the card. Previous cap was 1.6× → only ~1.18 — too
+// subtle to feel rewarding. Now a fat harvest reads at a glance.
 function visualScale(yieldMult) {
-  return 1.0 + Math.min(0.6, (yieldMult - 1) * 0.18);
+  return 1.0 + Math.min(0.65, (yieldMult - 1) * 0.28);
 }
 
 function renderContract() {
@@ -6863,8 +6954,8 @@ function renderFarmMarket() {
   const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
   const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
   let html = `<span class="fm-label">Today's Market</span>` +
-    `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span> ${f.name} <span class="fm-up">+${fPct}%</span></span>`;
-  if (s) html += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span> ${s.name} <span class="fm-down">−${sPct}%</span></span>`;
+    `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span><span class="fm-name">${f.name}</span><span class="fm-up">+${fPct}%</span></span>`;
+  if (s) html += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span><span class="fm-name">${s.name}</span><span class="fm-down">−${sPct}%</span></span>`;
   el.innerHTML = html;
   el.hidden = false;
 }
@@ -6950,7 +7041,7 @@ function readyLabelForPlot(plot) {
   const overripeMs = plot.elapsedMs - plot.totalMs;
   const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
   if (plot.flags && plot.flags.skillWindow10) {
-    const left = 10 - overripeRealSec;
+    const left = PEAK_RIPENESS_WINDOW_SEC - overripeRealSec;
     if (left > 0) return `ready · ${Math.ceil(left)}s window left`;
     return 'ready · window closed';
   }
