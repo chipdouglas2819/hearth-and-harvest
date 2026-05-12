@@ -28,6 +28,9 @@
   --border: rgba(45, 74, 62, 0.14);
   --border-strong: rgba(45, 74, 62, 0.28);
   --plot-growing-bottom: #F7F2DD;  /* warm cream at the bottom of growing plots */
+  --topbar-bg: rgba(254, 252, 247, 0.85);
+  --tabbar-bg: rgba(254, 252, 247, 0.95);
+  --float-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
   --serif: 'Fraunces', Georgia, serif;
   --sans: 'DM Sans', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -57,6 +60,9 @@
   --border: rgba(232, 223, 200, 0.10);
   --border-strong: rgba(232, 223, 200, 0.22);
   --plot-growing-bottom: #2F3D33;  /* slight lift over --paper, stays dark so text readable */
+  --topbar-bg: rgba(31, 41, 33, 0.88);
+  --tabbar-bg: rgba(31, 41, 33, 0.95);
+  --float-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -97,7 +103,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   justify-content: space-between;
   padding: 10px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(254, 252, 247, 0.85);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 50;
   gap: 16px;
@@ -262,7 +268,7 @@ main {
   left: 0;
   right: 0;
   display: flex;
-  background: rgba(254, 252, 247, 0.95);
+  background: var(--tabbar-bg);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
   z-index: 60;
@@ -498,8 +504,8 @@ main {
 .tend-fab:hover { transform: translateY(-2px); }
 .tend-fab[hidden] { display: none !important; }
 .tend-fab .tend-fab-count {
-  background: rgba(255,255,255,0.85);
-  color: var(--moss);
+  background: rgba(255, 255, 255, 0.92);
+  color: #2D4A3E;
   border-radius: 999px;
   min-width: 22px;
   height: 22px;
@@ -1727,7 +1733,7 @@ main {
 }
 .shop-btn .sb-title { font-family: var(--serif); font-size: 16px; font-style: italic; font-weight: 600; }
 .shop-btn .sb-desc { font-size: 11px; opacity: 0.85; }
-.shop-btn.ad { background: linear-gradient(135deg, #4A6B4F, var(--moss)); color: white; }
+.shop-btn.ad { background: linear-gradient(135deg, #4A6B4F, #6A8D6E); color: white; }
 .shop-btn.ad:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.1); }
 .shop-btn.premium { background: linear-gradient(135deg, var(--mythic), var(--terracotta)); color: white; }
 .shop-btn.premium:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
@@ -2603,7 +2609,7 @@ main {
   pointer-events: none;
   z-index: 200;
   animation: floatUp 1.2s ease-out forwards;
-  text-shadow: 0 2px 8px rgba(255,255,255,0.8);
+  text-shadow: var(--float-shadow);
 }
 @keyframes floatUp {
   0% { opacity: 0; transform: translateY(0) scale(0.8); }
@@ -4186,7 +4192,6 @@ const state = {
   loadoutModalPlotId: 0,
   packsOpened: 0,
   migrationsApplied: [],
-  levelUpQueue: [], // pending level-up notifications to surface in the harvest log
   // Contract system (Phase C — multi-active, tier-based pack rewards)
   activeContracts: [],         // up to 3 simultaneously accepted contracts
   offeredContracts: [],        // up to 3 offered contracts; player picks any/all
@@ -4204,6 +4209,7 @@ const state = {
   // Today's Market — featured crop gets +40% sell value, rotates at midnight
   marketDayKey: null,
   marketFeaturedCrop: null,
+  marketSaturatedCrop: null,   // crop with a glut penalty for the day; nullable
   marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
   // Audio (0–100 volume sliders; 0 = muted)
   soundVolume: 100,
@@ -4938,6 +4944,10 @@ function openBreathingExercise() {
 function startExercise(exerciseId) {
   const ex = EXERCISES.find(e => e.id === exerciseId);
   if (!ex) return;
+  // Re-entrancy guard — if a prior exercise's timer is still in flight (e.g.,
+  // picker double-tap), clear it before stamping a new _breath, or the orphan
+  // timeout will fire mid-new-exercise.
+  if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
   document.getElementById('breatheModal').hidden = false;
   document.getElementById('breatheTitle').textContent = ex.name;
   document.getElementById('breatheSub').textContent = ex.blurb;
@@ -5444,6 +5454,10 @@ function buyPlot(plotId) {
     state.plots.push({ id: nextId, locked: true });
     state.loadouts.push([]);
   }
+  // Plot count just changed → offered-contract count is plot-dependent
+  // (1/2/3). Generate any newly-available offers BEFORE render() so the
+  // Contracts tab badge picks them up on the same paint.
+  ensureContractOffered();
   checkAchievements();
   render();
 }
