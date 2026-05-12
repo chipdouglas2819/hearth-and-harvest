@@ -1683,6 +1683,13 @@ main {
   padding: 2px 6px;
   border-radius: 999px;
   font-weight: 700;
+  z-index: 2;
+}
+/* Bonus cards have an "AD BONUS" pill anchored top-right. The star-state
+   badge defaults to the same corner, so on bonus cards we drop it below
+   the pill instead of stacking them on top of each other. */
+.pack-card.bonus .pc-star-state {
+  top: 34px;
 }
 
 .pack-card { position: relative; }
