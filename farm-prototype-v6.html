@@ -3407,20 +3407,17 @@ setInterval(updateTimeOfDayTint, 60000);
 // happens. 4+ day gap resets to 1 — until streak-revival ad is implemented
 // (separate follow-up).
 //
-// Milestone ladder is escalating but modest — user feedback said the
-// previous "30d = silver card" felt unrewarding because player already
-// had rares from packs, AND that the cadence felt too sparse:
-//   7d:   +1 pack
-//   14d:  +1 uncommon card  (new — fills the 1→30 gap)
-//   30d:  +1 rare card
-//   100d: +1 legendary card
-//   365d: +1 mythic card    (new capstone)
+// Milestone ladder — denser than the original (fills the 1→30 gap with
+// a 14d stop) but capped at 100d. A 365-day milestone was tried and
+// removed: it framed daily play as a year-long obligation, which is
+// the opposite of cozy. The Quiet Year achievement covers the year
+// goal separately for players who want that chase, without making it
+// a streak panel stress point.
 const STREAK_MILESTONES = [
-  { day: 7,   reward: { type: 'pack',                          label: '7-day streak!',                  rewardLabel: '+1 pack' } },
-  { day: 14,  reward: { type: 'card', floor: 'uncommon',       label: '2-week streak!',                 rewardLabel: '+1 uncommon card' } },
-  { day: 30,  reward: { type: 'card', floor: 'rare',           label: '30-day streak!',                 rewardLabel: '+1 rare card' } },
-  { day: 100, reward: { type: 'card', floor: 'legendary',      label: '100-day streak — incredible!',   rewardLabel: '+1 legendary card' } },
-  { day: 365, reward: { type: 'card', floor: 'mythic',         label: 'A year of care!',                rewardLabel: '+1 mythic card' } },
+  { day: 7,   reward: { type: 'pack',                     label: '7-day streak!',                rewardLabel: '+1 pack' } },
+  { day: 14,  reward: { type: 'card', floor: 'uncommon',  label: '2-week streak!',               rewardLabel: '+1 uncommon card' } },
+  { day: 30,  reward: { type: 'card', floor: 'rare',      label: '30-day streak!',               rewardLabel: '+1 rare card' } },
+  { day: 100, reward: { type: 'card', floor: 'legendary', label: '100-day streak — incredible!', rewardLabel: '+1 legendary card' } },
 ];
 
 // Daily login bonus — small coin reward for showing up, separate from streak
@@ -7391,8 +7388,11 @@ function describeContract(c) {
 
 // Contract quality — how good is this offer for the work involved?
 // Computes reward (coins + pack value at $500/pack equiv) / baseline coin
-// you'd earn just harvesting those crops normally. Maps to existing
-// rarity vocab so the player's mental model is unified with cards.
+// you'd earn just harvesting those crops normally. Uses contract-specific
+// labels (modest/fair/good/great) instead of card rarity words to avoid
+// semantic overload — "common card" means "drops frequently", "common
+// contract" would mean "bad offer", same word two meanings. Same COLOR
+// palette per tier keeps visual consistency with the rest of the game.
 function computeContractQuality(c) {
   const PACK_COIN_VALUE = 500;
   let baseline = 0;
@@ -7406,12 +7406,12 @@ function computeContractQuality(c) {
     }
   }
   const totalValue = (c.reward?.coins || 0) + (c.reward?.packs || 0) * PACK_COIN_VALUE;
-  if (baseline <= 0) return { tier: 'common', label: 'common' };
+  if (baseline <= 0) return { tier: 'common', label: 'modest' };
   const ratio = totalValue / baseline;
-  if (ratio >= 1.5)  return { tier: 'legendary', label: 'legendary' };
-  if (ratio >= 1.15) return { tier: 'rare',      label: 'rare' };
-  if (ratio >= 0.85) return { tier: 'uncommon',  label: 'uncommon' };
-  return { tier: 'common', label: 'common' };
+  if (ratio >= 1.5)  return { tier: 'legendary', label: 'great' };
+  if (ratio >= 1.15) return { tier: 'rare',      label: 'good' };
+  if (ratio >= 0.85) return { tier: 'uncommon',  label: 'fair' };
+  return { tier: 'common', label: 'modest' };
 }
 
 function rewardLabel(reward) {
