@@ -3716,6 +3716,23 @@ document.addEventListener('visibilitychange', () => {
   else ensureAmbient();
 });
 
+// Browsers block AudioContext until a user gesture. Without this, the
+// ambient drone wouldn't start on page-load even when enabled — it only
+// kicked in once a sound-producing action (tap, harvest) ran through
+// playTone(). One-shot listener on any first interaction lifts the
+// block immediately, so ambient is humming by the player's first tap.
+function _unlockAudioOnFirstGesture() {
+  document.removeEventListener('pointerdown', _unlockAudioOnFirstGesture);
+  document.removeEventListener('keydown', _unlockAudioOnFirstGesture);
+  document.removeEventListener('touchstart', _unlockAudioOnFirstGesture);
+  // Touch the AudioContext (resumes it if suspended) and kick ambient.
+  audioCtx();
+  ensureAmbient();
+}
+document.addEventListener('pointerdown', _unlockAudioOnFirstGesture);
+document.addEventListener('keydown', _unlockAudioOnFirstGesture);
+document.addEventListener('touchstart', _unlockAudioOnFirstGesture);
+
 const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
@@ -6286,7 +6303,9 @@ function showWelcomeBack(summary) {
   const away = fmtAwayTime(summary.offlineMs);
   const expired = summary.contractsExpiredDuringOffline || 0;
 
-  // Headline reflects the most actionable thing first
+  // Headline reflects the most actionable thing first. The eyebrow already
+  // says "Welcome back" — never repeat it as the headline or the banner
+  // shows the phrase twice.
   if (summary.plotsReadyDuringOffline > 0) {
     headline.textContent = summary.plotsReadyDuringOffline === 1
       ? `A plot is ready to harvest`
@@ -6294,7 +6313,7 @@ function showWelcomeBack(summary) {
   } else if (summary.anyGrowing) {
     headline.textContent = 'Your crops kept growing';
   } else {
-    headline.textContent = 'Welcome back';
+    headline.textContent = 'Quiet fields';
   }
 
   // Build the detail line: combine away-time, growth, and any expired contracts
