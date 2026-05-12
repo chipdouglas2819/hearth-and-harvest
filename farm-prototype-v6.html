@@ -814,6 +814,39 @@ main {
 /* Exercise picker — three cards, player chooses tone for this session */
 .exercise-picker { max-width: 420px; text-align: center; padding: 28px 22px; }
 
+/* Tend reward state banner — prominent so the player immediately sees
+   whether the next session will give them -8% or be pure practice. */
+.tend-reward-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin: 14px auto 6px;
+  max-width: 340px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.tend-reward-banner.reward {
+  background: rgba(199, 93, 58, 0.10);
+  color: var(--terracotta);
+  border: 1px solid rgba(199, 93, 58, 0.30);
+}
+.tend-reward-banner.practice {
+  background: rgba(143, 166, 142, 0.10);
+  color: var(--sage);
+  border: 1px dashed var(--border-strong);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+.tend-reward-banner .trb-icon { font-size: 14px; line-height: 1; }
+
 /* First-time intro card — shown once per exercise before its first run */
 .exercise-intro {
   max-width: 420px;
@@ -3193,6 +3226,10 @@ main {
   <div class="modal-content exercise-picker">
     <h2>Tend the garden</h2>
     <p class="modal-subtitle" id="exercisePickerSub">Choose a moment of quiet</p>
+    <div class="tend-reward-banner" id="tendRewardBanner">
+      <span class="trb-icon" id="trbIcon">🌿</span>
+      <span class="trb-text" id="trbText"></span>
+    </div>
     <div class="exercise-options" id="exerciseOptions"></div>
     <button class="modal-close" data-close>not now</button>
   </div>
@@ -4704,13 +4741,14 @@ function showContractCompleteToast(c) {
   const existing = document.querySelector('.contract-toast');
   if (existing) existing.remove();
   const toast = document.createElement('div');
+  // Keep tier class internally for the toast's color trim, but don't show
+  // the tier name to the player — they only see quality (modest/fair/...).
   toast.className = `contract-toast tier-${c.tier}`;
-  const tierLabel = c.tier ? c.tier.charAt(0).toUpperCase() + c.tier.slice(1) : '';
   const packBit = c.packs > 0 ? ` · +${c.packs} pack` : '';
   toast.innerHTML = `
     <span class="contract-toast-icon">📜</span>
     <span>
-      <div class="contract-toast-label">${tierLabel} contract complete</div>
+      <div class="contract-toast-label">Contract complete</div>
       <div class="contract-toast-detail"><span class="coin-icon">◉</span> +${c.coins}${packBit}</div>
     </span>
   `;
@@ -5578,10 +5616,25 @@ function openBreathingExercise() {
   // miss — otherwise no point showing the picker. Pure-practice path
   // available too: if rewards are exhausted, picker still opens.
   if (remaining > 0 && !hasAnyGrowingPlot()) return;
-  const sub = remaining > 0
-    ? `Choose a moment of quiet · ${remaining} reward session${remaining === 1 ? '' : 's'} left today`
-    : `Today's reward sessions complete · practice is here whenever you'd like`;
-  document.getElementById('exercisePickerSub').textContent = sub;
+  document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
+  // Reward banner — explicit indicator of whether the NEXT session will
+  // apply the −8% time-skip or run as pure practice. Player should never
+  // be unsure what they're getting.
+  const banner = document.getElementById('tendRewardBanner');
+  const trbText = document.getElementById('trbText');
+  const trbIcon = document.getElementById('trbIcon');
+  if (banner && trbText && trbIcon) {
+    const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
+    if (remaining > 0) {
+      banner.className = 'tend-reward-banner reward';
+      trbIcon.textContent = '🌿';
+      trbText.textContent = `Next session: −${reductionPct}% grow time · ${remaining} reward${remaining === 1 ? '' : 's'} left today`;
+    } else {
+      banner.className = 'tend-reward-banner practice';
+      trbIcon.textContent = '☁️';
+      trbText.textContent = `Practice only — today's reward sessions are spent`;
+    }
+  }
   const options = document.getElementById('exerciseOptions');
   options.innerHTML = '';
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
@@ -7976,12 +8029,12 @@ function render() {
         const rewardChip = h.rewardLabel ? ` <span class="ach-row-reward">${h.rewardLabel}</span>` : '';
         e.innerHTML = `<span class="what">${h.icon} ${h.name}${rewardChip}</span><span class="amount levelup">achievement</span>`;
       } else if (h.type === 'contract_complete') {
-        const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
+        // Player-facing copy never names the internal tier (bronze/silver/gold).
+        // The activity row's task label (h.label) is the contract content.
         const packBit = h.packs ? ` +${h.packs} pack` : '';
-        e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''}</span><span class="amount contract-good">+${h.coins}${packBit}</span>`;
+        e.innerHTML = `<span class="what">📜 ${h.label || 'Contract complete'}</span><span class="amount contract-good">+${h.coins}${packBit}</span>`;
       } else if (h.type === 'contract_expired') {
-        const tierLabel = h.tier ? h.tier.charAt(0).toUpperCase() + h.tier.slice(1) : '';
-        e.innerHTML = `<span class="what">📜 ${tierLabel} ${h.label || ''} expired</span><span class="amount contract-fail">—</span>`;
+        e.innerHTML = `<span class="what">📜 ${h.label || 'Contract'} expired</span><span class="amount contract-fail">—</span>`;
       } else if (h.type === 'info') {
         e.innerHTML = `<span class="what">${h.text}</span><span class="amount"></span>`;
       } else {
