@@ -986,34 +986,42 @@ main {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(127, 191, 191, 0.35), rgba(127, 191, 191, 0.05) 70%);
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.30), rgba(127, 191, 191, 0.05) 70%);
   border: 2px solid rgba(127, 191, 191, 0.40);
-  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  /* Slow easing back to rest after the thump */
+  transition: transform 900ms ease-out, background 900ms ease-out, border-color 900ms ease-out, box-shadow 900ms ease-out;
   position: relative;
+  transform: scale(1);
 }
-/* Beat flash — the pulse brightens briefly at each tick so the player has
-   a clear "now" visual cue distinct from the steady ambient pulse. */
+/* Beat thump — instant scale up + brighten, then the transition above
+   slowly contracts back to rest. Player sees an obvious "now" pulse. */
 .slow-rhythm-pulse.beat-flash {
-  background: radial-gradient(circle, rgba(127, 191, 191, 0.80), rgba(127, 191, 191, 0.15) 70%);
-  border-color: rgba(127, 191, 191, 0.95);
-  box-shadow: 0 0 40px rgba(127, 191, 191, 0.6);
+  transform: scale(1.35);
+  background: radial-gradient(circle, rgba(127, 191, 191, 0.90), rgba(127, 191, 191, 0.20) 70%);
+  border-color: rgba(127, 191, 191, 1.0);
+  box-shadow: 0 0 60px rgba(127, 191, 191, 0.75), 0 0 100px rgba(127, 191, 191, 0.30);
+  transition: transform 90ms cubic-bezier(0.2, 0.8, 0.2, 1.0),
+              background 90ms ease-out,
+              border-color 90ms ease-out,
+              box-shadow 90ms ease-out;
 }
-/* Expanding ring that bursts from the pulse at each beat — the dominant
-   "tap NOW" indicator. Animation duration matches the beat interval. */
+/* Expanding ring — starts SMALL (50px), bursts outward to ~5× over 800ms.
+   Far more visible than the old "start at pulse size and grow" version. */
 .slow-rhythm-tick {
   position: absolute;
   top: 50%; left: 50%;
-  width: 120px;
-  height: 120px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
-  border: 2px solid rgba(127, 191, 191, 0.85);
+  border: 3px solid rgba(127, 191, 191, 1.0);
   pointer-events: none;
-  transform: translate(-50%, -50%) scale(1);
-  animation: slowRhythmTickAnim 700ms ease-out forwards;
+  transform: translate(-50%, -50%) scale(0.3);
+  animation: slowRhythmTickAnim 800ms cubic-bezier(0.2, 0.7, 0.2, 1.0) forwards;
+  z-index: 2;
 }
 @keyframes slowRhythmTickAnim {
-  0%   { transform: translate(-50%, -50%) scale(1);    opacity: 0.9; border-width: 3px; }
-  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; border-width: 1px; }
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 1.0; border-width: 4px; }
+  100% { transform: translate(-50%, -50%) scale(5.5); opacity: 0;   border-width: 1px; }
 }
 .slow-rhythm-ripple {
   position: absolute;
@@ -6014,7 +6022,7 @@ function openBreathingExercise() {
       <span class="exercise-option-meta">
         <span>${ex.durationLabel}</span>
         ${willReward
-          ? `<span class="exercise-option-reward">−${reductionPct}% farm time</span>`
+          ? `<span class="exercise-option-reward">−${reductionPct}%<br>farm time</span>`
           : `<span class="exercise-option-practice">no reward</span>`}
       </span>
     `;
@@ -6479,14 +6487,21 @@ function openSandMandala() {
   canvas.addEventListener('pointerleave', end);
   canvas.addEventListener('pointercancel', end);
 
-  // Slowly fade the canvas — old marks dissolve like sand catching wind
+  // Slowly fade the canvas — old marks dissolve like sand catching wind.
+  // destination-out: each tick erases pixels proportional to the alpha we
+  // paint. Existing strokes become progressively transparent, revealing
+  // the CSS gradient background. The previous approach (painting a sage
+  // wash in source-over) was adding sage layers on top — that's why it
+  // darkened over time instead of fading.
   const fadeTick = () => {
     if (!_activeGame || _activeGame.id !== 'sand_mandala') return;
+    ctx.save();
     ctx.shadowBlur = 0;
-    // Composite a translucent sage wash over everything to fade trails
-    ctx.fillStyle = 'rgba(143, 166, 142, 0.018)';
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    _activeGame.timer = setTimeout(fadeTick, 100);
+    ctx.restore();
+    _activeGame.timer = setTimeout(fadeTick, 60);
   };
 
   _activeGame = {
@@ -6530,14 +6545,38 @@ function openSlowRhythm() {
   const beat = () => {
     if (!_activeGame || _activeGame.id !== 'slow_rhythm') return;
     lastBeatAt = performance.now();
-    // Pulse flash — quick brighten that fades
+    // Pulse "thump" — restart animation by removing + re-adding the class
+    // (force a reflow between, otherwise the browser collapses the toggle
+    // and never sees the change).
+    pulse.classList.remove('beat-flash');
+    void pulse.offsetWidth;
     pulse.classList.add('beat-flash');
-    setTimeout(() => pulse.classList.remove('beat-flash'), 250);
-    // Expanding tick ring from center — unambiguous "beat now"
+    // Expanding ring bursts outward from a small starting size, much more
+    // dramatic than the previous "start at pulse-size and grow" version.
     const tick = document.createElement('div');
     tick.className = 'slow-rhythm-tick';
     stage.appendChild(tick);
-    setTimeout(() => tick.remove(), 700);
+    setTimeout(() => tick.remove(), 800);
+    // Optional soft audio chirp on the beat — gives a second sensory
+    // channel for the rhythm cue. Plays only if sound is enabled.
+    if (typeof audioCtx === 'function') {
+      try {
+        const ctx = audioCtx();
+        const soundGain = (state.soundVolume == null ? 100 : state.soundVolume) / 100;
+        if (ctx && soundGain > 0) {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = 420;
+          const t0 = ctx.currentTime;
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.05 * soundGain, t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+          osc.connect(g); g.connect(ctx.destination);
+          osc.start(t0); osc.stop(t0 + 0.20);
+        }
+      } catch (e) { /* ignore audio errors */ }
+    }
     _activeGame.timer = setTimeout(beat, BEAT_INTERVAL);
   };
 
