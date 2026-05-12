@@ -1331,6 +1331,26 @@ main {
   margin-bottom: 4px;
 }
 .contract-tier-tag.bronze { color: var(--terracotta); }
+
+/* Contract quality chip — uses the same rarity vocabulary as cards so the
+   player's mental model is unified. The bronze/silver/gold tier still
+   determines the reward shape internally, but is no longer shown. */
+.contract-quality {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+  background: rgba(143, 166, 142, 0.12);
+}
+.contract-quality.common    { color: var(--sage);       background: rgba(143, 166, 142, 0.14); }
+.contract-quality.uncommon  { color: var(--moss);       background: rgba(74, 107, 79, 0.14); }
+.contract-quality.rare      { color: var(--terracotta); background: rgba(199, 93, 58, 0.14); }
+.contract-quality.legendary { color: var(--rust);       background: linear-gradient(90deg, rgba(244, 193, 71, 0.22), rgba(199, 93, 58, 0.18)); font-weight: 700; }
 .contract-task {
   font-family: var(--serif);
   font-size: 14px;
@@ -6972,6 +6992,31 @@ function describeContract(c) {
   return '';
 }
 
+// Contract quality — how good is this offer for the work involved?
+// Computes reward (coins + pack value at $500/pack equiv) / baseline coin
+// you'd earn just harvesting those crops normally. Maps to existing
+// rarity vocab so the player's mental model is unified with cards.
+function computeContractQuality(c) {
+  const PACK_COIN_VALUE = 500;
+  let baseline = 0;
+  if (c.template === 'deliver_n_of_x') {
+    const crop = c.params.crop;
+    const count = c.params.count;
+    baseline = (CROPS[crop]?.baseYield || 1) * count;
+  } else if (c.template === 'deliver_mixed') {
+    for (const [crop, count] of Object.entries(c.params.crops || {})) {
+      baseline += (CROPS[crop]?.baseYield || 1) * count;
+    }
+  }
+  const totalValue = (c.reward?.coins || 0) + (c.reward?.packs || 0) * PACK_COIN_VALUE;
+  if (baseline <= 0) return { tier: 'common', label: 'common' };
+  const ratio = totalValue / baseline;
+  if (ratio >= 1.5)  return { tier: 'legendary', label: 'legendary' };
+  if (ratio >= 1.15) return { tier: 'rare',      label: 'rare' };
+  if (ratio >= 0.85) return { tier: 'uncommon',  label: 'uncommon' };
+  return { tier: 'common', label: 'common' };
+}
+
 function rewardLabel(reward) {
   const parts = [`<span class="coin-icon">◉</span> +${reward.coins}`];
   if (reward.packs > 0) parts.push(`+${reward.packs} pack`);
@@ -7004,9 +7049,10 @@ function renderActiveContractHTML(c) {
         </div>`;
     }).join('') + '</div>';
   }
+  const q = computeContractQuality(c);
   return `
     <div class="contract-active ${c.tier}">
-      <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+      <div class="contract-quality ${q.tier}">${q.label}</div>
       <div class="contract-task">${describeContract(c)}</div>
       ${progressBlock}
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
@@ -7040,9 +7086,10 @@ setInterval(tickContractTimes, 1000);
 function renderOfferedContractHTML(c, locked) {
   const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
   const showReroll = rerollsLeft > 0;
+  const q = computeContractQuality(c);
   return `
     <div class="contract-offered ${c.tier}${locked ? ' locked' : ''}" data-reroll-slot="${c.id}">
-      <div class="contract-tier-tag ${c.tier}">${c.tier}</div>
+      <div class="contract-quality ${q.tier}">${q.label}</div>
       <div class="contract-task">${describeContract(c)}</div>
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
       <div class="contract-time">${c.params.deadlineHours}h after accepting</div>
