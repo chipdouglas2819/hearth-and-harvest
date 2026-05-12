@@ -1682,7 +1682,10 @@ main {
   margin-bottom: 18px;
 }
 .pack-cards.has-bonus { grid-template-columns: repeat(4, 1fr); }
+/* Tablet — 2-up still works. Phones — full-width cards so each reads
+   card-shaped rather than tall/narrow rectangle. */
 @media (max-width: 720px) { .pack-cards, .pack-cards.has-bonus { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .pack-cards, .pack-cards.has-bonus { grid-template-columns: 1fr; } }
 
 .pack-card {
   border-radius: 14px;
@@ -1739,25 +1742,28 @@ main {
   font-weight: 700;
   z-index: 2;
 }
-/* Bonus cards have an "AD BONUS" pill anchored top-right. The star-state
-   badge defaults to the same corner, so on bonus cards we drop it below
-   the pill instead of stacking them on top of each other. */
-.pack-card.bonus .pc-star-state {
-  top: 34px;
-}
-
 .pack-card { position: relative; }
+/* Top row — rarity and star-state on one flex line so they can never
+   overlap regardless of label length or card width. Replaces the old
+   absolute-positioned star-state in the corner. */
+.pc-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pack-card.bonus .pc-top-row {
+  /* AD BONUS pill still occupies top-right corner; push the row down so
+     the rarity/star-state sits below the pill instead of behind it. */
+  margin-top: 18px;
+}
 .pc-star-state {
-  position: absolute;
-  top: 14px;
-  right: 14px;
   font-family: var(--mono);
   font-size: 10px;
   font-weight: 700;
   padding: 4px 8px;
   border-radius: 5px;
   letter-spacing: 0.04em;
-  z-index: 2;
   white-space: nowrap;
 }
 .pc-star-state.new {
@@ -4874,6 +4880,17 @@ function hoursToNextMasteryTick(hours) {
   return last.hoursPerTick - (intoTier % last.hoursPerTick);
 }
 
+// One-time: reset state.speed to 1× for saves that still hold the old
+// debug-default of 600. Previously the initial state had speed: 600 which
+// made fresh saves run at 600× real-time; default is now 1, but existing
+// saves keep their stored value. This migration clears stale debug speeds
+// — if a tester wants debug speed back, they can re-set it via debug panel.
+function applySpeedDefaultMigration() {
+  if (state.migrationsApplied.includes('speed_default_v1')) return;
+  if (state.speed > 1) state.speed = 1;
+  state.migrationsApplied.push('speed_default_v1');
+}
+
 function applyMasteryHoursMigration() {
   if (state.migrationsApplied.includes('mastery_hours_v1')) return;
   for (const crop of Object.keys(state.mastery)) {
@@ -6112,8 +6129,10 @@ function renderPackCards() {
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${CROPS[buff.cropOnly].name} only` : 'general';
     const starState = previewPackCardStarChange(buff);
     card.innerHTML = `
-      <div class="pc-star-state ${starState.type}">${starState.label}</div>
-      <div class="pc-rarity">${buff.rarity}</div>
+      <div class="pc-top-row">
+        <span class="pc-rarity">${buff.rarity}</span>
+        <span class="pc-star-state ${starState.type}">${starState.label}</span>
+      </div>
       <div class="pc-name">${buff.name}</div>
       <div class="pc-desc">${buff.desc}</div>
       <div class="pc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}</div>
@@ -7672,6 +7691,7 @@ const isFreshStart = !loadGame();
 applyStarMigration();
 applyMasteryHoursMigration();
 applyOneCardPerPlotMigration();
+applySpeedDefaultMigration();
 refreshSpeedButtons();
 syncSettingsLabels();
 applyTheme();
