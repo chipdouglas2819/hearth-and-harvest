@@ -445,6 +445,54 @@ main {
   .boon-fab { font-size: 13px; padding: 10px 16px; right: 12px; }
 }
 
+/* === Tend FAB — global breathing trigger, mirrors Boon FAB on the left === */
+.tend-fab {
+  position: fixed;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  left: 16px;
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--moss);
+  background: linear-gradient(135deg, rgba(167, 189, 138, 0.92), rgba(123, 154, 96, 0.88));
+  color: white;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(80, 110, 60, 0.22), 0 2px 6px rgba(0,0,0,0.08);
+  transition: transform 0.15s ease, opacity 0.2s ease;
+  animation: tendFabAppear 0.22s ease-out;
+}
+.tend-fab:hover { transform: translateY(-2px); }
+.tend-fab[hidden] { display: none !important; }
+.tend-fab .tend-fab-count {
+  background: rgba(255,255,255,0.85);
+  color: var(--moss);
+  border-radius: 999px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@keyframes tendFabAppear {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 720px) {
+  .tend-fab { font-size: 13px; padding: 10px 16px; left: 12px; }
+}
+
 
 .plots-grid {
   display: grid;
@@ -2532,6 +2580,12 @@ main {
   <span class="boon-fab-count" id="boonFabCount">0</span>
 </button>
 
+<button class="tend-fab" id="tendFab" hidden aria-label="Tend the garden with a breathing exercise">
+  <span aria-hidden="true">🌿</span>
+  <span>Tend the garden</span>
+  <span class="tend-fab-count" id="tendFabCount">0</span>
+</button>
+
 <div class="welcome-back" id="welcomeBack" hidden>
   <div class="wb-card">
     <div class="wb-eyebrow">Welcome back</div>
@@ -3409,8 +3463,11 @@ const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 // so the player paces engagement rather than speedrunning. Reframes the
 // "make plant grow faster" mechanic as an actual mindfulness practice — the
 // player learns box breathing while playing.
-const TEND_REDUCTION_PER_SESSION = 0.12;  // each completed exercise: -12% time
-const TEND_MAX_SESSIONS = 4;              // cap per crop cycle (resets on plant)
+// Global tend system: one breathing exercise per session applies its time
+// reduction to EVERY growing plot. The player tends the garden, not a plot.
+// Cap is per real day (not per crop cycle) so absurd farm sizes can't grind.
+const TEND_REDUCTION_PER_SESSION = 0.08;  // -8% time per session, all plots
+const TEND_MAX_SESSIONS_PER_DAY = 4;      // cap per real day (resets on day rollover)
 const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
 const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
 
@@ -3907,6 +3964,8 @@ const state = {
   // Lifetime stats counters
   totalTaps: 0,              // legacy field (no longer incremented; kept for save back-compat)
   tendSessionsCompleted: 0,  // lifetime count of completed breathing exercises
+  tendDayKey: null,          // 'YYYY-M-D' of the day the per-day counter belongs to
+  tendSessionsToday: 0,      // count of sessions completed today (resets on day rollover)
   lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
   firstPlayedAt: null,       // timestamp set on first save, used for "days played"
   // Daily streak — cozy-genre engagement loop
@@ -3928,7 +3987,7 @@ function makePlot(id) {
     activeBuffs: [],
     tapsUsed: 0,                  // legacy field, retained for save back-compat (unused)
     lastTapTime: 0,               // legacy field, retained for save back-compat (unused)
-    tendSessionsThisCycle: 0,     // number of completed breathing exercises this grow cycle
+    tendSessionsThisCycle: 0,     // legacy per-plot tend counter — replaced by state.tendSessionsToday (global)
     flags: {
       lockTime: false,
       noMorePicks: false,
@@ -4222,6 +4281,8 @@ function saveGame() {
       totalPicksTaken: state.totalPicksTaken || 0,
       totalTaps: state.totalTaps || 0,
       tendSessionsCompleted: state.tendSessionsCompleted || 0,
+      tendDayKey: state.tendDayKey || null,
+      tendSessionsToday: state.tendSessionsToday || 0,
       lifetimeCoins: state.lifetimeCoins || 0,
       firstPlayedAt: state.firstPlayedAt || Date.now(),
       lastPlayedDayKey: state.lastPlayedDayKey || null,
@@ -4294,6 +4355,8 @@ function loadGame() {
     state.totalPicksTaken = loaded.totalPicksTaken || 0;
     state.totalTaps = loaded.totalTaps || 0;
     state.tendSessionsCompleted = loaded.tendSessionsCompleted || 0;
+    state.tendDayKey = loaded.tendDayKey || null;
+    state.tendSessionsToday = loaded.tendSessionsToday || 0;
     state.lifetimeCoins = loaded.lifetimeCoins || 0;
     state.firstPlayedAt = loaded.firstPlayedAt || null;
     state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
@@ -4560,24 +4623,33 @@ function anyModalOpen() {
 }
 
 // Mindful breathing exercise — 4-4-4 box breathing for BREATH_CYCLES rounds.
-// Opens a modal that guides the player through inhale → hold → exhale →
-// (rest), repeated. Player can stop early (no reward). Completing the full
-// sequence applies the time-reduction reward and increments session count.
-let _breath = null; // { plotId, cycle, phase, timeoutId }
-function tendsRemaining(plot) {
-  return Math.max(0, TEND_MAX_SESSIONS - (plot.tendSessionsThisCycle || 0));
+// GLOBAL scope: the exercise applies its reward to every growing plot
+// simultaneously. The player tends the garden, not one plot.
+let _breath = null; // { cycle, phase, timeoutId }
+// Rolls over the daily counter at local midnight.
+function rotateTendDayIfNeeded() {
+  const today = getCurrentDayKey();
+  if (state.tendDayKey === today) return;
+  state.tendDayKey = today;
+  state.tendSessionsToday = 0;
 }
-function openBreathingExercise(plotId) {
-  const plot = state.plots[plotId];
-  if (!plot || !plot.crop || plot.locked || isReady(plot)) return;
-  if (tendsRemaining(plot) <= 0) return;
+function tendsRemainingToday() {
+  rotateTendDayIfNeeded();
+  return Math.max(0, TEND_MAX_SESSIONS_PER_DAY - (state.tendSessionsToday || 0));
+}
+function hasAnyGrowingPlot() {
+  return state.plots.some(p => !p.locked && p.crop && !isReady(p));
+}
+function openBreathingExercise() {
   if (anyModalOpen()) return;
+  if (tendsRemainingToday() <= 0) return;
+  if (!hasAnyGrowingPlot()) return; // nothing to tend
   // Open modal + reset state
   document.getElementById('breatheModal').hidden = false;
-  document.getElementById('breatheTitle').textContent = `Breathe with the ${CROPS[plot.crop].name.toLowerCase()}`;
+  document.getElementById('breatheTitle').textContent = 'Breathe with the garden';
   document.getElementById('breatheSub').textContent = `Inhale 4 · Hold 4 · Exhale 4. Three cycles.`;
-  _breath = { plotId, cycle: 0, phase: 'ready', timeoutId: null };
-  setBreathPhase('ready', 'Get ready...');
+  _breath = { cycle: 0, phase: 'ready', timeoutId: null };
+  setBreathPhase('ready', 'Get ready…');
   _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
 }
 function setBreathPhase(phase, label) {
@@ -4615,28 +4687,28 @@ function runBreathPhase(phase) {
 }
 function completeBreathingExercise() {
   if (!_breath) return;
-  const plotId = _breath.plotId;
-  const plot = state.plots[plotId];
   cancelBreathingExercise();
-  if (!plot || !plot.crop || plot.locked) return;
-  // Apply reward — multiplicative reduction so it composes with boons cleanly
-  plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
-  plot.tendSessionsThisCycle = (plot.tendSessionsThisCycle || 0) + 1;
+  rotateTendDayIfNeeded();
+  // Apply the reduction to EVERY growing plot. Already-ready plots are
+  // included (multiplying totalMs by 0.92 when elapsed > totalMs is a no-op
+  // for readiness — keeps the math uniform without "skipping").
+  let plotsAffected = 0;
+  for (const plot of state.plots) {
+    if (plot.locked || !plot.crop) continue;
+    plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
+    plotsAffected += 1;
+  }
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
-  // Friendly success cue
+  state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
   if (typeof sndLevelUp === 'function') sndLevelUp();
-  const cropName = CROPS[plot.crop].name;
   const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
   state.harvestLog.unshift({
     type: 'info',
-    text: `🌿 Tended ${cropName.toLowerCase()} — ${reductionPct}% time saved`,
+    text: `🌿 Tended the garden — ${reductionPct}% time off ${plotsAffected} plot${plotsAffected === 1 ? '' : 's'}`,
     t: Date.now(),
   });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
-  // Instant on-screen feedback — player shouldn't have to check the Journal
-  // to see what they got. Brief toast at bottom-center, distinct from other
-  // toasts via its mossy/cyan color.
-  showTendToast({ cropName, reductionPct });
+  showTendToast({ plotsAffected, reductionPct });
   render();
 }
 function showTendToast(info) {
@@ -4647,8 +4719,8 @@ function showTendToast(info) {
   toast.innerHTML = `
     <span class="tend-toast-icon">🌿</span>
     <span>
-      <div class="tend-toast-label">Tended ${info.cropName}</div>
-      <div class="tend-toast-detail">−${info.reductionPct}% grow time</div>
+      <div class="tend-toast-label">Tended the garden</div>
+      <div class="tend-toast-detail">−${info.reductionPct}% on ${info.plotsAffected} plot${info.plotsAffected === 1 ? '' : 's'}</div>
     </span>
   `;
   document.body.appendChild(toast);
@@ -5627,6 +5699,7 @@ document.getElementById('boonFab').onclick = () => {
   const p = firstPlotWithPicks();
   if (p) openBuffModal(p.id);
 };
+document.getElementById('tendFab').onclick = () => openBreathingExercise();
 document.getElementById('achToggleBtn').onclick = () => {
   _achShowAll = !_achShowAll;
   renderAchievements();
@@ -6103,6 +6176,24 @@ function renderBoonFab() {
   }
 }
 
+// Tend FAB — bottom-left, visible whenever there's at least one growing plot
+// and the player still has a tend session left today. Single global trigger
+// replaces the per-plot button.
+function renderTendFab() {
+  const fab = document.getElementById('tendFab');
+  if (!fab) return;
+  const remaining = tendsRemainingToday();
+  const show = remaining > 0 && hasAnyGrowingPlot();
+  if (show) {
+    document.getElementById('tendFabCount').textContent = remaining;
+    fab.hidden = false;
+    fab.setAttribute('aria-hidden', 'false');
+  } else {
+    fab.hidden = true;
+    fab.setAttribute('aria-hidden', 'true');
+  }
+}
+
 // Today panel (top of Journal tab) — harvests + coins earned today.
 function renderTodayPanel() {
   const el = document.getElementById('todayPanelBody');
@@ -6195,7 +6286,6 @@ function render() {
       const labelHtml = `
         <div class="plot-label">
           <span>plot ${i + 1} ${contractBadge}</span>
-          ${plot.crop && (plot.tendSessionsThisCycle || 0) > 0 ? `<span class="tap-counter">⊹ tended ${plot.tendSessionsThisCycle}×</span>` : ''}
         </div>
       `;
 
@@ -6312,21 +6402,6 @@ function render() {
           hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expectedYield})`;
           hb.onclick = (ev) => harvest(i, ev);
           actions.appendChild(hb);
-        } else {
-          // Tend with breath: opens the box-breathing exercise. State-aware
-          // label tells the player exactly what they get and how many remain.
-          const remaining = tendsRemaining(plot);
-          const tendBtn = document.createElement('button');
-          tendBtn.className = 'btn btn-tend';
-          if (remaining > 0) {
-            tendBtn.innerHTML = `🌿 Tend with breath <span class="pick-badge">${remaining}</span>`;
-            tendBtn.title = `Complete a 3-cycle breathing exercise to reduce growth time by ${Math.round(TEND_REDUCTION_PER_SESSION * 100)}%. ${remaining} session${remaining === 1 ? '' : 's'} left this cycle.`;
-            tendBtn.onclick = () => openBreathingExercise(i);
-          } else {
-            tendBtn.disabled = true;
-            tendBtn.textContent = '🌿 Tended for this cycle';
-          }
-          actions.appendChild(tendBtn);
         }
 
         el.appendChild(actions);
@@ -6342,6 +6417,7 @@ function render() {
   // contextual surfaces (replaced the always-on Dashboard strip)
   renderFarmMarket();
   renderBoonFab();
+  renderTendFab();
   renderTodayPanel();
   renderContract();
 
