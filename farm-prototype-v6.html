@@ -4807,7 +4807,10 @@ function loadGame() {
         for (const p of state.plots) {
           if (p.locked || !p.crop) continue;
           const wasReady = p.elapsedMs >= p.totalMs;
-          if (p.flags.skillFerment) p.elapsedMs += offlineMs;
+          // Same time-sensitive-boon rule as the live tick: let elapsedMs
+          // run past totalMs so Slow Ferment accrues and Peak Ripeness's
+          // 10-second window can actually expire while the player's away.
+          if (p.flags.skillFerment || p.flags.skillWindow10) p.elapsedMs += offlineMs;
           else p.elapsedMs = Math.min(p.totalMs, p.elapsedMs + offlineMs);
           const isReady = p.elapsedMs >= p.totalMs;
           if (!wasReady && isReady) plotsReadyDuringOffline += 1;
@@ -7254,7 +7257,10 @@ function tick(now) {
     const before = plot.elapsedMs;
     const wasReady = plot.elapsedMs >= plot.totalMs;
     const wasPicks = picksAvailable(plot);
-    if (plot.flags.skillFerment) {
+    // Time-sensitive boons (Slow Ferment, Peak Ripeness) need elapsedMs to
+    // keep advancing past totalMs so their windows actually count down.
+    // Default plots clamp at totalMs — going past ripe doesn't matter to them.
+    if (plot.flags.skillFerment || plot.flags.skillWindow10) {
       plot.elapsedMs += dt * state.speed;
     } else {
       plot.elapsedMs = Math.min(plot.totalMs, plot.elapsedMs + dt * state.speed);
