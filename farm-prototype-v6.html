@@ -1082,7 +1082,8 @@ main {
   font-style: italic;
   font-size: 12px;
   color: var(--moss);
-  background: rgba(254, 252, 247, 0.85);
+  background: var(--topbar-bg);
+  border: 1px solid rgba(74, 107, 79, 0.18);
   padding: 4px 12px;
   border-radius: 999px;
   opacity: 0;
@@ -6501,6 +6502,12 @@ function openSandMandala() {
   const ctx = canvas.getContext('2d');
   let drawing = false;
   let lastX = 0, lastY = 0;
+  // Stroke segments with timestamps — replaces the alpha-decay fade.
+  // Each frame we clear and redraw all unexpired strokes at age-based
+  // opacity. No residue, no buildup, smooth fade.
+  const strokes = [];
+  const STROKE_LIFE_MS = 5000;     // total time a stroke stays on canvas
+  const STROKE_HOLD_FRAC = 0.55;   // first 55% of life: full opacity
 
   // Audio: filtered pink noise plays while drawing — "drawing in sand" feel.
   // Pink noise through bandpass (3 kHz) + highpass keeps it grainy/scratchy
@@ -6556,19 +6563,10 @@ function openSandMandala() {
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    // No shadowBlur — it was leaving sub-1% alpha pixels around strokes
-    // that the destination-out fade couldn't remove fast enough, so faint
-    // marks persisted forever. Cleaner edges + slightly bigger lineWidth
-    // gives the same "soft sand" look without the residual.
-    ctx.strokeStyle = 'rgba(244, 193, 71, 0.80)';
-    ctx.lineWidth = 7;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.shadowBlur = 0;
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
+    // Don't draw here — push the segment with a timestamp. The render
+    // loop draws all unexpired strokes every frame, so the fade is just
+    // age-based opacity. Truly disappears at end-of-life, no residue.
+    strokes.push({ x1: lastX, y1: lastY, x2: x, y2: y, t0: performance.now() });
     lastX = x; lastY = y;
   };
   const end = () => { drawing = false; stopScratchSound(); };
@@ -6578,36 +6576,43 @@ function openSandMandala() {
   canvas.addEventListener('pointerleave', end);
   canvas.addEventListener('pointercancel', end);
 
-  // Slowly fade the canvas — old marks dissolve like sand catching wind.
-  // destination-out: each tick erases pixels proportional to the alpha we
-  // paint. Existing strokes become progressively transparent, revealing
-  // the CSS gradient background. The previous approach (painting a sage
-  // wash in source-over) was adding sage layers on top — that's why it
-  // darkened over time instead of fading.
-  // Drawings linger ~6-8 seconds before fully dissolving. Slower per-tick
-  // alpha + slower cadence than before, but every ~3 seconds the fade
-  // briefly boosts to clean up any sub-1% residual pixels (the leftover-
-  // mark issue). Two-speed fade gives "trail lasts a while, then truly
-  // gone" instead of "trail visible AND faint pixels forever".
-  let fadeTicks = 0;
-  const fadeTick = () => {
+  // Each frame: drop expired strokes, clear the canvas, redraw the rest
+  // at age-based opacity. Strokes hold full opacity for STROKE_HOLD_FRAC
+  // of their lifetime, then smoothly fade to transparent over the
+  // remaining fraction, then disappear cleanly. No alpha-decay residue,
+  // no destination-out math, no "faint trace forever."
+  const renderLoop = () => {
     if (!_activeGame || _activeGame.id !== 'sand_mandala') return;
-    fadeTicks += 1;
-    ctx.save();
-    ctx.shadowBlur = 0;
-    ctx.globalCompositeOperation = 'destination-out';
-    // Every ~3s (40 ticks × 75ms), do a stronger sweep to wipe residual.
-    const alpha = (fadeTicks % 40 === 0) ? 0.20 : 0.022;
-    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-    _activeGame.timer = setTimeout(fadeTick, 75);
+    const now = performance.now();
+    // Drop expired strokes (chronological order — strokes pushed in time)
+    while (strokes.length > 0 && now - strokes[0].t0 > STROKE_LIFE_MS) {
+      strokes.shift();
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7;
+    for (let i = 0; i < strokes.length; i++) {
+      const s = strokes[i];
+      const t = (now - s.t0) / STROKE_LIFE_MS;
+      // Hold full opacity for first HOLD_FRAC, then linear fade to 0
+      let alpha;
+      if (t < STROKE_HOLD_FRAC) alpha = 0.85;
+      else alpha = 0.85 * (1 - (t - STROKE_HOLD_FRAC) / (1 - STROKE_HOLD_FRAC));
+      if (alpha <= 0) continue;
+      ctx.strokeStyle = `rgba(244, 193, 71, ${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(s.x2, s.y2);
+      ctx.stroke();
+    }
+    _activeGame.raf = requestAnimationFrame(renderLoop);
   };
 
   _activeGame = {
     id: 'sand_mandala',
     startedAt: performance.now(),
-    timer: null,
+    raf: null,
     cleanup: () => {
       stopScratchSound();
       canvas.removeEventListener('pointerdown', start);
@@ -6616,10 +6621,11 @@ function openSandMandala() {
       canvas.removeEventListener('pointerleave', end);
       canvas.removeEventListener('pointercancel', end);
       window.removeEventListener('resize', fit);
+      strokes.length = 0;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     },
   };
-  _activeGame.timer = setTimeout(fadeTick, 100);
+  _activeGame.raf = requestAnimationFrame(renderLoop);
   _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(canvas.parentElement), ACTIVE_GAME_PROMPT_MS);
 }
 
