@@ -6630,8 +6630,9 @@ function openSandMandala() {
 }
 
 // --- Slow Rhythm ---
-// A central circle pulses at ~60 BPM (one beat per second-ish). Player
-// taps anywhere to drop a soft ripple. No hit/miss — every tap welcome.
+// A central circle pulses at 50 BPM (1200ms interval — see BEAT_INTERVAL
+// below for tempo rationale). Player taps anywhere to drop a soft
+// ripple. No hit/miss — every tap welcome.
 function openSlowRhythm() {
   if (anyModalOpen()) return;
   const modal = document.getElementById('slowRhythmModal');
