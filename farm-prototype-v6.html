@@ -2087,6 +2087,12 @@ body.calm-state #tab-farm {
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }
+.buff-archetype.wild   { color: var(--terracotta); font-weight: 700; }
+.buff-archetype.steady { color: var(--moss); font-weight: 700; }
+.buff-style-hint {
+  font-size: 10.5px; font-style: italic; color: var(--terracotta);
+  opacity: 0.9; margin-top: 3px;
+}
 
 .buff-name { font-family: var(--serif); font-size: 18px; font-weight: 600; color: var(--forest); font-style: italic; }
 .buff-desc { font-size: 13px; color: var(--moss); line-height: 1.4; }
@@ -4786,6 +4792,47 @@ function harmonyStageIndex() {
   const h = getHarmony();
   return h < 35 ? 0 : h < 70 ? 1 : h < 100 ? 2 : 3;
 }
+// Wellness = stability. A calm garden narrows your wild swings TOWARD their
+// mean — softening the gut-punch floor and trimming the jackpot — WITHOUT
+// changing the average (we scale deviations symmetrically around the mean, so
+// expected value is preserved exactly). Returns 0 at the harmony floor → 0.60
+// at max harmony. This is the whole "tending tames the swings" mechanic, and
+// it can never become "breathe for more coins" because the average never moves.
+const HARMONY_NARROW_MAX = 0.60;
+function harmonyNarrow() {
+  return ((getHarmony() - HARMONY_FLOOR) / (HARMONY_MAX - HARMONY_FLOOR)) * HARMONY_NARROW_MAX;
+}
+// Pull a rolled outcome `x` toward its mean `m` by the current harmony narrow.
+function steadyTowardMean(x, m) {
+  return m + (x - m) * (1 - harmonyNarrow());
+}
+// Friendly "what kind of pick is this" badge for the boon draft — surfaces the
+// Wild (variance) vs Steady (reliable) choice, and teaches that a calm garden
+// tames Wild swings, right at the moment of decision.
+function boonStyleInfo(buff) {
+  const a = buff.archetype;
+  if (a === 'gamble') {
+    return {
+      label: '🎲 Wild', cls: 'wild',
+      hint: harmonyNarrow() > 0.15 ? 'your calm garden will steady this swing' : 'a big swing — tend the garden to steady it',
+    };
+  }
+  if (a === 'stat') return { label: '🍃 Steady', cls: 'steady', hint: '' };
+  const names = { tradeoff: 'Trade-off', commit: 'Commit', synergy: 'Synergy', cascade: 'Cascade', cross: 'Shared', skill: 'Timing', meta: 'Fate' };
+  return { label: names[a] || a, cls: 'other', hint: '' };
+}
+// A plot's Wild Orchard volatility = the summed swing of its equipped
+// `wild_fortune` perma cards (× star level). This is the persistent build
+// identity: equip Wild cards → swingy harvests; harmony narrows the swing.
+function getPlotVolatility(plotId) {
+  let v = 0;
+  for (const b of getActivePerma(plotId)) {
+    if (b.custom === 'wild_fortune' && b.volatility) {
+      v += b.volatility * getStarMultiplier(getStarsForBuff(b.id));
+    }
+  }
+  return Math.min(0.45, v);
+}
 // Generic gentle toast (reuses the tend-toast visual) for first-time notes
 // and "what just happened" moment cards. Non-blocking, auto-dismiss.
 function showGardenToast(icon, label, detail, ms) {
@@ -5222,6 +5269,16 @@ const PERMA_POOL = [
   { id: 'p_moonlight',  name: 'Moonlight Pact',      desc: '+50% yield when harvested between 7pm and 7am',                                  rarity: 'rare',      custom: 'moonlight',     flavor: 'work the cool hours.' },
   { id: 'p_patience',   name: 'Patience Pays',       desc: '+40% yield if the plot took 6+ hours to grow',                                   rarity: 'uncommon',  custom: 'long_grow',     flavor: 'the slow road, the full basket.' },
   { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: "A lifetime of tending raises the garden's capacity for calm (higher Harmony ceiling)", rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
+
+  // === WILD ORCHARD — the volatile build identity ===
+  // These make the plot they're equipped to SWING at harvest (mean unchanged —
+  // same average as a calm build, just feast-or-famine). Garden Harmony narrows
+  // the swing toward steady. Equip them for a wild garden you tame by tending;
+  // ignore them for a calm, predictable one. (custom: 'wild_fortune' → handled
+  // by getPlotVolatility + the harvest fortune band; no flat yield effect.)
+  { id: 'p_wildseed',     name: 'Wildseed Plot',   desc: 'This plot swings ±25% at harvest (same average). A calm garden steadies the swing.', rarity: 'uncommon',  custom: 'wild_fortune', volatility: 0.25, flavor: 'never the same basket twice.' },
+  { id: 'p_feast_famine', name: 'Feast or Famine', desc: 'This plot swings ±40% at harvest (same average). Tending narrows it toward steady.', rarity: 'rare',      custom: 'wild_fortune', volatility: 0.40, flavor: 'the bold field gives boldly.' },
+  { id: 'p_tempest',      name: 'Tempest Bloom',   desc: 'Big harvest swings, ±45% (same average); your calm pulls them toward steady.',       rarity: 'legendary', custom: 'wild_fortune', volatility: 0.45, flavor: 'it thrives on weather.' },
 
   // === RADISH set ===
   { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
@@ -7117,6 +7174,17 @@ function harvest(plotId, ev) {
   if (distinctGrowingCrops() >= 3) addHarmony(HARMONY_GAIN_DIVERSITY);
   if (isLocalNight()) addHarmony(HARMONY_GAIN_NIGHT);
 
+  // Wild Orchard fortune — a Wild-leaning loadout makes this harvest SWING.
+  // Mean 1.0 (same average as a calm build — pure style, never "Wild pays more"),
+  // narrowed toward 1.0 by garden calm (EV-preserved). Floor stays a gift.
+  const wildVol = getPlotVolatility(plotId);
+  let wildFortune = 1;
+  if (wildVol > 0) {
+    wildFortune = 1 + (Math.random() * 2 - 1) * wildVol;   // uniform [1-vol, 1+vol], mean 1.0
+    wildFortune = steadyTowardMean(wildFortune, 1.0);        // a calm garden tames the swing
+    mult *= wildFortune;
+  }
+
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
   state.lifetimeCoins = (state.lifetimeCoins || 0) + yieldAmount;
@@ -7151,6 +7219,10 @@ function harvest(plotId, ev) {
   // ~30% chance of a small atmospheric note. Quietly adds personality.
   let flavor = null;
   if (rareEvent) flavor = rareEventFlavor(rareEvent.kind);
+  else if (wildVol > 0 && Math.abs(wildFortune - 1) > 0.08) {
+    const steadied = harmonyNarrow() > 0.15;
+    flavor = (wildFortune >= 1 ? 'the wild garden swung high' : 'the wild garden swung low') + (steadied ? ' · steadied by your calm' : '');
+  }
   else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
   // Cozy story bit: attribute the harvest to whatever genuinely drove the
   // result. Priority order picks the *real* standout, not just "highest rarity":
@@ -7309,16 +7381,21 @@ function handleCustom(plotId, buff, echo) {
     case 'coin_flip_17': {
       let multGain = 1.0;
       for (let i = 0; i < e; i++) if (Math.random() < 0.5) multGain *= 1.7;
-      plot.yieldMult *= multGain;
-      return multGain > 1 ? `+${Math.round((multGain - 1) * 100)}%!` : 'miss';
+      // Wild swing → narrowed toward its mean by garden calm (EV-preserved).
+      const narrowed = steadyTowardMean(multGain, Math.pow(1.35, e));
+      const steadied = harmonyNarrow() > 0.15 && Math.abs(narrowed - multGain) > 0.02;
+      plot.yieldMult *= narrowed;
+      const pct = narrowed >= 1 ? `+${Math.round((narrowed - 1) * 100)}%` : `−${Math.round((1 - narrowed) * 100)}%`;
+      return steadied ? `${pct} · steadied` : pct;
     }
     case 'frost_gamble': {
       let multGain = 1.0;
       for (let i = 0; i < e; i++) multGain *= (Math.random() < 0.7) ? 2.2 : 0.5;
-      plot.yieldMult *= multGain;
-      return multGain >= 1
-        ? `+${Math.round((multGain - 1) * 100)}%`
-        : `−${Math.round((1 - multGain) * 100)}%`;
+      const narrowed = steadyTowardMean(multGain, Math.pow(1.69, e));
+      const steadied = harmonyNarrow() > 0.15 && Math.abs(narrowed - multGain) > 0.02;
+      plot.yieldMult *= narrowed;
+      const pct = narrowed >= 1 ? `+${Math.round((narrowed - 1) * 100)}%` : `−${Math.round((1 - narrowed) * 100)}%`;
+      return steadied ? `${pct} · steadied` : pct;
     }
     case 'echo':
       plot.flags.echoLeft = (plot.flags.echoLeft || 0) + 1;
@@ -7587,13 +7664,15 @@ function openBuffModal(plotId) {
   drafted.forEach(buff => {
     const card = document.createElement('button');
     card.className = `buff-card ${buff.rarity}`;
+    const style = boonStyleInfo(buff);
     card.innerHTML = `
       <div class="buff-rarity">
         <span>${buff.rarity}</span>
-        <span class="buff-archetype">· ${buff.archetype}</span>
+        <span class="buff-archetype ${style.cls}">· ${style.label}</span>
       </div>
       <div class="buff-name">${buff.name}</div>
       <div class="buff-desc">${buff.desc}</div>
+      ${style.hint ? `<div class="buff-style-hint">${style.hint}</div>` : ''}
       <div class="buff-flavor">${buff.flavor}</div>
     `;
     card.onclick = () => applyBuff(plotId, buff);
