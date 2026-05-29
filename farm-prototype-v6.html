@@ -6839,11 +6839,12 @@ function openSandMandala() {
   window.addEventListener('resize', fit);
   const ctx = canvas.getContext('2d');
   let drawing = false;
-  let lastX = 0, lastY = 0;
-  // Stroke segments with timestamps — replaces the alpha-decay fade.
-  // Each frame we clear and redraw all unexpired strokes at age-based
-  // opacity. No residue, no buildup, smooth fade.
-  const strokes = [];
+  // Each stroke is ONE continuous polyline (pointerdown → pointerup), stored as
+  // a list of points with a single timestamp. We redraw each stroke as a single
+  // path every frame, so it stays smooth — no per-segment round caps showing up
+  // as "circles within the line," especially as it fades.
+  const strokes = [];           // each: { points: [{x, y}, ...], t0 }
+  let currentStroke = null;
   const STROKE_LIFE_MS = 5000;     // total time a stroke stays on canvas
   const STROKE_HOLD_FRAC = 0.55;   // first 55% of life: full opacity
 
@@ -6892,22 +6893,19 @@ function openSandMandala() {
   const start = (e) => {
     drawing = true;
     const r = canvas.getBoundingClientRect();
-    lastX = e.clientX - r.left;
-    lastY = e.clientY - r.top;
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    // Begin a new continuous stroke. One timestamp for the whole line so it
+    // holds, then fades, as a single clean shape.
+    currentStroke = { points: [{ x, y }], t0: performance.now() };
+    strokes.push(currentStroke);
     startScratchSound();
   };
   const move = (e) => {
-    if (!drawing) return;
+    if (!drawing || !currentStroke) return;
     const r = canvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
-    // Don't draw here — push the segment with a timestamp. The render
-    // loop draws all unexpired strokes every frame, so the fade is just
-    // age-based opacity. Truly disappears at end-of-life, no residue.
-    strokes.push({ x1: lastX, y1: lastY, x2: x, y2: y, t0: performance.now() });
-    lastX = x; lastY = y;
+    currentStroke.points.push({ x: e.clientX - r.left, y: e.clientY - r.top });
   };
-  const end = () => { drawing = false; stopScratchSound(); };
+  const end = () => { drawing = false; currentStroke = null; stopScratchSound(); };
   canvas.addEventListener('pointerdown', start);
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', end);
@@ -6932,6 +6930,8 @@ function openSandMandala() {
     ctx.lineWidth = 7;
     for (let i = 0; i < strokes.length; i++) {
       const s = strokes[i];
+      const pts = s.points;
+      if (!pts || pts.length === 0) continue;
       const t = (now - s.t0) / STROKE_LIFE_MS;
       // Hold full opacity for first HOLD_FRAC, then linear fade to 0
       let alpha;
@@ -6939,9 +6939,12 @@ function openSandMandala() {
       else alpha = 0.85 * (1 - (t - STROKE_HOLD_FRAC) / (1 - STROKE_HOLD_FRAC));
       if (alpha <= 0) continue;
       ctx.strokeStyle = `rgba(244, 193, 71, ${alpha})`;
+      // Draw the whole stroke as ONE path — smooth, with round caps only at the
+      // two ends (round joins between points), so no internal circles appear.
       ctx.beginPath();
-      ctx.moveTo(s.x1, s.y1);
-      ctx.lineTo(s.x2, s.y2);
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+      if (pts.length === 1) ctx.lineTo(pts[0].x, pts[0].y); // a lone tap → a dot
       ctx.stroke();
     }
     _activeGame.raf = requestAnimationFrame(renderLoop);
