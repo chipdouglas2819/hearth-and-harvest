@@ -1095,6 +1095,53 @@ main {
   to   { opacity: 0.9; transform: translateX(-50%) translateY(0); }
 }
 
+/* === Living Farm: Garden Harmony cue + Calm State + Living Journal === */
+/* Subtle, ignorable harmony cue in the topbar. A pictorial state only — never
+   a number. Glows softly while a Calm State is active. */
+.harmony-cue {
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0.72;
+  margin-right: 10px;
+  align-self: center;
+  cursor: default;
+  user-select: none;
+  transition: opacity 0.5s ease, filter 0.5s ease, transform 0.5s ease;
+}
+.harmony-cue.calm {
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(182, 203, 160, 0.85));
+  transform: scale(1.06);
+}
+/* Calm State: the whole world softens for ~30 min after a breath. Kept very
+   subtle in HTML — Godot will carry the real atmosphere (fireflies, hush). */
+body.calm-state #tab-farm {
+  filter: saturate(0.96) brightness(1.012);
+  transition: filter 1.2s ease;
+}
+/* The Garden Remembers — reflective narrative entries. */
+.journal-entries { display: flex; flex-direction: column; gap: 8px; }
+.journal-entry {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  opacity: 0.9;
+  padding: 8px 12px;
+  border-left: 2px solid var(--moss);
+  background: rgba(127, 154, 96, 0.06);
+  border-radius: 0 8px 8px 0;
+}
+.journal-empty {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--moss);
+  opacity: 0.8;
+  padding: 6px 2px;
+}
+
 /* Tend reward state banner — prominent so the player immediately sees
    whether the next session will give them -8% or be pure practice. */
 .tend-reward-banner {
@@ -3246,6 +3293,7 @@ main {
     <h1>Hearth &amp; Harvest</h1>
   </div>
   <div class="stats">
+    <div class="harmony-cue" id="harmonyCue" title="The garden is quiet">🌱</div>
     <div class="money">
       <span class="value" id="moneyValue">25</span>
     </div>
@@ -3313,6 +3361,10 @@ main {
         <div class="ah-row"><span class="ah-dot rust"></span> <span class="ah-text"><b>Contract expired</b> — a missed deadline</span></div>
       </div>
       <div id="harvestLog"></div>
+    </div>
+    <div class="panel">
+      <h3>The Garden Remembers</h3>
+      <div id="journalEntriesList" class="journal-entries"></div>
     </div>
     <div class="panel stats-panel">
       <h3>Stats</h3>
@@ -3511,10 +3563,10 @@ main {
     <h2>Tend the garden</h2>
     <p class="modal-subtitle" id="exercisePickerSub">Choose a moment of quiet</p>
     <div class="picker-section-title">Mindfulness practices</div>
-    <div class="picker-section-sub">apply the daily reward when available</div>
+    <div class="picker-section-sub">each opens a calm over the garden</div>
     <div class="exercise-options" id="exerciseOptions"></div>
     <div class="picker-section-title">Active practices</div>
-    <div class="picker-section-sub">no time-skip — just gentle engagement</div>
+    <div class="picker-section-sub">a quiet moment that steadies the garden</div>
     <div class="exercise-options" id="activeGameOptions"></div>
     <button class="modal-close" data-close>not now</button>
   </div>
@@ -3813,6 +3865,11 @@ function updateDailyStreak() {
   state.bestStreak = Math.max(state.bestStreak || 0, state.streakDays);
   applyDailyLoginBonus();
   checkStreakMilestones();
+  // Living Farm: returning on a new day deepens harmony a little and rolls a
+  // fresh "what's different today" moment — the small hook that rewards opening
+  // the app even before crops are ready.
+  addHarmony(HARMONY_GAIN_DAILY);
+  rollDailyFarmMoment();
 }
 function checkStreakMilestones() {
   for (const m of STREAK_MILESTONES) {
@@ -4572,15 +4629,176 @@ const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 // Global tend system: one breathing exercise per session applies its time
 // reduction to EVERY growing plot. The player tends the garden, not a plot.
 // Cap is per real day (not per crop cycle) so absurd farm sizes can't grind.
-const TEND_REDUCTION_PER_SESSION = 0.08;  // -8% time per session, all plots
-const TEND_MAX_SESSIONS_PER_DAY = 4;      // cap per real day (resets on day rollover)
+const TEND_REDUCTION_PER_SESSION = 0.08;  // legacy (pre-redesign): -8% time per session. No longer applied — replaced by Calm State.
+const TEND_MAX_SESSIONS_PER_DAY = 4;      // legacy: old daily reward cap. Kept for save back-compat; no longer gates anything.
+
+// ============ GARDEN HARMONY — the wellness → wonder dial ============
+// A hidden 0–100 state. Mindful, consistent, present play raises it; neglect
+// lets it drift gently toward a floor (the garden gets quieter, never damaged).
+// Harmony NEVER affects coins or yield. It governs how often the farm produces
+// "moments" — rare harvest events and ambient calm. This is the mechanic that
+// makes "when I slow down, the garden feels different" literally true, and the
+// reason a consistent player's farm feels more alive (→ more reason to return).
+const HARMONY_MAX            = 100;
+const HARMONY_FLOOR          = 20;   // never decays below this — the garden's resting calm
+const HARMONY_GAIN_BREATH    = 12;   // completing a breathing exercise (largest input)
+const HARMONY_GAIN_PRACTICE  = 6;    // completing an active mini-game
+const HARMONY_GAIN_PEAK      = 4;    // harvesting inside a Peak Ripeness / Slow Ferment window
+const HARMONY_GAIN_DIVERSITY = 2;    // harvesting while 3+ different crops are growing
+const HARMONY_GAIN_DAILY     = 5;    // first visit on a new real day (consistency)
+const HARMONY_GAIN_MOMENT    = 2;    // a rare event itself deepens the calm a touch
+const HARMONY_GAIN_NIGHT     = 1;    // interacting during local night hours (presence)
+const HARMONY_DECAY_PER_DAY  = 8;    // drift toward the floor per full day away
+const CALM_STATE_MS          = 30 * 60 * 1000; // 30-min calm window opened by a breath
+
+// --- small condition helpers ---
+function isLocalNight() { const h = new Date().getHours(); return h >= 20 || h < 5; }
+function isWithinFirstDays(n) {
+  if (!state.firstPlayedAt) return false;
+  return (Date.now() - state.firstPlayedAt) < n * 24 * 3600 * 1000;
+}
+function distinctGrowingCrops() {
+  const s = new Set();
+  for (const p of state.plots) if (!p.locked && p.crop) s.add(p.crop);
+  return s.size;
+}
+function countReadyPlots() {
+  return state.plots.filter(p => !p.locked && p.crop && isReady(p)).length;
+}
+function isCardEquippedAnywhere(cardId) {
+  return (state.loadouts || []).some(lo => Array.isArray(lo) && lo.includes(cardId));
+}
+
+// --- harmony state ---
+function getHarmony() { return Math.max(0, Math.min(HARMONY_MAX, state.gardenHarmony || 0)); }
+function harmonyCeiling() {
+  // Lifetime Reverence (when equipped anywhere) raises the ceiling above 100 as
+  // a slow, lifetime reward — a higher ceiling means a permanently higher
+  // baseline rate of moments for deeply engaged players.
+  let cap = HARMONY_MAX;
+  if (isCardEquippedAnywhere('p_reverence')) {
+    const sm = getStarMultiplier(getStarsForBuff('p_reverence'));
+    const ticks = Math.min(30, Math.floor((state.tendSessionsCompleted || 0) / 50));
+    cap += Math.round(ticks * sm); // up to +30 (× star level)
+  }
+  return cap;
+}
+function harmonyGainMult() {
+  // Garden Devotion (equipped anywhere) makes mindful actions fill harmony faster.
+  if (isCardEquippedAnywhere('p_devotion')) {
+    return 1 + 0.5 * getStarMultiplier(getStarsForBuff('p_devotion'));
+  }
+  return 1;
+}
+function addHarmony(amount) {
+  const cap = harmonyCeiling();
+  const scaled = amount > 0 ? amount * harmonyGainMult() : amount;
+  state.gardenHarmony = Math.max(HARMONY_FLOOR, Math.min(cap, (state.gardenHarmony || 0) + scaled));
+  // First time harmony crosses key thresholds, the garden remembers it.
+  const h = state.gardenHarmony;
+  if (h >= 50)  addJournalEntry('🌿 The garden has begun to settle into a quiet rhythm.', 'harmony_50');
+  if (h >= 100) addJournalEntry('🌸 The garden is radiant — alive with quiet possibility.', 'harmony_100');
+}
+function harmonyStage() {
+  const h = getHarmony();
+  if (h < 35)  return { glyph: '🌱', label: 'The garden is quiet' };
+  if (h < 70)  return { glyph: '🌿', label: 'The garden is settling' };
+  if (h < 100) return { glyph: '🍃', label: 'The garden feels alive' };
+  return { glyph: '🌸', label: 'The garden is radiant' };
+}
+
+// --- calm state (the everyday reward for breathing; replaces the −8% time bump) ---
+function isCalmState() { return (state.calmStateUntil || 0) > Date.now(); }
+function calmStateDurationMs() {
+  let ms = CALM_STATE_MS;
+  if (isCardEquippedAnywhere('p_centered')) {
+    ms += CALM_STATE_MS * getStarMultiplier(getStarsForBuff('p_centered')); // Centered ≈ doubles the window
+  }
+  return ms;
+}
+function startCalmState() { state.calmStateUntil = Date.now() + calmStateDurationMs(); }
+
+// --- rare harvest events (the content that creates anticipation) ---
+// One harmony-gated roll per harvest, replacing the old flat 3% lucky chance.
+// If it fires, the TYPE of moment depends on conditions.
+function rareEventChanceForHarvest(plotId) {
+  const h = getHarmony();
+  // Harmony maps floor→3% up to max→12%.
+  let chance = 0.03 + (h - HARMONY_FLOOR) / (HARMONY_MAX - HARMONY_FLOOR) * 0.09;
+  if (isCalmState()) chance += 0.06;                       // breathing opens a window of possibility
+  if (isWithinFirstDays(3)) chance += 0.05;                // soft tutorial: teach the FEEL early
+  if (isCalmState() && isCardEquippedAnywhere('p_centered')) {
+    chance += 0.05 * getStarMultiplier(getStarsForBuff('p_centered')); // Centered: more moments in calm
+  }
+  return Math.max(0.03, Math.min(0.40, chance));
+}
+function rollHarvestEvent(plotId) {
+  if (Math.random() >= rareEventChanceForHarvest(plotId)) return null;
+  if (countReadyPlots() >= 3) return { kind: 'golden',    mult: 1.6 };
+  if (isLocalNight())         return { kind: 'midnight',  mult: 1.4 };
+  if (Math.random() < 0.35)   return { kind: 'rarebloom', mult: 1.4 };
+  return { kind: 'lucky', mult: 1.5 };
+}
+function rareEventFlavor(kind) {
+  switch (kind) {
+    case 'golden':    return 'the whole row caught the light';
+    case 'midnight':  return 'a moonlit harvest';
+    case 'rarebloom': return 'a rare bloom among them';
+    default:          return LUCKY_FLAVORS[Math.floor(Math.random() * LUCKY_FLAVORS.length)];
+  }
+}
+function onRareHarvestEvent(event, crop) {
+  addHarmony(HARMONY_GAIN_MOMENT);
+  const cropName = CROPS[crop] ? CROPS[crop].name.toLowerCase() : 'bloom';
+  const text = {
+    golden:    '☀️ A Golden Yield — the whole row caught the light at once.',
+    midnight:  '🌙 A Midnight Bloom opened under the dark sky.',
+    rarebloom: `🌸 A rare ${cropName} appeared among the harvest.`,
+  }[event.kind];
+  const key = { golden: 'first_golden', midnight: 'first_midnight', rarebloom: 'first_rarebloom' }[event.kind];
+  if (text && key) addJournalEntry(text, key);
+}
+
+// --- living journal (memory: why mindfulness accrues meaning) ---
+// Short reflective entries triggered by firsts and milestones. `key` dedupes
+// one-time "first ever" entries so the garden's story doesn't repeat itself.
+function addJournalEntry(text, key) {
+  if (!state.journalEntries) state.journalEntries = [];
+  if (key) {
+    if (!state.journalSeen) state.journalSeen = {};
+    if (state.journalSeen[key]) return;
+    state.journalSeen[key] = true;
+  }
+  state.journalEntries.unshift({ text, t: Date.now() });
+  if (state.journalEntries.length > 30) state.journalEntries.pop();
+}
+
+// --- daily farm moment (the "what's different today" hook) ---
+const DAILY_MOMENTS = [
+  '🌅 A still morning. Dew beads on every leaf.',
+  '🌤️ Soft light today — the garden seems to lean toward it.',
+  '🍃 A cool breeze moves through the rows.',
+  '🌫️ Light mist hangs low over the soil.',
+  '🐦 A robin visited at dawn and stayed a while.',
+  '☀️ A warm, golden afternoon is promised.',
+  '🌧️ The air smells of coming rain.',
+  '🦋 A pale butterfly drifts between the plots.',
+];
+function rollDailyFarmMoment() {
+  const today = getCurrentDayKey();
+  if (state.dailyMomentDayKey === today) return;
+  state.dailyMomentDayKey = today;
+  state.dailyMomentText = DAILY_MOMENTS[Math.floor(Math.random() * DAILY_MOMENTS.length)];
+  state.harvestLog.unshift({ type: 'info', text: state.dailyMomentText, t: Date.now() });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+}
 const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
 const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
 const PEAK_RIPENESS_WINDOW_SEC = 30;      // Peak Ripeness boon: real-seconds past ripe still earning the ×1.6 bonus
 
 // Mindfulness exercises — player picks one each tend session. Variety keeps
-// the practice from feeling rote. All three apply the same -8% reduction;
-// the choice is for the player's mood, not the math.
+// the practice from feeling rote. Every exercise opens the same Calm State
+// and feeds Garden Harmony; the choice is for the player's mood, not the math.
 // Picker blurbs describe INTENT — when you'd reach for this practice —
 // not just the mechanic. Players pick based on mood/need, not just label.
 const EXERCISES = [
@@ -4887,11 +5105,11 @@ const PERMA_POOL = [
   // ones tie the breathing system to gameplay reward — engaged players
   // who tend get noticeably more out of these. Baseline kept small so
   // casual players still benefit; engaged play earns the upside.
-  { id: 'p_devotion',   name: 'Garden Devotion',     desc: '+5% yield, +20% extra if you tended today',                                      rarity: 'uncommon',  custom: 'devotion',      flavor: 'a daily kindness, returned.' },
-  { id: 'p_centered',   name: 'Centered',            desc: '+30% yield if a breathing exercise was completed in the last hour',              rarity: 'rare',      custom: 'centered',      flavor: 'one slow breath, all the difference.' },
+  { id: 'p_devotion',   name: 'Garden Devotion',     desc: 'Tending fills the garden with calm faster — breaths & practice give +50% Harmony',  rarity: 'uncommon',  custom: 'devotion',      flavor: 'a daily kindness, returned.' },
+  { id: 'p_centered',   name: 'Centered',            desc: 'Calm lingers far longer after a breath, and rare moments come more easily within it', rarity: 'rare',      custom: 'centered',      flavor: 'one slow breath, all the difference.' },
   { id: 'p_moonlight',  name: 'Moonlight Pact',      desc: '+50% yield when harvested between 7pm and 7am',                                  rarity: 'rare',      custom: 'moonlight',     flavor: 'work the cool hours.' },
   { id: 'p_patience',   name: 'Patience Pays',       desc: '+40% yield if the plot took 6+ hours to grow',                                   rarity: 'uncommon',  custom: 'long_grow',     flavor: 'the slow road, the full basket.' },
-  { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: '+1% yield per 50 tend sessions completed (cap +30%)',                            rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
+  { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: "A lifetime of tending raises the garden's capacity for calm (higher Harmony ceiling)", rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
 
   // === RADISH set ===
   { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
@@ -5248,6 +5466,13 @@ const state = {
   streakDays: 0,             // current streak (consecutive + 1-day forgiven)
   bestStreak: 0,             // longest streak ever
   lastStreakMilestoneDay: 0, // highest milestone awarded for the current streak
+  // --- Living Farm redesign: wellness → wonder ---
+  gardenHarmony: HARMONY_FLOOR, // hidden 0–100 calm dial (see GARDEN HARMONY section)
+  calmStateUntil: 0,         // ms timestamp the post-breath Calm State expires
+  journalEntries: [],        // narrative "The Garden Remembers" entries [{text, t}]
+  journalSeen: {},           // dedupe flags for one-time "first ever" journal entries
+  dailyMomentDayKey: null,   // day key the current Daily Farm Moment belongs to
+  dailyMomentText: null,     // today's "what's different" flavor line
 };
 
 function makePlot(id) {
@@ -5638,6 +5863,12 @@ function saveGame() {
       streakDays: state.streakDays || 0,
       bestStreak: state.bestStreak || 0,
       lastStreakMilestoneDay: state.lastStreakMilestoneDay || 0,
+      gardenHarmony: state.gardenHarmony == null ? HARMONY_FLOOR : state.gardenHarmony,
+      calmStateUntil: state.calmStateUntil || 0,
+      journalEntries: state.journalEntries || [],
+      journalSeen: state.journalSeen || {},
+      dailyMomentDayKey: state.dailyMomentDayKey || null,
+      dailyMomentText: state.dailyMomentText || null,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -5716,6 +5947,12 @@ function loadGame() {
     state.streakDays = loaded.streakDays || 0;
     state.bestStreak = loaded.bestStreak || 0;
     state.lastStreakMilestoneDay = loaded.lastStreakMilestoneDay || 0;
+    state.gardenHarmony = loaded.gardenHarmony == null ? HARMONY_FLOOR : loaded.gardenHarmony;
+    state.calmStateUntil = loaded.calmStateUntil || 0;
+    state.journalEntries = loaded.journalEntries || [];
+    state.journalSeen = loaded.journalSeen || {};
+    state.dailyMomentDayKey = loaded.dailyMomentDayKey || null;
+    state.dailyMomentText = loaded.dailyMomentText || null;
     state.activeTab = loaded.activeTab || 'farm';
     state.themeMode = loaded.themeMode || 'time';
 
@@ -5752,6 +5989,12 @@ function loadGame() {
           if (!wasReady && isReady) plotsReadyDuringOffline += 1;
           totalAdvancedMs += offlineMs;
         }
+        // Harmony drifts toward its floor while away — the garden gets quieter,
+        // not damaged. Recovers within a session or two of mindful play.
+        const daysAway = offlineMs / (24 * 3600 * 1000);
+        if (daysAway > 0.5 && (state.gardenHarmony || 0) > HARMONY_FLOOR) {
+          state.gardenHarmony = Math.max(HARMONY_FLOOR, (state.gardenHarmony || 0) - HARMONY_DECAY_PER_DAY * daysAway);
+        }
         // Stash a transient summary so init() can render a welcome-back banner.
         // Only worth showing for absences > 5 minutes; below that it's just a tab refresh.
         if (offlineMs > 5 * 60 * 1000) {
@@ -5760,6 +6003,15 @@ function loadGame() {
             plotsReadyDuringOffline,
             anyGrowing: totalAdvancedMs > 0,
           };
+          // While-you-were-away reveal: a well-tended garden may have produced a
+          // quiet moment in your absence. A gift on return, not a numbers report.
+          if (offlineMs > 6 * 3600 * 1000 && (state.gardenHarmony || 0) > 40 && Math.random() < 0.5) {
+            const away = isLocalNight()
+              ? '🌙 A Midnight Bloom opened while you were away.'
+              : '🌸 A rare bloom opened quietly while you were away.';
+            state._offlineSummary.awayMoment = away;
+            addJournalEntry(away, null);
+          }
         }
       }
     }
@@ -5805,17 +6057,11 @@ function getPermaYieldMultForPlot(plotId) {
       const totalMastered = Object.keys(CROPS).filter(c => harvestsOf(c) >= 5).length;
       m *= (1 + 0.01 * sm * totalMastered);
     }
-    if (b.custom === 'devotion') {
-      // "+5% yield, +20% extra if you tended today"
-      const baseBonus = 0.05 * sm;
-      const tendBonus = ((state.tendSessionsToday || 0) >= 1) ? (0.20 * sm) : 0;
-      m *= 1 + baseBonus + tendBonus;
-    }
-    if (b.custom === 'centered') {
-      // "+30% yield if a breathing exercise was completed in the last hour"
-      const sinceMs = Date.now() - (state.lastTendCompletedAt || 0);
-      if (sinceMs < 3600000) m *= 1 + 0.30 * sm;
-    }
+    // Pilgrim Soil wellness cards (devotion / centered / lifetime_tend) no
+    // longer grant yield. They now shape the Garden Harmony + Calm State +
+    // rare-event systems (handled in harmonyGainMult / calmStateDurationMs /
+    // harmonyCeiling / rareEventChanceForHarvest), so they're intentionally
+    // skipped here — wellness changes texture & possibility, never throughput.
     if (b.custom === 'moonlight') {
       // "+50% yield when harvested between 7pm and 7am"
       const h = new Date().getHours();
@@ -5826,11 +6072,7 @@ function getPermaYieldMultForPlot(plotId) {
       const plot = state.plots[plotId];
       if (plot && plot.totalMs >= 6 * 3600 * 1000) m *= 1 + 0.40 * sm;
     }
-    if (b.custom === 'lifetime_tend') {
-      // "+1% yield per 50 tend sessions completed (cap +30%)"
-      const ticks = Math.min(30, Math.floor((state.tendSessionsCompleted || 0) / 50));
-      m *= 1 + 0.01 * sm * ticks;
-    }
+    // (lifetime_tend handled by harmonyCeiling, not here — see note above.)
   }
   return m;
 }
@@ -6037,10 +6279,8 @@ function openBreathingExercise() {
   document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
   const options = document.getElementById('exerciseOptions');
   options.innerHTML = '';
-  const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
-  // A breathing session only pays out if there's both reward capacity
-  // AND a growing plot to apply it to. Otherwise it's pure practice.
-  const willReward = remaining > 0 && hasGrowing;
+  // Every breath now opens a Calm State (atmosphere + elevated rare-event
+  // chance), so there's no per-day reward cap to surface anymore.
   for (const ex of EXERCISES) {
     const btn = document.createElement('button');
     btn.className = 'exercise-option';
@@ -6052,9 +6292,7 @@ function openBreathingExercise() {
         <div class="exercise-option-metaline">
           <span>${ex.durationLabel}</span>
           <span class="dot">·</span>
-          ${willReward
-            ? `<span class="exercise-option-reward">−${reductionPct}% farm time</span>`
-            : `<span class="exercise-option-practice">no reward</span>`}
+          <span class="exercise-option-reward">opens a calm</span>
         </div>
       </span>
     `;
@@ -6238,47 +6476,33 @@ function completeBreathingExercise() {
   const exerciseId = _breath.exerciseId || 'box';
   cancelBreathingExercise();
   rotateTendDayIfNeeded();
-  // Reward (time-skip) only applies if the player has reward sessions
-  // left today AND there's at least one growing plot to apply it to.
-  // Past the daily cap OR with nothing growing, the exercise still
-  // completes as pure practice — counts toward lifetime/per-exercise
-  // totals so achievements still progress — but no time reduction is
-  // applied AND no daily reward slot is consumed (so the player isn't
-  // penalized for practicing when nothing's growing).
-  let plotsAffected = 0;
-  if (tendsRemainingToday() > 0) {
-    for (const plot of state.plots) {
-      if (plot.locked || !plot.crop) continue;
-      plot.totalMs *= (1 - TEND_REDUCTION_PER_SESSION);
-      plotsAffected += 1;
-    }
-  }
-  const rewarded = plotsAffected > 0;
-  if (rewarded) {
-    state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
-  }
+  // Reward redesign: breathing no longer cuts farm time. Instead it opens a
+  // Calm State — a ~30-min window where the world softens and rare "moments"
+  // (Midnight Bloom, Rare Bloom, Golden Yield) come more easily — and it feeds
+  // Garden Harmony, the dial that makes a consistently-tended farm feel alive.
+  // The reward is possibility & atmosphere, not throughput (the whole point).
+  startCalmState();
+  addHarmony(HARMONY_GAIN_BREATH);
+  state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
   state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
   state.lastTendCompletedAt = Date.now();
   if (!state.tendExerciseLog) state.tendExerciseLog = {};
   state.tendExerciseLog[exerciseId] = (state.tendExerciseLog[exerciseId] || 0) + 1;
   if (typeof sndLevelUp === 'function') sndLevelUp();
-  const reductionPct = Math.round(TEND_REDUCTION_PER_SESSION * 100);
-  if (rewarded) {
-    state.harvestLog.unshift({
-      type: 'info',
-      text: `🌿 Tended the garden — ${reductionPct}% time off ${plotsAffected} plot${plotsAffected === 1 ? '' : 's'}`,
-      t: Date.now(),
-    });
-    showTendToast({ plotsAffected, reductionPct });
-  } else {
-    state.harvestLog.unshift({
-      type: 'info',
-      text: `🌿 A quiet moment of practice`,
-      t: Date.now(),
-    });
-    showTendToast({ plotsAffected: 0, reductionPct: 0, practiceOnly: true });
-  }
+  // The garden remembers its first calm and your lifetime of tending.
+  addJournalEntry('🌬️ Your first calm settled over the garden.', 'first_calm');
+  const lt = state.tendSessionsCompleted;
+  if (lt >= 50)  addJournalEntry('🤍 Fifty quiet moments tended. The garden has begun to know you.', 'tend_50');
+  if (lt >= 100) addJournalEntry('🤍 A hundred tendings. The garden settles whenever you arrive.', 'tend_100');
+  if (lt >= 250) addJournalEntry('🤍 Two hundred and fifty moments of care. This place is yours.', 'tend_250');
+  if (lt >= 500) addJournalEntry('🤍 Five hundred tendings. The garden keeps your rhythm now.', 'tend_500');
+  state.harvestLog.unshift({
+    type: 'info',
+    text: `🌬️ A calm settles over the garden`,
+    t: Date.now(),
+  });
   if (state.harvestLog.length > 6) state.harvestLog.pop();
+  showTendToast({ calm: true });
   checkAchievements();
   render();
 }
@@ -6287,12 +6511,10 @@ function showTendToast(info) {
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = 'tend-toast';
-  const label = info.practiceOnly ? 'A quiet moment' : 'Tended the garden';
-  const detail = info.practiceOnly
-    ? 'pure practice · no time bonus today'
-    : `−${info.reductionPct}% on ${info.plotsAffected} plot${info.plotsAffected === 1 ? '' : 's'}`;
+  const label = 'A calm settles in';
+  const detail = 'the garden softens · rare moments stir';
   toast.innerHTML = `
-    <span class="tend-toast-icon">🌿</span>
+    <span class="tend-toast-icon">🌬️</span>
     <span>
       <div class="tend-toast-label">${label}</div>
       <div class="tend-toast-detail">${detail}</div>
@@ -6337,6 +6559,7 @@ function _endActiveGame() {
   const played = performance.now() - g.startedAt;
   if (played >= ACTIVE_GAME_MIN_COUNT_MS) {
     state.activePracticesCompleted = (state.activePracticesCompleted || 0) + 1;
+    addHarmony(HARMONY_GAIN_PRACTICE); // mini-games are calming too — feed harmony (no calm-state window; that's breathing's reward)
     saveGame();
   }
   // Hide all active-game modals (one of them is open)
@@ -6760,10 +6983,21 @@ function harvest(plotId, ev) {
   rotateMarketIfNewDay();
   const marketMult = getMarketYieldMultiplier(plot.crop);
   mult *= marketMult;
-  // Lucky harvest: rare bonus (3%) — gives +50% yield with a celebration message.
-  // Pure delight moment, doesn't affect long-term balance much.
-  const isLucky = Math.random() < LUCKY_HARVEST_CHANCE;
-  if (isLucky) { mult *= 1.5; state.luckyHarvests = (state.luckyHarvests || 0) + 1; }
+  // Harmony-gated rare event (replaces the old flat 3% lucky roll). Whether a
+  // moment fires scales with Garden Harmony and Calm State; the TYPE depends on
+  // conditions — a row of ready plots → Golden Yield, local night → Midnight
+  // Bloom, otherwise a Rare Bloom or the classic Lucky harvest.
+  const rareEvent = rollHarvestEvent(plotId);
+  const isLucky = !!rareEvent;
+  if (rareEvent) {
+    mult *= rareEvent.mult;
+    state.luckyHarvests = (state.luckyHarvests || 0) + 1;
+    onRareHarvestEvent(rareEvent, plot.crop);
+  }
+  // Attentive timing, diversity, and night presence feed the garden's calm.
+  if (plot.flags.skillWindow10 || plot.flags.skillFerment) addHarmony(HARMONY_GAIN_PEAK);
+  if (distinctGrowingCrops() >= 3) addHarmony(HARMONY_GAIN_DIVERSITY);
+  if (isLocalNight()) addHarmony(HARMONY_GAIN_NIGHT);
 
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
@@ -6798,7 +7032,7 @@ function harvest(plotId, ev) {
   // Pick a flavor message: lucky harvests always show a celebration; otherwise
   // ~30% chance of a small atmospheric note. Quietly adds personality.
   let flavor = null;
-  if (isLucky) flavor = LUCKY_FLAVORS[Math.floor(Math.random() * LUCKY_FLAVORS.length)];
+  if (rareEvent) flavor = rareEventFlavor(rareEvent.kind);
   else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
   // Cozy story bit: attribute the harvest to whatever genuinely drove the
   // result. Priority order picks the *real* standout, not just "highest rarity":
@@ -6839,6 +7073,7 @@ function harvest(plotId, ev) {
     marketBonus: marketMult > 1,
     marketPenalty: marketMult < 1,
     lucky: isLucky,
+    event: rareEvent ? rareEvent.kind : null,
     flavor,
     attribution,
     yieldMult: mult,
@@ -8093,6 +8328,8 @@ function showWelcomeBack(summary) {
       ? `A contract expired while you were away.`
       : `${expired} contracts expired while you were away.`);
   }
+  // A gift on return: a well-tended garden may have produced a quiet moment.
+  if (summary.awayMoment) parts.push(summary.awayMoment);
   detail.textContent = parts.join(' ');
 
   banner.hidden = false;
@@ -8544,6 +8781,21 @@ function renderLifetimeStats() {
   ).join('');
 }
 
+// "The Garden Remembers" — narrative continuity from the wellness redesign.
+// Reflective entries gathered from firsts (first calm, first Midnight Bloom)
+// and milestones (harmony thresholds, lifetime tending). Turns mindfulness
+// into memory instead of XP.
+function renderJournalEntries() {
+  const el = document.getElementById('journalEntriesList');
+  if (!el) return;
+  const entries = state.journalEntries || [];
+  if (entries.length === 0) {
+    el.innerHTML = `<div class="journal-empty">Tend the garden, harvest with care, and return often — its story will gather here.</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(e => `<div class="journal-entry">${e.text}</div>`).join('');
+}
+
 // Updates tab-bar badges based on what needs attention.
 function renderTabBadges() {
   const cardsB = document.getElementById('tabBadgeCards');
@@ -8621,26 +8873,21 @@ function renderBoonFab() {
   }
 }
 
-// Tend FAB — visible on the Farm tab whenever there's at least one growing
-// plot. Stays visible past the daily reward cap so the player can still
-// open the picker for pure practice (real mindfulness doesn't gate itself).
+// Tend FAB — visible on the Farm tab. Breathing is always available (real
+// mindfulness doesn't gate itself) and always opens a Calm State. The little
+// badge now glows while a Calm State is active rather than counting down a cap.
 function renderTendFab() {
   const fab = document.getElementById('tendFab');
   const countEl = document.getElementById('tendFabCount');
   if (!fab) return;
-  const remaining = tendsRemainingToday();
   const onFarmTab = (state.activeTab || 'farm') === 'farm';
-  // FAB is visible on Farm tab regardless of growing plots OR remaining
-  // reward sessions. Practice is for the player's wellbeing, not the
-  // plants — should be available even when nothing's growing AND when
-  // the daily reward cap is spent.
   const show = onFarmTab;
   if (show) {
-    // Count badge shows reward sessions left. Hidden at 0 — picker still
-    // opens, just for practice; player isn't shouted at by a "0" pip.
+    // No daily cap anymore — the badge is a quiet "calm is active" glow, not a
+    // number. Shows a soft check while the post-breath window is open.
     if (countEl) {
-      if (remaining > 0) {
-        countEl.textContent = remaining;
+      if (isCalmState()) {
+        countEl.textContent = '✦';
         countEl.hidden = false;
       } else {
         countEl.hidden = true;
@@ -8743,6 +8990,16 @@ function render() {
   renderStreakPanel();
   renderAchievements();
   renderTabBadges();
+  renderJournalEntries();
+  // Subtle harmony surface — a pictorial cue (never a number) + the calm tint.
+  const hc = document.getElementById('harmonyCue');
+  if (hc) {
+    const st = harmonyStage();
+    hc.textContent = st.glyph;
+    hc.title = st.label;
+    hc.classList.toggle('calm', isCalmState());
+  }
+  document.body.classList.toggle('calm-state', isCalmState());
 
   // plots — show all unlocked plots, plus only the FIRST locked plot (next-to-buy)
   const grid = document.getElementById('plotsGrid');
