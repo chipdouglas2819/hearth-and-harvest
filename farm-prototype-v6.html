@@ -774,6 +774,25 @@ main {
   pointer-events: auto;
 }
 .crop-visual-wrap.exhausted { pointer-events: none; }
+/* Ready crop = tappable to harvest (touch the vegetable, not a button). */
+.crop-visual-wrap.ready-tap { pointer-events: auto; cursor: pointer; }
+.crop-visual-wrap.ready-tap:active { transform: scale(0.9); }
+/* Harvest juice — flung crops + coins flying to the wallet + counter bounce. */
+.harvest-particle {
+  position: fixed; font-size: 22px; line-height: 1;
+  pointer-events: none; z-index: 9999; will-change: transform, opacity;
+}
+.fly-coin {
+  position: fixed; font-size: 18px; line-height: 1; color: var(--gold);
+  pointer-events: none; z-index: 9999; will-change: transform, opacity;
+  text-shadow: 0 0 6px rgba(244, 193, 71, 0.6);
+}
+#moneyValue.coin-bounce { display: inline-block; animation: coinBounce 0.42s ease-out; }
+@keyframes coinBounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.32); color: var(--gold); }
+  100% { transform: scale(1); }
+}
 
 /* Mindful breathing exercise modal — taught box-breathing visual.
    The circle's scale changes match each breath phase exactly, so the
@@ -2086,12 +2105,6 @@ body.calm-state #tab-farm {
   color: var(--sage);
   letter-spacing: 0.15em;
   text-transform: uppercase;
-}
-.buff-archetype.wild   { color: var(--terracotta); font-weight: 700; }
-.buff-archetype.steady { color: var(--moss); font-weight: 700; }
-.buff-style-hint {
-  font-size: 10.5px; font-style: italic; color: var(--terracotta);
-  opacity: 0.9; margin-top: 3px;
 }
 
 .buff-name { font-family: var(--serif); font-size: 18px; font-weight: 600; color: var(--forest); font-style: italic; }
@@ -4383,6 +4396,14 @@ function sndLevelUp() {
 }
 function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
 function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
+// Chunky "pluck" with body — gives the harvest weight (a low thump + a snap),
+// layered under the existing per-crop chime so harvest sounds like an EVENT.
+function sndPluck(big) {
+  playTone(175, 0.10, 0.07, 'sine');            // body thump
+  playTone(90,  0.13, 0.05, 'triangle', 8);     // sub
+  playTone(520, 0.05, 0.04, 'triangle', 18);    // snap
+  if (big) playTone(784, 0.18, 0.06, 'sine', 70); // bright tail on big harvests
+}
 
 // Global soft-click feedback. Any <button> tap plays the gentle sndUiClick
 // chime — except buttons that already trigger their own richer sound
@@ -4791,47 +4812,6 @@ function openCalmSheet() {
 function harmonyStageIndex() {
   const h = getHarmony();
   return h < 35 ? 0 : h < 70 ? 1 : h < 100 ? 2 : 3;
-}
-// Wellness = stability. A calm garden narrows your wild swings TOWARD their
-// mean — softening the gut-punch floor and trimming the jackpot — WITHOUT
-// changing the average (we scale deviations symmetrically around the mean, so
-// expected value is preserved exactly). Returns 0 at the harmony floor → 0.60
-// at max harmony. This is the whole "tending tames the swings" mechanic, and
-// it can never become "breathe for more coins" because the average never moves.
-const HARMONY_NARROW_MAX = 0.60;
-function harmonyNarrow() {
-  return ((getHarmony() - HARMONY_FLOOR) / (HARMONY_MAX - HARMONY_FLOOR)) * HARMONY_NARROW_MAX;
-}
-// Pull a rolled outcome `x` toward its mean `m` by the current harmony narrow.
-function steadyTowardMean(x, m) {
-  return m + (x - m) * (1 - harmonyNarrow());
-}
-// Friendly "what kind of pick is this" badge for the boon draft — surfaces the
-// Wild (variance) vs Steady (reliable) choice, and teaches that a calm garden
-// tames Wild swings, right at the moment of decision.
-function boonStyleInfo(buff) {
-  const a = buff.archetype;
-  if (a === 'gamble') {
-    return {
-      label: '🎲 Wild', cls: 'wild',
-      hint: harmonyNarrow() > 0.15 ? 'your calm garden will steady this swing' : 'a big swing — tend the garden to steady it',
-    };
-  }
-  if (a === 'stat') return { label: '🍃 Steady', cls: 'steady', hint: '' };
-  const names = { tradeoff: 'Trade-off', commit: 'Commit', synergy: 'Synergy', cascade: 'Cascade', cross: 'Shared', skill: 'Timing', meta: 'Fate' };
-  return { label: names[a] || a, cls: 'other', hint: '' };
-}
-// A plot's Wild Orchard volatility = the summed swing of its equipped
-// `wild_fortune` perma cards (× star level). This is the persistent build
-// identity: equip Wild cards → swingy harvests; harmony narrows the swing.
-function getPlotVolatility(plotId) {
-  let v = 0;
-  for (const b of getActivePerma(plotId)) {
-    if (b.custom === 'wild_fortune' && b.volatility) {
-      v += b.volatility * getStarMultiplier(getStarsForBuff(b.id));
-    }
-  }
-  return Math.min(0.45, v);
 }
 // Generic gentle toast (reuses the tend-toast visual) for first-time notes
 // and "what just happened" moment cards. Non-blocking, auto-dismiss.
@@ -5269,16 +5249,6 @@ const PERMA_POOL = [
   { id: 'p_moonlight',  name: 'Moonlight Pact',      desc: '+50% yield when harvested between 7pm and 7am',                                  rarity: 'rare',      custom: 'moonlight',     flavor: 'work the cool hours.' },
   { id: 'p_patience',   name: 'Patience Pays',       desc: '+40% yield if the plot took 6+ hours to grow',                                   rarity: 'uncommon',  custom: 'long_grow',     flavor: 'the slow road, the full basket.' },
   { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: "A lifetime of tending raises the garden's capacity for calm (higher Harmony ceiling)", rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
-
-  // === WILD ORCHARD — the volatile build identity ===
-  // These make the plot they're equipped to SWING at harvest (mean unchanged —
-  // same average as a calm build, just feast-or-famine). Garden Harmony narrows
-  // the swing toward steady. Equip them for a wild garden you tame by tending;
-  // ignore them for a calm, predictable one. (custom: 'wild_fortune' → handled
-  // by getPlotVolatility + the harvest fortune band; no flat yield effect.)
-  { id: 'p_wildseed',     name: 'Wildseed Plot',   desc: 'This plot swings ±25% at harvest (same average). A calm garden steadies the swing.', rarity: 'uncommon',  custom: 'wild_fortune', volatility: 0.25, flavor: 'never the same basket twice.' },
-  { id: 'p_feast_famine', name: 'Feast or Famine', desc: 'This plot swings ±40% at harvest (same average). Tending narrows it toward steady.', rarity: 'rare',      custom: 'wild_fortune', volatility: 0.40, flavor: 'the bold field gives boldly.' },
-  { id: 'p_tempest',      name: 'Tempest Bloom',   desc: 'Big harvest swings, ±45% (same average); your calm pulls them toward steady.',       rarity: 'legendary', custom: 'wild_fortune', volatility: 0.45, flavor: 'it thrives on weather.' },
 
   // === RADISH set ===
   { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
@@ -5751,6 +5721,71 @@ function addFloat(text, x, y) {
   el.style.top = (y - 20) + 'px';
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1300);
+}
+
+// ============ HARVEST JUICE ============
+// The harvest is the best moment in the genre — make it a MOMENT, not a fading
+// number. Crops fling out and arc; coins fly to the wallet; the counter bounces;
+// a chunky pluck sound + a haptic tick. Bigger on great/lucky harvests.
+function spawnHarvestBurst(x, y, emoji, count) {
+  for (let k = 0; k < count; k++) {
+    const p = document.createElement('div');
+    p.className = 'harvest-particle';
+    p.textContent = emoji;
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
+    document.body.appendChild(p);
+    const angle = (-Math.PI / 2) + (Math.random() - 0.5) * 1.7; // mostly up, spread
+    const dist = 38 + Math.random() * 72;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist; // negative = up
+    const rot = (Math.random() - 0.5) * 200;
+    const dur = 620 + Math.random() * 360;
+    p.animate([
+      { transform: 'translate(-50%,-50%) scale(0.4) rotate(0deg)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${dx * 0.6}px), calc(-50% + ${dy}px)) scale(1.15) rotate(${rot * 0.6}deg)`, opacity: 1, offset: 0.4 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy + 70}px)) scale(0.65) rotate(${rot}deg)`, opacity: 0 },
+    ], { duration: dur, easing: 'cubic-bezier(0.2,0.7,0.3,1)' });
+    setTimeout(() => p.remove(), dur + 60);
+  }
+}
+function bounceMoney() {
+  const money = document.getElementById('moneyValue');
+  if (!money) return;
+  money.classList.remove('coin-bounce');
+  void money.offsetWidth; // restart the animation
+  money.classList.add('coin-bounce');
+}
+function flyCoinsToWallet(x, y, count) {
+  const money = document.getElementById('moneyValue');
+  if (!money) { return; }
+  const mr = money.getBoundingClientRect();
+  const tx = mr.left + mr.width / 2, ty = mr.top + mr.height / 2;
+  for (let k = 0; k < count; k++) {
+    const c = document.createElement('div');
+    c.className = 'fly-coin';
+    c.textContent = '◉';
+    c.style.left = x + 'px';
+    c.style.top = y + 'px';
+    document.body.appendChild(c);
+    const delay = k * 65;
+    const dur = 520;
+    const midX = x + (tx - x) * 0.4 + (Math.random() - 0.5) * 50;
+    const midY = Math.min(y, ty) - 55 - Math.random() * 30;
+    c.animate([
+      { transform: 'translate(-50%,-50%) scale(0.5)', opacity: 0.2 },
+      { transform: `translate(calc(-50% + ${midX - x}px), calc(-50% + ${midY - y}px)) scale(1.15)`, opacity: 1, offset: 0.5 },
+      { transform: `translate(calc(-50% + ${tx - x}px), calc(-50% + ${ty - y}px)) scale(0.5)`, opacity: 0.3 },
+    ], { duration: dur, delay, easing: 'cubic-bezier(0.4,0,0.2,1)' });
+    setTimeout(() => { c.remove(); bounceMoney(); }, delay + dur);
+  }
+}
+function harvestJuice(x, y, crop, big) {
+  const emoji = (CROPS[crop] && CROPS[crop].emoji) || '🌿';
+  spawnHarvestBurst(x, y, emoji, big ? 9 : 5);
+  flyCoinsToWallet(x, y, big ? 4 : 2);
+  sndPluck(big);
+  if (navigator.vibrate) { try { navigator.vibrate(big ? 22 : 12); } catch (e) {} }
 }
 
 // ============ PERMA-BUFF EFFECTS (per plot) ============
@@ -7174,17 +7209,6 @@ function harvest(plotId, ev) {
   if (distinctGrowingCrops() >= 3) addHarmony(HARMONY_GAIN_DIVERSITY);
   if (isLocalNight()) addHarmony(HARMONY_GAIN_NIGHT);
 
-  // Wild Orchard fortune — a Wild-leaning loadout makes this harvest SWING.
-  // Mean 1.0 (same average as a calm build — pure style, never "Wild pays more"),
-  // narrowed toward 1.0 by garden calm (EV-preserved). Floor stays a gift.
-  const wildVol = getPlotVolatility(plotId);
-  let wildFortune = 1;
-  if (wildVol > 0) {
-    wildFortune = 1 + (Math.random() * 2 - 1) * wildVol;   // uniform [1-vol, 1+vol], mean 1.0
-    wildFortune = steadyTowardMean(wildFortune, 1.0);        // a calm garden tames the swing
-    mult *= wildFortune;
-  }
-
   const yieldAmount = Math.floor(crop.baseYield * mult);
   state.money += yieldAmount;
   state.lifetimeCoins = (state.lifetimeCoins || 0) + yieldAmount;
@@ -7219,10 +7243,6 @@ function harvest(plotId, ev) {
   // ~30% chance of a small atmospheric note. Quietly adds personality.
   let flavor = null;
   if (rareEvent) flavor = rareEventFlavor(rareEvent.kind);
-  else if (wildVol > 0 && Math.abs(wildFortune - 1) > 0.08) {
-    const steadied = harmonyNarrow() > 0.15;
-    flavor = (wildFortune >= 1 ? 'the wild garden swung high' : 'the wild garden swung low') + (steadied ? ' · steadied by your calm' : '');
-  }
   else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
   // Cozy story bit: attribute the harvest to whatever genuinely drove the
   // result. Priority order picks the *real* standout, not just "highest rarity":
@@ -7279,7 +7299,10 @@ function harvest(plotId, ev) {
 
   if (ev && ev.target) {
     const r = ev.target.getBoundingClientRect();
-    addFloat('+' + yieldAmount, r.left + r.width / 2, r.top);
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    addFloat('+' + yieldAmount, cx, r.top);
+    // Juice: a great/lucky harvest gets a bigger burst, more coins, a brighter sound.
+    harvestJuice(cx, cy, plot.crop, isLucky || mult >= 3.0);
   }
 
   if (plot.flags.eternalActive && !plot.flags.eternalUsed) {
@@ -7381,21 +7404,16 @@ function handleCustom(plotId, buff, echo) {
     case 'coin_flip_17': {
       let multGain = 1.0;
       for (let i = 0; i < e; i++) if (Math.random() < 0.5) multGain *= 1.7;
-      // Wild swing → narrowed toward its mean by garden calm (EV-preserved).
-      const narrowed = steadyTowardMean(multGain, Math.pow(1.35, e));
-      const steadied = harmonyNarrow() > 0.15 && Math.abs(narrowed - multGain) > 0.02;
-      plot.yieldMult *= narrowed;
-      const pct = narrowed >= 1 ? `+${Math.round((narrowed - 1) * 100)}%` : `−${Math.round((1 - narrowed) * 100)}%`;
-      return steadied ? `${pct} · steadied` : pct;
+      plot.yieldMult *= multGain;
+      return multGain > 1 ? `+${Math.round((multGain - 1) * 100)}%!` : 'miss';
     }
     case 'frost_gamble': {
       let multGain = 1.0;
       for (let i = 0; i < e; i++) multGain *= (Math.random() < 0.7) ? 2.2 : 0.5;
-      const narrowed = steadyTowardMean(multGain, Math.pow(1.69, e));
-      const steadied = harmonyNarrow() > 0.15 && Math.abs(narrowed - multGain) > 0.02;
-      plot.yieldMult *= narrowed;
-      const pct = narrowed >= 1 ? `+${Math.round((narrowed - 1) * 100)}%` : `−${Math.round((1 - narrowed) * 100)}%`;
-      return steadied ? `${pct} · steadied` : pct;
+      plot.yieldMult *= multGain;
+      return multGain >= 1
+        ? `+${Math.round((multGain - 1) * 100)}%`
+        : `−${Math.round((1 - multGain) * 100)}%`;
     }
     case 'echo':
       plot.flags.echoLeft = (plot.flags.echoLeft || 0) + 1;
@@ -7664,15 +7682,10 @@ function openBuffModal(plotId) {
   drafted.forEach(buff => {
     const card = document.createElement('button');
     card.className = `buff-card ${buff.rarity}`;
-    const style = boonStyleInfo(buff);
     card.innerHTML = `
-      <div class="buff-rarity">
-        <span>${buff.rarity}</span>
-        <span class="buff-archetype ${style.cls}">· ${style.label}</span>
-      </div>
+      <div class="buff-rarity"><span>${buff.rarity}</span></div>
       <div class="buff-name">${buff.name}</div>
       <div class="buff-desc">${buff.desc}</div>
-      ${style.hint ? `<div class="buff-style-hint">${style.hint}</div>` : ''}
       <div class="buff-flavor">${buff.flavor}</div>
     `;
     card.onclick = () => applyBuff(plotId, buff);
@@ -9336,7 +9349,7 @@ function render() {
             <div class="yield-mult" title="Yield multiplier — applied to base yield at harvest">×${effectiveYield.toFixed(2)} yield</div>
           </div>
           <div class="growth-display">
-            <div class="crop-visual-wrap ${ready ? 'exhausted' : ''}" data-plotid="${i}">
+            <div class="crop-visual-wrap ${ready ? 'ready-tap' : ''}" data-plotid="${i}">
               <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
             </div>
           </div>
@@ -9399,6 +9412,11 @@ function render() {
       // attach handler to loadout strip synchronously
       const strip = el.querySelector('.loadout-strip');
       if (strip) strip.onclick = () => openLoadoutModal(i);
+      // Tap the crop itself to harvest it — the core verb becomes "touch the
+      // vegetable," not "press a button." (The Harvest button stays for clarity.)
+      // Keyed off the .ready-tap class (only present when ripe) to stay in scope.
+      const readyCrop = el.querySelector('.crop-visual-wrap.ready-tap');
+      if (readyCrop) readyCrop.onclick = (ev) => harvest(i, ev);
     }
     grid.appendChild(el);
   });
