@@ -1328,12 +1328,6 @@ body.calm-state #tab-farm {
   color: var(--terracotta);
   font-weight: 700;
 }
-.exercise-option-practice {
-  color: var(--sage);
-  font-style: italic;
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
 .breathe-progress {
   font-family: var(--mono);
   font-size: 11px;
@@ -2099,14 +2093,6 @@ body.calm-state #tab-farm {
 .buff-card.rare .buff-rarity { color: var(--terracotta); }
 .buff-card.legendary .buff-rarity { color: var(--rust); }
 .buff-card.mythic .buff-rarity { color: var(--mythic); }
-.buff-archetype {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--sage);
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-}
-
 .buff-name { font-family: var(--serif); font-size: 18px; font-weight: 600; color: var(--forest); font-style: italic; }
 .buff-desc { font-size: 13px; color: var(--moss); line-height: 1.4; }
 .buff-flavor {
@@ -4668,18 +4654,6 @@ const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, my
 const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
 
-// Mindful Tending: the player completes structured calming exercises (e.g.,
-// box breathing) which are CLEARLY TAUGHT and conveyed in-app. Each completed
-// exercise reduces the plot's growth time by a fixed amount. Capped per cycle
-// so the player paces engagement rather than speedrunning. Reframes the
-// "make plant grow faster" mechanic as an actual mindfulness practice — the
-// player learns box breathing while playing.
-// Global tend system: one breathing exercise per session applies its time
-// reduction to EVERY growing plot. The player tends the garden, not a plot.
-// Cap is per real day (not per crop cycle) so absurd farm sizes can't grind.
-const TEND_REDUCTION_PER_SESSION = 0.08;  // legacy (pre-redesign): -8% time per session. No longer applied — replaced by Calm State.
-const TEND_MAX_SESSIONS_PER_DAY = 4;      // legacy: old daily reward cap. Kept for save back-compat; no longer gates anything.
-
 // ============ GARDEN HARMONY — the wellness → wonder dial ============
 // A hidden 0–100 state. Mindful, consistent, present play raises it; neglect
 // lets it drift gently toward a floor (the garden gets quieter, never damaged).
@@ -4816,13 +4790,24 @@ function harmonyStageIndex() {
 // Generic gentle toast (reuses the tend-toast visual) for first-time notes
 // and "what just happened" moment cards. Non-blocking, auto-dismiss.
 function showGardenToast(icon, label, detail, ms) {
+  // Queue, don't clobber: if another toast is still showing (e.g. the post-breath
+  // "calm settles in"), wait for it to finish instead of replacing it mid-read.
   const existing = document.querySelector('.tend-toast');
-  if (existing) existing.remove();
+  if (existing) {
+    const expire = Number(existing.dataset.expire || 0);
+    if (expire > Date.now()) {
+      setTimeout(() => showGardenToast(icon, label, detail, ms), expire - Date.now() + 200);
+      return;
+    }
+    existing.remove();
+  }
+  const dur = ms || 3700;
   const toast = document.createElement('div');
   toast.className = 'tend-toast';
+  toast.dataset.expire = Date.now() + dur;
   toast.innerHTML = `<span class="tend-toast-icon">${icon}</span><span><div class="tend-toast-label">${label}</div><div class="tend-toast-detail">${detail}</div></span>`;
   document.body.appendChild(toast);
-  setTimeout(() => { if (toast.parentNode) toast.remove(); }, ms || 3700);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, dur);
 }
 
 // --- calm state (the everyday reward for breathing; replaces the −8% time bump) ---
@@ -5082,7 +5067,6 @@ const LUCKY_FLAVORS = [
   '✨ everything aligned.',
   '✨ the soil rewarded you.',
 ];
-const LUCKY_HARVEST_CHANCE = 0.03;
 
 // Cozy attribution variants — short journal-margin notes that appear under
 // a harvest entry when the run was meaningfully above or below average.
@@ -6389,11 +6373,17 @@ function draftPermaPack(n, rarityFloor = null, guaranteedGeneral = 0) {
       if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
     }
   }
-  // Then fill the rest from the full pool (random — could be general or crop-specific)
+  // Then fill the rest from the full pool (random — could be general or crop-specific).
+  // Cards for crops the player hasn't unlocked yet are heavily down-weighted so an
+  // early pack is something you can USE today — still possible (a little aspirational
+  // sparkle), just no longer common. Late game every crop is unlocked → no effect.
   while (picks.length < n) {
     const pool = fullPool.filter(b => !used.has(b.id));
     if (pool.length === 0) break;
-    const weighted = pool.map(b => ({ b, w: PERMA_RARITY_WEIGHTS[b.rarity] }));
+    const weighted = pool.map(b => ({
+      b,
+      w: PERMA_RARITY_WEIGHTS[b.rarity] * (b.cropOnly && !isCropUnlocked(b.cropOnly) ? 0.12 : 1),
+    }));
     const total = weighted.reduce((s, x) => s + x.w, 0);
     let r = Math.random() * total;
     for (const x of weighted) {
@@ -6453,34 +6443,19 @@ function anyModalOpen() {
     .some(id => !document.getElementById(id).hidden);
 }
 
-// Mindful breathing exercise — 4-4-4 box breathing for BREATH_CYCLES rounds.
-// GLOBAL scope: the exercise applies its reward to every growing plot
-// simultaneously. The player tends the garden, not one plot.
+// Mindful breathing — every completed exercise opens a Calm State and feeds
+// Garden Harmony. Practice is unlimited; real mindfulness doesn't gate itself.
 let _breath = null; // { cycle, phase, timeoutId }
-// Rolls over the daily counter at local midnight.
+// Rolls over the daily tend counter at local midnight (kept for stats).
 function rotateTendDayIfNeeded() {
   const today = getCurrentDayKey();
   if (state.tendDayKey === today) return;
   state.tendDayKey = today;
   state.tendSessionsToday = 0;
 }
-function tendsRemainingToday() {
-  rotateTendDayIfNeeded();
-  return Math.max(0, TEND_MAX_SESSIONS_PER_DAY - (state.tendSessionsToday || 0));
-}
-function hasAnyGrowingPlot() {
-  return state.plots.some(p => !p.locked && p.crop && !isReady(p));
-}
 // Step 1 of the tend flow: open the exercise picker.
-// Player chooses Box / 5-4-3-2-1 / Body Scan, then that exercise runs.
-// PRACTICE is unlimited (real mindfulness doesn't gate itself). REWARD is
-// bounded at 4/day — after that, exercises still run but don't apply the
-// time-skip. The framing is "you've taken today's reward sessions, but
-// practice is here whenever you need it" — not punishing.
 function openBreathingExercise() {
   if (anyModalOpen()) return;
-  const remaining = tendsRemainingToday();
-  const hasGrowing = hasAnyGrowingPlot();
   // Picker opens at any state. Per-exercise meta column shows the actual
   // reward ("−8% farm time") or "no reward" — no separate banner needed.
   document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
@@ -6517,7 +6492,8 @@ function openBreathingExercise() {
     options.appendChild(btn);
   }
 
-  // Active practices section — engagement-only mini-games (no reward)
+  // Active practices section — touch-based mini-games. They steady the garden
+  // (feed harmony), and lingering a minute or more opens a shorter calm.
   const activeOptions = document.getElementById('activeGameOptions');
   if (activeOptions) {
     activeOptions.innerHTML = '';
@@ -6532,7 +6508,7 @@ function openBreathingExercise() {
           <div class="exercise-option-metaline">
             <span>${game.durationLabel}</span>
             <span class="dot">·</span>
-            <span class="exercise-option-practice">no reward</span>
+            <span class="exercise-option-reward">steadies the garden</span>
           </div>
         </span>
       `;
@@ -6714,10 +6690,13 @@ function completeBreathingExercise() {
   render();
 }
 function showTendToast(info) {
+  // Direct action feedback — shows immediately (and stamps its expiry so any
+  // queued garden toasts politely wait for it via showGardenToast).
   const existing = document.querySelector('.tend-toast');
   if (existing) existing.remove();
   const toast = document.createElement('div');
   toast.className = 'tend-toast';
+  toast.dataset.expire = Date.now() + 3700;
   const label = 'A calm settles in';
   const detail = 'a lovely time to wander over and harvest';
   toast.innerHTML = `
@@ -6766,7 +6745,19 @@ function _endActiveGame() {
   const played = performance.now() - g.startedAt;
   if (played >= ACTIVE_GAME_MIN_COUNT_MS) {
     state.activePracticesCompleted = (state.activePracticesCompleted || 0) + 1;
-    addHarmony(HARMONY_GAIN_PRACTICE); // mini-games are calming too — feed harmony (no calm-state window; that's breathing's reward)
+    // Presence, not performance: lingering longer steadies the garden more
+    // (no score, no fail — just time spent in the quiet thing).
+    const presenceGain = played >= 120000 ? HARMONY_GAIN_PRACTICE * 2
+                       : played >= 60000  ? Math.round(HARMONY_GAIN_PRACTICE * 1.5)
+                       : HARMONY_GAIN_PRACTICE;
+    addHarmony(presenceGain);
+    // A real session (a minute or more) opens a shorter calm — breathing stays
+    // the fuller ritual (30 min), but staying with a quiet game counts too.
+    // Never shortens a calm that's already open.
+    if (played >= 60000) {
+      state.calmStateUntil = Math.max(state.calmStateUntil || 0, Date.now() + 15 * 60 * 1000);
+      showTendToast({ calm: true });
+    }
     saveGame();
   }
   // Hide all active-game modals (one of them is open)
@@ -8695,14 +8686,24 @@ function renderContract() {
   });
 }
 
+// Proper plural names ("3 Radishes", not "3 Radishs"; wheat/corn are mass nouns).
+const CROP_PLURALS = {
+  radish: 'Radishes', carrot: 'Carrots', tomato: 'Tomatoes', strawberry: 'Strawberries',
+  wheat: 'Wheat', corn: 'Corn', pumpkin: 'Pumpkins', sunflower: 'Sunflowers',
+};
+function cropPlural(cropKey, n) {
+  if (n === 1) return CROPS[cropKey].name;
+  return CROP_PLURALS[cropKey] || (CROPS[cropKey].name + 's');
+}
+
 function describeContract(c) {
   if (c.template === 'deliver_n_of_x') {
     const cd = CROPS[c.params.crop];
-    return `Deliver ${c.params.count} ${cd.emoji} ${cd.name}${c.params.count === 1 ? '' : 's'}`;
+    return `Deliver ${c.params.count} ${cd.emoji} ${cropPlural(c.params.crop, c.params.count)}`;
   }
   if (c.template === 'deliver_mixed') {
     const parts = Object.entries(c.params.crops).map(([crop, n]) =>
-      `${n} ${CROPS[crop].emoji} ${CROPS[crop].name}${n === 1 ? '' : 's'}`
+      `${n} ${CROPS[crop].emoji} ${cropPlural(crop, n)}`
     );
     return `Deliver ${parts.join(' + ')}`;
   }
