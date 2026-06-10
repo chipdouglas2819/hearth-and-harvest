@@ -2265,6 +2265,35 @@ body.calm-state #tab-farm {
   padding-top: 8px;
 }
 
+/* Pack reveal: cards arrive face-down — a leaf-backed cover hides EVERYTHING
+   (the rarity border/stripe too, so a legendary can't spoil itself), then
+   each card turns in sequence with a rising chime. */
+.pack-card .pc-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(143, 166, 142, 0.18), transparent 55%),
+    radial-gradient(circle at 70% 75%, rgba(143, 166, 142, 0.14), transparent 50%),
+    var(--cream);
+  border-radius: inherit;
+  opacity: 1;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.pack-card.face-down { border-color: var(--border) !important; box-shadow: none !important; background: var(--paper) !important; }
+.pack-card.face-down::before { opacity: 0 !important; }
+.pack-card.revealed .pc-cover { opacity: 0; transform: scale(1.08); pointer-events: none; }
+.pack-card.revealed { animation: cardTurnPop 0.34s ease-out; }
+@keyframes cardTurnPop {
+  0%   { transform: scale(0.94); }
+  55%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
 .pack-actions {
   display: flex;
   gap: 12px;
@@ -4200,39 +4229,24 @@ function rotateContractOffersIfNewDay() {
 
 const MAX_DAILY_REROLLS = 2;
 function canRerollContract() {
-  return (state.contractRerollsUsedToday || 0) < MAX_DAILY_REROLLS && !state.adPlaying;
+  return (state.contractRerollsUsedToday || 0) < MAX_DAILY_REROLLS;
 }
 
+// Free, instant reroll — no fake ad. A cozy game doesn't make you sit
+// through a pretend commercial to ask the village for a different request.
 function rerollContractWithAd(id) {
   if (!canRerollContract()) return;
   const idx = state.offeredContracts.findIndex(c => c.id === id);
   if (idx === -1) return;
-  state.adPlaying = true;
-  // Show simple ad overlay on the slot
-  const slot = document.querySelector(`[data-reroll-slot="${id}"]`);
-  if (slot) {
-    const overlay = document.createElement('div');
-    overlay.className = 'reroll-ad-overlay';
-    overlay.textContent = 'playing ad… 3';
-    slot.appendChild(overlay);
-    let n = 3;
-    const interval = setInterval(() => {
-      n -= 1;
-      if (n > 0) overlay.textContent = `playing ad… ${n}`;
-      else {
-        clearInterval(interval);
-        state.adPlaying = false;
-        state.contractRerollsUsedToday = (state.contractRerollsUsedToday || 0) + 1;
-        // Replace the contract with a freshly generated one of the same tier
-        const oldTier = state.offeredContracts[idx].tier;
-        const replacement = oldTier === 'gold' ? generateGoldContract()
-                          : oldTier === 'silver' ? generateSilverContract()
-                          :                         generateBronzeContract();
-        state.offeredContracts[idx] = replacement;
-        render();
-      }
-    }, 1000);
-  }
+  state.contractRerollsUsedToday = (state.contractRerollsUsedToday || 0) + 1;
+  // Replace the contract with a freshly generated one of the same tier
+  const oldTier = state.offeredContracts[idx].tier;
+  const replacement = oldTier === 'gold' ? generateGoldContract()
+                    : oldTier === 'silver' ? generateSilverContract()
+                    :                         generateBronzeContract();
+  state.offeredContracts[idx] = replacement;
+  if (typeof sndUiClick === 'function') sndUiClick();
+  render();
 }
 
 function acceptContract(id) {
@@ -4247,28 +4261,12 @@ function acceptContract(id) {
   render();
 }
 
-// Expire any active contracts whose deadline has passed. Returns true if any expired.
+// Patient contracts: accepted requests WAIT for you — no auto-expiry, no
+// "expired while you were away" guilt. A cozy request keeps until it's done
+// or the player rerolls/replaces it. (Kept as a function because three call
+// sites still invoke it; it simply never removes anything now.)
 function checkContractExpiry() {
-  if (!state.activeContracts || state.activeContracts.length === 0) return false;
-  const now = Date.now();
-  let anyExpired = false;
-  state.activeContracts = state.activeContracts.filter(c => {
-    if (now - c.acceptedAtMs <= c.params.deadlineHours * 3600000) return true;
-    // Expired: log and drop
-    const cropLabel = c.template === 'deliver_mixed'
-      ? Object.keys(c.params.crops).map(cr => CROPS[cr].name).join('+')
-      : (CROPS[c.params.crop] ? CROPS[c.params.crop].name : '');
-    state.harvestLog.unshift({
-      type: 'contract_expired',
-      tier: c.tier,
-      label: cropLabel,
-      t: Date.now(),
-    });
-    if (state.harvestLog.length > 6) state.harvestLog.pop();
-    anyExpired = true;
-    return false;
-  });
-  return anyExpired;
+  return false;
 }
 
 // Complete a specific contract by id — called when its progress is filled.
@@ -7305,6 +7303,10 @@ function harvest(plotId, ev) {
   state.totalHarvests += 1;
   if (state.totalHarvests % HARVESTS_PER_PACK === 0) {
     state.pendingPacks += 1;
+    // Say it out loud the moment it's earned — a pack silently filed behind a
+    // tab badge is a reward the player never feels.
+    showGardenToast('🎴', 'A new pack is ready!', 'waiting for you in Cards', 4200);
+    if (typeof sndPackOpen === 'function') sndPackOpen();
   }
   checkAchievements();
 
@@ -7712,6 +7714,9 @@ function openPackModal(rarityFloor = null, customTitle = null) {
   // Every pack guarantees at least 1 general card so the player always pulls
   // something they can use on any crop. The other 2 cards are random.
   const cards = draftPermaPack(3, rarityFloor, 1);
+  // Reveal order: worst → best, so the suspense builds and the best card is
+  // the one you're waiting on. (Display order only — collection unaffected.)
+  cards.sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
   state.currentPackCards = cards;
   state.adUsedForCurrentPack = false;
 
@@ -7719,9 +7724,32 @@ function openPackModal(rarityFloor = null, customTitle = null) {
   titleEl.textContent = customTitle || (rarityFloor ? 'Premium Pack' : 'A New Pack');
 
   renderPackCards();
-  renderPackActions();
+  // Actions appear once the last card has turned — until then, the reveal is the show.
+  document.getElementById('packActions').innerHTML = '';
   document.getElementById('packModal').hidden = false;
   sndPackOpen();
+}
+
+// One flip sound per rarity — the sound escalates with the pull, so a big
+// card FEELS big before you've even read it.
+function sndCardFlip(rarity) {
+  switch (rarity) {
+    case 'mythic':
+      sndLucky();
+      playTone(1319, 0.45, 0.07, 'sine', 260); // held high bell on top
+      break;
+    case 'legendary':
+      sndLucky();
+      break;
+    case 'rare':
+      playTone(523, 0.07, 0.05); playTone(659, 0.09, 0.06, 'sine', 70); playTone(880, 0.16, 0.06, 'sine', 150);
+      break;
+    case 'uncommon':
+      playTone(494, 0.06, 0.045); playTone(622, 0.10, 0.05, 'sine', 70);
+      break;
+    default:
+      playTone(440, 0.07, 0.04);
+  }
 }
 
 // Preview the effect of adding this pack card to the player's collection,
@@ -7742,11 +7770,13 @@ function previewPackCardStarChange(buff) {
 function renderPackCards() {
   const grid = document.getElementById('packCards');
   grid.innerHTML = '';
-  grid.className = 'pack-cards' + (state.adUsedForCurrentPack ? ' has-bonus' : '');
+  grid.className = 'pack-cards';
+  const modal = document.getElementById('packModal');
   state.currentPackCards.forEach((buff, idx) => {
     const card = document.createElement('div');
-    const isBonus = state.adUsedForCurrentPack && idx === state.currentPackCards.length - 1 && state.currentPackCards.length === 4;
-    card.className = `pack-card ${buff.rarity} ${isBonus ? 'bonus' : ''}`;
+    // Face-down first: rarity color, name — everything — hidden behind the
+    // cover until this card's turn. The reveal is the moment; don't spoil it.
+    card.className = `pack-card ${buff.rarity} face-down`;
     const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${CROPS[buff.cropOnly].name} only` : 'general';
     const starState = previewPackCardStarChange(buff);
     card.innerHTML = `
@@ -7758,22 +7788,28 @@ function renderPackCards() {
       <div class="pc-desc">${buff.desc}</div>
       <div class="pc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}</div>
       <div class="pc-flavor">${buff.flavor}</div>
+      <div class="pc-cover">🌿</div>
     `;
     grid.appendChild(card);
+    // Staggered turn: one card at a time, worst → best, sound rising with rarity.
+    setTimeout(() => {
+      if (modal.hidden || !card.parentNode) return; // closed early → cards were auto-claimed
+      card.classList.remove('face-down');
+      card.classList.add('revealed');
+      sndCardFlip(buff.rarity);
+    }, 650 + idx * 900);
   });
+  // The "Add all" button arrives just after the last card turns.
+  const lastFlip = 650 + (state.currentPackCards.length - 1) * 900;
+  setTimeout(() => {
+    if (modal.hidden) return;
+    renderPackActions();
+  }, lastFlip + 450);
 }
 
 function renderPackActions() {
   const actions = document.getElementById('packActions');
   actions.innerHTML = '';
-
-  if (!state.adUsedForCurrentPack) {
-    const adBtn = document.createElement('button');
-    adBtn.className = 'shop-btn ad';
-    adBtn.innerHTML = `<span class="sb-title">▶ Watch Ad for Bonus Card</span><span class="sb-desc">adds a 4th boon (uncommon or higher)</span>`;
-    adBtn.onclick = watchAdForBonus;
-    actions.appendChild(adBtn);
-  }
 
   const keepBtn = document.createElement('button');
   keepBtn.className = 'btn btn-primary';
@@ -7792,49 +7828,8 @@ function renderPackActions() {
   actions.appendChild(keepBtn);
 }
 
-function watchAdForBonus() {
-  if (state.adPlaying || state.adUsedForCurrentPack) return;
-  state.adPlaying = true;
-  const btn = document.querySelector('.shop-btn.ad');
-  if (!btn) return;
-  const overlay = document.createElement('div');
-  overlay.className = 'ad-playing';
-  overlay.textContent = 'playing ad… 3';
-  btn.appendChild(overlay);
-  let count = 3;
-  const interval = setInterval(() => {
-    count -= 1;
-    if (count > 0) overlay.textContent = `playing ad… ${count}`;
-    else {
-      clearInterval(interval);
-      state.adPlaying = false;
-      state.adUsedForCurrentPack = true;
-      // 4th bonus card: uncommon+, never a duplicate of pack OR collection
-      const ownedIds = new Set([
-        ...state.currentPackCards.map(c => c.id),
-        ...state.collection.map(c => c.id),
-      ]);
-      let bonus = null;
-      for (let attempt = 0; attempt < 30; attempt++) {
-        const candidate = draftPermaPack(1, 'uncommon')[0];
-        if (candidate && !ownedIds.has(candidate.id)) { bonus = candidate; break; }
-      }
-      // Hard fallback: pull a guaranteed-unowned uncommon+ directly from PERMA_POOL
-      if (!bonus) {
-        const unowned = PERMA_POOL.filter(b =>
-          !ownedIds.has(b.id) &&
-          RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf('uncommon')
-        );
-        bonus = unowned.length > 0
-          ? unowned[Math.floor(Math.random() * unowned.length)]
-          : draftPermaPack(1, 'uncommon')[0]; // user owns everything; accept duplicate
-      }
-      if (bonus) state.currentPackCards.push(bonus);
-      renderPackCards();
-      renderPackActions();
-    }
-  }, 1000);
-}
+// (The "Watch Ad for Bonus Card" fake-ad beat was removed — a cozy game
+// doesn't put a pretend commercial inside its best reward moment.)
 
 // Renders the Sets panel — one row per set, with progress bar + bonus label.
 function renderCardSets() {
@@ -8805,7 +8800,6 @@ function rewardLabel(reward) {
 }
 
 function renderActiveContractHTML(c) {
-  const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
   let progressBlock = '';
   if (c.template === 'deliver_n_of_x') {
     const pct = Math.min(100, Math.floor(c.progress / c.params.count * 100));
@@ -8827,14 +8821,14 @@ function renderActiveContractHTML(c) {
         </div>`;
     }).join('') + '</div>';
   }
-  const q = computeContractQuality(c);
+  // Patient framing: no countdown, no quality-roll chip — just the request,
+  // your progress, and the reward. It waits as long as you need.
   return `
     <div class="contract-active ${c.tier}">
-      <div class="contract-quality ${q.tier}">${q.label}</div>
       <div class="contract-task">${describeContract(c)}</div>
       ${progressBlock}
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
-      <div class="contract-time" data-contract-id="${c.id}">${fmtTimeRemaining(Math.max(0, remainingMs))} left</div>
+      <div class="contract-time">whenever you're ready</div>
     </div>
   `;
 }
@@ -8864,15 +8858,12 @@ setInterval(tickContractTimes, 1000);
 function renderOfferedContractHTML(c, locked) {
   const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
   const showReroll = rerollsLeft > 0;
-  const q = computeContractQuality(c);
   return `
     <div class="contract-offered ${c.tier}${locked ? ' locked' : ''}" data-reroll-slot="${c.id}">
-      <div class="contract-quality ${q.tier}">${q.label}</div>
       <div class="contract-task">${describeContract(c)}</div>
       <div class="contract-reward">${rewardLabel(c.reward)}</div>
-      <div class="contract-time">${c.params.deadlineHours}h after accepting</div>
       <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn_${c.id}"${locked ? ' disabled' : ''}>${locked ? 'Slots full' : 'Accept'}</button>
-      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}">▶ Watch Ad to Reroll · ${rerollsLeft} left</button>` : ''}
+      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}">↻ Ask for a different request · ${rerollsLeft} left today</button>` : ''}
     </div>
   `;
 }
