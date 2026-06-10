@@ -777,6 +777,20 @@ main {
 /* Ready crop = tappable to harvest (touch the vegetable, not a button). */
 .crop-visual-wrap.ready-tap { pointer-events: auto; cursor: pointer; }
 .crop-visual-wrap.ready-tap:active { transform: scale(0.9); }
+/* Idle life: growing crops sway gently, each plot on its own rhythm — the
+   farm breathes while you wait instead of sitting frozen. (Sway lives on the
+   wrap; the inner .crop-visual carries the growth scale — no conflict. Ready
+   plots are excluded so the harvest tap feedback stays crisp.) */
+.plot:not(.ready) .crop-visual-wrap { animation: cropSway 4.6s ease-in-out infinite; }
+.plot:nth-child(2n):not(.ready) .crop-visual-wrap { animation-delay: -1.7s; animation-duration: 5.3s; }
+.plot:nth-child(3n):not(.ready) .crop-visual-wrap { animation-delay: -2.9s; animation-duration: 4.1s; }
+@keyframes cropSway {
+  0%, 100% { transform: rotate(-1.3deg) translateY(0); }
+  50%      { transform: rotate(1.3deg) translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .plot:not(.ready) .crop-visual-wrap { animation: none; }
+}
 /* Harvest juice — flung crops + coins flying to the wallet + counter bounce. */
 .harvest-particle {
   position: fixed; font-size: 22px; line-height: 1;
@@ -3715,6 +3729,10 @@ body.calm-state #tab-farm {
 // 1 prior-tier harvest covers all current thresholds).
 // baseYields trimmed -10% from earlier tuning to ease coin-pile inflation.
 const CROPS = {
+  // Cress: the "snack" crop — grows in minutes, not hours, so a first session
+  // (and any visit) can hold several full plant→grow→harvest loops. Small
+  // payout; excluded from contracts so it can't trivially farm them.
+  cress:     { name: 'Cress',     emoji: '🌿', seedling: '🌱', growthMs: 4 * 60*1000,     plantCost: 10,  baseYield: 20,   pickCount: 1, unlocksAt: null },
   radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
   carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
   tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 2, unlocksAt: { crop: 'carrot',     harvests: 1 } },
@@ -3947,7 +3965,8 @@ function rotateMarketIfNewDay() {
   if (oldPicks.length) {
     state.marketHistory = [...oldPicks, ...(state.marketHistory || [])].slice(0, 6);
   }
-  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  // Cress sits outside the market too — it's the snack crop, not an economy lever.
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
   const recent = new Set((state.marketHistory || []).slice(0, 4));
   let pool = unlocked.filter(c => !recent.has(c));
   if (pool.length < 2) pool = unlocked;
@@ -3995,7 +4014,8 @@ function bronzeCountForCrop(crop) {
 }
 
 function generateBronzeContract() {
-  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  // Cress is excluded from contracts everywhere — minutes-fast, would trivialize them.
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= BRONZE_FAST_CROP_LIMIT_HOURS;
   let pool = grown.filter(fastEnough);
@@ -4055,7 +4075,7 @@ function silverCountForCrop(crop) {
 }
 
 function generateSilverContract() {
-  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   const fastEnough = c => CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS;
   let availPool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
@@ -4115,7 +4135,7 @@ function goldCountForCrop(crop, deadlineHrs) {
 }
 
 function generateGoldContract() {
-  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c));
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
   const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
   // ALL crops eligible — including slow ones (wheat/corn/pumpkin/sunflower)
   let pool = grown.length > 0 ? grown : unlocked;
@@ -4355,7 +4375,7 @@ const HARVEST_TONES = {
   ],
 };
 const CROP_HARVEST_TIER = {
-  radish: 'light', carrot: 'light',
+  cress: 'light', radish: 'light', carrot: 'light',
   tomato: 'medium', strawberry: 'medium', wheat: 'medium',
   corn: 'heavy', pumpkin: 'heavy', sunflower: 'heavy',
 };
@@ -8688,8 +8708,9 @@ function renderContract() {
 
 // Proper plural names ("3 Radishes", not "3 Radishs"; wheat/corn are mass nouns).
 const CROP_PLURALS = {
-  radish: 'Radishes', carrot: 'Carrots', tomato: 'Tomatoes', strawberry: 'Strawberries',
-  wheat: 'Wheat', corn: 'Corn', pumpkin: 'Pumpkins', sunflower: 'Sunflowers',
+  cress: 'Cress', radish: 'Radishes', carrot: 'Carrots', tomato: 'Tomatoes',
+  strawberry: 'Strawberries', wheat: 'Wheat', corn: 'Corn', pumpkin: 'Pumpkins',
+  sunflower: 'Sunflowers',
 };
 function cropPlural(cropKey, n) {
   if (n === 1) return CROPS[cropKey].name;
@@ -9340,7 +9361,10 @@ function render() {
         const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
         const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
         const yScale = visualScale(effectiveYield);
-        const stageScale = prog < 0.25 ? 0.55 : (prog < 0.55 ? 0.75 : (prog < 0.85 ? 0.92 : 1.05));
+        // Continuous growth: the plant scales smoothly with progress (0.55 → 1.05)
+        // instead of snapping between four fixed sizes. updatePlotTick keeps this
+        // moving between renders, so growth is a quiet, visible thing.
+        const stageScale = 0.55 + Math.min(1, prog) * 0.5;
         const finalScale = yScale * stageScale;
         const glowAmount = Math.max(0, effectiveYield - 1.5) * 6;
 
@@ -9521,6 +9545,18 @@ function updatePlotTick(plot) {
   if (!plotEl) return;
   const fill = plotEl.querySelector('.progress-fill');
   if (fill) fill.style.width = (progressOf(plot) * 100) + '%';
+  // Living growth: the plant visibly grows between full renders — smooth scale
+  // with progress, and the seedling becomes the crop at 25% without waiting
+  // for a structural re-render. In-place style writes only (gotcha-safe).
+  const cv = plotEl.querySelector('.crop-visual');
+  if (cv && plot.crop && !isReady(plot)) {
+    const prog = progressOf(plot);
+    const c = CROPS[plot.crop];
+    const want = (prog < 0.25) ? c.seedling : c.emoji;
+    if (cv.textContent !== want) cv.textContent = want;
+    const yScale = visualScale(plot.yieldMult * getPermaYieldMultForPlot(plot.id));
+    cv.style.transform = `translate(-50%, -50%) scale(${(yScale * (0.55 + Math.min(1, prog) * 0.5)).toFixed(4)})`;
+  }
   const info = plotEl.querySelector('.plot-info');
   if (info && info.children.length >= 2) {
     const remain = plot.totalMs - plot.elapsedMs;
