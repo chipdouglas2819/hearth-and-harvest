@@ -9531,6 +9531,72 @@ function render() {
 }
 
 // ============ TICK ============
+// In-place structural restyle — replaces the old "full render() on a timer"
+// reflex that rebuilt the whole grid via innerHTML the instant a crop ripened
+// or a pick landed, eating any in-flight tap (constant at 60×/600× test
+// speeds). This updates the EXISTING card nodes only: toggles classes, swaps
+// text, creates/removes the two action buttons inside the stable
+// .plot-actions container. Full render() still runs on every user action.
+function restyleReadyPlots() {
+  state.plots.forEach((plot, i) => {
+    if (plot.locked || !plot.crop) return;
+    const el = document.querySelector(`.plot[data-plotid="${i}"]`);
+    if (!el || el.classList.contains('locked')) return;
+    const ready = isReady(plot);
+    const picks = picksAvailable(plot);
+    const actions = el.querySelector('.plot-actions');
+    if (!actions) return;
+
+    // --- ready flip ---
+    if (ready && !el.classList.contains('ready')) {
+      el.classList.add('ready');
+      const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+      if (effectiveYield >= 5.0) el.classList.add('perfect-harvest');
+      const wrap = el.querySelector('.crop-visual-wrap');
+      if (wrap && !wrap.classList.contains('ready-tap')) {
+        wrap.classList.add('ready-tap');
+        wrap.onclick = (ev) => harvest(i, ev);
+      }
+      const fill = el.querySelector('.progress-fill');
+      if (fill) fill.style.width = '100%';
+      const info = el.querySelector('.plot-info');
+      if (info && info.children.length >= 1) info.children[0].textContent = readyLabelForPlot(plot);
+      if (!actions.querySelector('.btn-harvest')) {
+        const hb = document.createElement('button');
+        hb.className = 'btn btn-harvest';
+        const expected = Math.floor(CROPS[plot.crop].baseYield * effectiveYield);
+        hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expected})`;
+        hb.onclick = (ev) => harvest(i, ev);
+        actions.appendChild(hb);
+      }
+    }
+
+    // --- pick landed (tick only ever increases picks; decreases are user
+    //     actions which trigger a full render) ---
+    const pickBtn = actions.querySelector('.btn-pick');
+    if (picks > 0) {
+      if (!pickBtn) {
+        const pb = document.createElement('button');
+        pb.className = 'btn btn-pick pulse';
+        pb.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+        pb.onclick = () => openBuffModal(i);
+        actions.insertBefore(pb, actions.firstChild);
+      } else {
+        const badge = pickBtn.querySelector('.pick-badge');
+        if (badge) badge.textContent = picks;
+      }
+      const info = el.querySelector('.plot-info');
+      if (info && info.children.length >= 2) info.children[1].textContent = `${plot.picksTaken}/${plot.totalPicks} picked`;
+    }
+
+    // The "next boon in Xm" whisper is moot once a pick is here or the crop is ripe
+    if (ready || picks > 0) {
+      const nb = el.querySelector('.plot-next-boon');
+      if (nb) nb.remove();
+    }
+  });
+}
+
 function updatePlotTick(plot) {
   const plotEl = document.querySelector(`.plot[data-plotid="${plot.id}"]`);
   if (!plotEl) return;
@@ -9587,7 +9653,17 @@ function tick(now) {
       updatePlotTick(plot);
     }
   }
-  if (structuralChange) render();
+  // GOTCHA FIX: a ready-flip or pick-landing used to trigger a full render()
+  // — an innerHTML rebuild of the whole grid that ate any in-flight tap, and
+  // at 60×/600× test speed those flips are constant. Now structural changes
+  // restyle the existing cards IN PLACE; full render() only ever runs on
+  // player actions (plant/harvest/pick/buy/tab).
+  if (structuralChange) {
+    restyleReadyPlots();
+    renderBoonFab();
+    renderTendFab();
+    renderTabBadges();
+  }
   // Live contract countdown: if the player is sitting on the Contracts tab,
   // refresh the panel every ~30s so the "Xh Ym Zs left" timer ticks down.
   // Cheap (only when tab is active and only every 30s wall-clock).
