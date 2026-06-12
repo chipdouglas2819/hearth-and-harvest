@@ -3631,10 +3631,73 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 #peekBody .plot-next-boon { display: block; color: var(--moss); font-size: 12px; margin-bottom: 4px; background: none; padding: 0; }
 #peekBody .loadout-strip { display: grid; }
 
+/* ============ PHASE 3a: the garden lane ============ */
+/* Four places standing on a path — sign-shaped, slightly jittered so they
+   read as objects in the world, not a second tab bar. */
+#gardenLane {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 2px;
+  justify-content: center;
+  animation: laneFadeIn 0.8s ease-out;
+}
+#gardenLane[hidden] { display: none !important; }
+@keyframes laneFadeIn { from { opacity: 0; transform: translateY(6px); } }
+.lane-obj {
+  flex: 1;
+  max-width: 96px;
+  min-height: 64px;
+  border: 1px solid rgba(101, 78, 49, 0.4);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(254, 252, 247, 0.88), rgba(244, 238, 220, 0.82));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 4px 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(60, 50, 30, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.lane-obj:hover { transform: translateY(-2px); box-shadow: 0 4px 9px rgba(60, 50, 30, 0.22); }
+.lane-obj:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+.lane-obj:nth-child(1) { transform: translateY(2px) rotate(-0.6deg); }
+.lane-obj:nth-child(2) { transform: translateY(-1px) rotate(0.4deg); }
+.lane-obj:nth-child(3) { transform: translateY(1px) rotate(0.7deg); }
+.lane-obj:nth-child(4) { transform: translateY(-2px) rotate(-0.4deg); }
+.lane-obj:nth-child(1):hover, .lane-obj:nth-child(2):hover,
+.lane-obj:nth-child(3):hover, .lane-obj:nth-child(4):hover { transform: translateY(-2px); }
+:root[data-theme="dark"] .lane-obj { background: linear-gradient(180deg, rgba(40, 51, 42, 0.92), rgba(31, 41, 33, 0.88)); border-color: rgba(182, 203, 160, 0.25); }
+.lane-icon { font-size: 20px; line-height: 1.1; }
+.lane-face { font-family: var(--mono); font-size: 10px; color: var(--moss); min-height: 13px; }
+.lane-label { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sage); }
+/* something is waiting — a warm glow, never an alarm */
+.lane-obj.has-alert {
+  border-color: rgba(212, 160, 44, 0.65);
+  box-shadow: 0 0 10px rgba(244, 193, 71, 0.4), 0 2px 5px rgba(60, 50, 30, 0.18);
+}
+/* the stall face owns the market headline now — retire the in-yard strip */
+#farmYard .farm-market-strip { display: none; }
+/* the cottage's two rooms cross-link at the top of each page */
+.cottage-bar {
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--moss);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cottage-bar b { color: var(--forest); }
+.cottage-bar .link-btn { margin-left: auto; }
+/* tab bar shrinks to Home + Settings — the lane is how you reach the rest */
+.tab-btn[data-tab="cards"], .tab-btn[data-tab="contracts"], .tab-btn[data-tab="journal"] { display: none; }
+
 /* reduced motion: still the yard's remaining movers too */
 @media (prefers-reduced-motion: reduce) {
   #skyOrb { transition: none; }
   .plot.ready { animation: none; }
+  #gardenLane { animation: none; }
   .plot.ready .crop-visual,
   .plot.perfect-harvest .crop-visual-wrap::after,
   .plot.mythic-active,
@@ -3665,7 +3728,31 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
         <div id="skyOrb" aria-hidden="true">☀️</div>
         <button id="yardMomentLine" class="yard-moment" hidden></button>
       </div>
-      <div id="gardenLane" hidden></div>
+      <!-- The garden lane: four places, not four tabs. Faces show the headline
+           (today's price, papers pinned, mail flag) without a tap. Built once,
+           updated in place — never innerHTML'd by a timer. -->
+      <div id="gardenLane" hidden>
+        <button class="lane-obj" id="laneStall" aria-label="Market stall — today's prices">
+          <span class="lane-icon" aria-hidden="true">🧺</span>
+          <span class="lane-face" id="stallFace"></span>
+          <span class="lane-label">market</span>
+        </button>
+        <button class="lane-obj" id="laneBoard" aria-label="Noticeboard — village requests">
+          <span class="lane-icon" aria-hidden="true">📋</span>
+          <span class="lane-face" id="boardFace"></span>
+          <span class="lane-label">requests</span>
+        </button>
+        <button class="lane-obj" id="laneMail" aria-label="Mailbox — card packs">
+          <span class="lane-icon" id="mailIcon" aria-hidden="true">📪</span>
+          <span class="lane-face" id="mailFace"></span>
+          <span class="lane-label">mailbox</span>
+        </button>
+        <button class="lane-obj" id="laneCottage" aria-label="The cottage — your collection and journal">
+          <span class="lane-icon" aria-hidden="true">🏡</span>
+          <span class="lane-face" id="cottageFace"></span>
+          <span class="lane-label">cottage</span>
+        </button>
+      </div>
       <div class="farm-market-strip" id="farmMarketStrip" hidden></div>
       <section class="plots-grid" id="plotsGrid"></section>
     </div>
@@ -3679,6 +3766,7 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
   </div>
 
   <div id="tab-cards" class="tab-content" role="tabpanel">
+    <div class="cottage-bar">🏡 The Cottage · <b>Collection</b> <button class="link-btn" id="cottageToJournal">📔 Journal →</button></div>
     <div class="panel pack-cta-panel" id="cardsPackCtaPanel" hidden>
       <div class="pack-cta-text">
         <div class="pack-cta-title">A new pack is ready</div>
@@ -3714,6 +3802,7 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
   </div>
 
   <div id="tab-journal" class="tab-content" role="tabpanel">
+    <div class="cottage-bar">🏡 The Cottage · <b>Journal</b> <button class="link-btn" id="cottageToCards">🎴 Collection →</button></div>
     <div class="today-moment" id="todayMomentStrip" hidden></div>
     <div class="panel">
       <h3>Recent Activity</h3>
@@ -3802,8 +3891,8 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
     <span class="tab-badge" id="tabBadgeContracts" hidden></span>
   </button>
   <button class="tab-btn active" data-tab="farm" role="tab" aria-selected="true" aria-controls="tab-farm">
-    <span class="tab-icon">🌱</span>
-    <span class="tab-label">Farm</span>
+    <span class="tab-icon">🏡</span>
+    <span class="tab-label">Home</span>
     <span class="tab-badge tab-badge-boon" id="tabBadgeFarmBoon" hidden></span>
     <span class="tab-badge" id="tabBadgeFarmReady" hidden></span>
   </button>
@@ -5206,6 +5295,71 @@ document.getElementById('plotsGrid').addEventListener('click', (e) => {
   if (isReady(plot)) { harvest(i, e); return; }
   openPlotPeekSheet(i);
 });
+
+// ============ THE GARDEN LANE ============
+// Four places on the path: stall (market), noticeboard (requests), mailbox
+// (packs), cottage (collection + journal). Bound once; faces refresh in place.
+function refreshGardenLane() {
+  const lane = document.getElementById('gardenLane');
+  if (!lane) return;
+  // First-minute focus: a brand-new player sees only the glowing starter bed;
+  // the lane fades in after their first harvest. Existing saves see it all.
+  lane.hidden = (state.totalHarvests || 0) === 0;
+  if (lane.hidden) return;
+  // Stall face: the WHAT without a tap — featured (and glut) crop + direction
+  const stallFace = document.getElementById('stallFace');
+  if (stallFace) {
+    const f = state.marketFeaturedCrop ? CROPS[state.marketFeaturedCrop] : null;
+    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+    stallFace.textContent = f ? `${f.emoji}▲${s ? ' ' + s.emoji + '▼' : ''}` : '·';
+  }
+  // Noticeboard face: papers pinned (active) / offers waiting
+  const boardFace = document.getElementById('boardFace');
+  if (boardFace) {
+    const active = (state.activeContracts || []).length;
+    const offers = (state.offeredContracts || []).length;
+    const slotsFree = active < MAX_ACTIVE_CONTRACTS;
+    boardFace.textContent = active > 0 ? `${active} 📜` : (offers > 0 ? `${offers} new` : '·');
+    document.getElementById('laneBoard').classList.toggle('has-alert', offers > 0 && slotsFree);
+  }
+  // Mailbox: flag up + glow when a pack waits; quiet X/10 fill otherwise
+  const mailIcon = document.getElementById('mailIcon');
+  const mailFace = document.getElementById('mailFace');
+  if (mailIcon && mailFace) {
+    const pending = state.pendingPacks || 0;
+    mailIcon.textContent = pending > 0 ? '📬' : '📪';
+    mailFace.textContent = pending > 0 ? `${pending} 🎴` : `${state.totalHarvests % HARVESTS_PER_PACK}/${HARVESTS_PER_PACK}`;
+    document.getElementById('laneMail').classList.toggle('has-alert', pending > 0);
+  }
+  // Cottage face: collection size, quietly
+  const cottageFace = document.getElementById('cottageFace');
+  if (cottageFace) cottageFace.textContent = state.collection.length > 0 ? `${state.collection.length} 🎴` : '·';
+}
+// One-time lane bindings (static elements — the lane is never rebuilt)
+document.getElementById('laneStall').onclick = () => {
+  const f = state.marketFeaturedCrop ? CROPS[state.marketFeaturedCrop] : null;
+  const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+  const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+  const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+  openGardenSheet({
+    icon: '🧺',
+    title: "Today's market",
+    body: `
+      ${f ? `<p><b>${f.emoji} ${f.name}</b> is fetching a premium today — <b>+${fPct}%</b> on every harvest.</p>` : '<p>The stall is quiet today.</p>'}
+      ${s ? `<p>${s.emoji} ${s.name} is everywhere right now — <b>−${sPct}%</b> until tomorrow.</p>` : ''}
+      <p class="gs-reassure">The stall restocks at midnight. Prices are a gentle nudge, never a must.</p>`,
+  });
+};
+document.getElementById('laneBoard').onclick = () => switchTab('contracts');
+document.getElementById('laneMail').onclick = () => {
+  if ((state.pendingPacks || 0) > 0) openPackModal();
+  else switchTab('cards');
+};
+document.getElementById('laneCottage').onclick = () => switchTab('cards');
+// Inside the cottage, its two rooms cross-link (the tab bar only shows Home
+// + Settings now — these are how you move between Collection and Journal).
+document.getElementById('cottageToJournal').onclick = () => switchTab('journal');
+document.getElementById('cottageToCards').onclick = () => switchTab('cards');
 
 // Generic gentle toast (reuses the tend-toast visual) for first-time notes
 // and "what just happened" moment cards. Non-blocking, auto-dismiss.
@@ -9899,6 +10053,7 @@ function render() {
 
   // contextual surfaces (replaced the always-on Dashboard strip)
   renderFarmMarket();
+  refreshGardenLane();
   renderBoonFab();
   renderTendFab();
   renderTodayPanel();
@@ -10166,6 +10321,7 @@ function tick(now) {
     renderBoonFab();
     renderTendFab();
     renderTabBadges();
+    refreshGardenLane();
   }
   // Contracts-tab freshness WITHOUT rebuilding a panel the player may be
   // mid-tap on (patient contracts have no countdowns — the old 30s rebuild
