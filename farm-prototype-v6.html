@@ -3476,8 +3476,17 @@ body.calm-state #tab-farm {
   position: relative; z-index: 2;
   background: rgba(80, 60, 35, 0.55);
   border-radius: 999px;
-  padding: 2px 8px;
   align-self: flex-start;
+  /* just the bed number now — a small soil tag, so it can never collide
+     with the yield chip on a 100px bed */
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0;
+  overflow: hidden;
 }
 .plot .plot-info { color: rgba(254, 252, 247, 0.95); font-size: 11px; }
 .plot .plot-info span {
@@ -3550,7 +3559,7 @@ body.calm-state #tab-farm {
 :root[data-theme="dark"] #farmYard .farm-market-strip { background: rgba(31, 41, 33, 0.82); }
 /* the day's-mood pill: solid enough to read, big enough to tap, never
    theme-invisible (literal cream — dark theme remaps var(--cream) to near-black) */
-.yard-moment { background: rgba(254, 252, 247, 0.85); padding: 5px 12px; }
+.yard-moment { background: rgba(254, 252, 247, 0.85); padding: 5px 12px; max-width: 56%; font-size: 10.5px; }
 :root[data-theme="dark"] .yard-moment, #farmYard[data-daypart="night"] .yard-moment {
   background: rgba(31, 41, 33, 0.75);
   color: #FBF6E9;
@@ -9895,6 +9904,19 @@ function readyLabelForPlot(plot) {
   return 'ready to harvest';
 }
 
+// Compact form for the 100px bed face — the full sentence belongs to the
+// peek sheet; the chip just needs "✓" plus the one live number that matters.
+function faceReadyLabel(plot) {
+  if (!plot || !isReady(plot)) return 'ready';
+  const overripeRealSec = (plot.elapsedMs - plot.totalMs) / Math.max(1, state.speed) / 1000;
+  if (plot.flags && plot.flags.skillWindow10) {
+    const left = PEAK_RIPENESS_WINDOW_SEC - overripeRealSec;
+    return left > 0 ? `✓ ${Math.ceil(left)}s window` : '✓ ready';
+  }
+  if (plot.flags && plot.flags.skillFerment) return `✓ ${getFermentBonusText(plot)}`;
+  return '✓ ready';
+}
+
 function render() {
   document.getElementById('moneyValue').textContent = fmtMoney(state.money);
 
@@ -9994,7 +10016,7 @@ function render() {
         : '';
       const labelHtml = `
         <div class="plot-label">
-          <span>plot ${i + 1}</span>
+          <span>${i + 1}</span>
         </div>
       `;
 
@@ -10072,7 +10094,7 @@ function render() {
             <div class="progress-fill" style="width: ${prog * 100}%"></div>
           </div>
           <div class="plot-info">
-            <span>${ready ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left'}</span>
+            <span>${ready ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left'}</span>
             <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
           </div>
           ${(() => {
@@ -10269,7 +10291,7 @@ function restyleReadyPlots() {
       const fill = el.querySelector('.progress-fill');
       if (fill) fill.style.width = '100%';
       const info = el.querySelector('.plot-info');
-      if (info && info.children.length >= 1) info.children[0].textContent = readyLabelForPlot(plot);
+      if (info && info.children.length >= 1) info.children[0].textContent = faceReadyLabel(plot);
       if (!actions.querySelector('.btn-harvest')) {
         const hb = document.createElement('button');
         hb.className = 'btn btn-harvest';
@@ -10328,11 +10350,9 @@ function updatePlotTick(plot) {
   const info = plotEl.querySelector('.plot-info');
   if (info && info.children.length >= 2) {
     const remain = plot.totalMs - plot.elapsedMs;
-    // Slow Ferment's accruing +% rides the face time chip — the buff chips
-    // that used to carry it are hidden, and a ready bed can't open the sheet.
-    info.children[0].textContent = isReady(plot)
-      ? readyLabelForPlot(plot) + (plot.flags && plot.flags.skillFerment ? ' · ' + getFermentBonusText(plot) : '')
-      : fmtTimeRemaining(remain) + ' left';
+    // Compact face chip ("✓ +56%" / "✓ 12s window") — it must fit a 100px
+    // bed; the peek sheet carries the full sentence.
+    info.children[0].textContent = isReady(plot) ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left';
   }
   // live "next boon in Xm" whisper — without this it freezes at whatever
   // render() last wrote (full renders only happen on user actions now)
