@@ -3652,39 +3652,59 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 }
 #gardenLane[hidden] { display: none !important; }
 @keyframes laneFadeIn { from { opacity: 0; transform: translateY(6px); } }
+/* Lane objects are OBJECTS now, not buttons: the emoji IS the thing, standing
+   on the drawn path with a soft ground shadow. (The cream button-cards read
+   as a toolbar floating over a painting.) */
 .lane-obj {
   flex: 1;
   max-width: 96px;
   min-height: 64px;
-  border: 1px solid rgba(101, 78, 49, 0.4);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(254, 252, 247, 0.88), rgba(244, 238, 220, 0.82));
+  position: relative;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
-  padding: 6px 4px 5px;
+  padding: 4px 4px 6px;
   cursor: pointer;
-  box-shadow: 0 2px 5px rgba(60, 50, 30, 0.18);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease;
 }
-.lane-obj:hover { transform: translateY(-2px); box-shadow: 0 4px 9px rgba(60, 50, 30, 0.22); }
-.lane-obj:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
-.lane-obj:nth-child(1) { transform: translateY(2px) rotate(-0.6deg); }
-.lane-obj:nth-child(2) { transform: translateY(-1px) rotate(0.4deg); }
-.lane-obj:nth-child(3) { transform: translateY(1px) rotate(0.7deg); }
-.lane-obj:nth-child(4) { transform: translateY(-2px) rotate(-0.4deg); }
+.lane-obj::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  width: 36px;
+  height: 8px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgba(60, 45, 25, 0.30), transparent 70%);
+  border-radius: 50%;
+  z-index: -1;
+}
+.lane-obj:hover { transform: translateY(-2px); }
+.lane-obj:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; border-radius: 8px; }
+.lane-obj:nth-child(1) { transform: translateY(2px) rotate(-1deg); }
+.lane-obj:nth-child(2) { transform: translateY(-1px) rotate(0.8deg); }
+.lane-obj:nth-child(3) { transform: translateY(1px) rotate(1.1deg); }
+.lane-obj:nth-child(4) { transform: translateY(-2px) rotate(-0.8deg); }
 .lane-obj:nth-child(1):hover, .lane-obj:nth-child(2):hover,
 .lane-obj:nth-child(3):hover, .lane-obj:nth-child(4):hover { transform: translateY(-2px); }
-:root[data-theme="dark"] .lane-obj { background: linear-gradient(180deg, rgba(40, 51, 42, 0.92), rgba(31, 41, 33, 0.88)); border-color: rgba(182, 203, 160, 0.25); }
-.lane-icon { font-size: 20px; line-height: 1.1; }
-.lane-face { font-family: var(--mono); font-size: 10px; color: var(--moss); min-height: 13px; }
-.lane-label { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sage); }
-/* something is waiting — a warm glow, never an alarm */
-.lane-obj.has-alert {
-  border-color: rgba(212, 160, 44, 0.65);
-  box-shadow: 0 0 10px rgba(244, 193, 71, 0.4), 0 2px 5px rgba(60, 50, 30, 0.18);
+.lane-icon { font-size: 27px; line-height: 1.1; filter: drop-shadow(0 2px 2px rgba(60, 45, 25, 0.30)); }
+.lane-face {
+  font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--forest);
+  min-height: 14px; background: rgba(254, 252, 247, 0.6); border-radius: 999px; padding: 0 6px;
 }
+:root[data-theme="dark"] .lane-face, #farmYard[data-daypart="night"] .lane-face { background: rgba(31, 41, 33, 0.65); color: #FBF6E9; }
+.lane-label { font-family: var(--mono); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sage); }
+#farmYard[data-daypart="night"] .lane-label, :root[data-theme="dark"] .lane-label { color: rgba(251, 246, 233, 0.6); }
+/* something is waiting — the OBJECT glows warm, never an alarm */
+.lane-obj.has-alert { border: none; box-shadow: none; }
+.lane-obj.has-alert .lane-icon { filter: drop-shadow(0 0 9px rgba(244, 193, 71, 0.9)) drop-shadow(0 2px 2px rgba(60, 45, 25, 0.25)); }
+/* tuck the drawn horizon up behind the lane so the objects stand ON the path */
+#gardenLane { position: relative; z-index: 2; }
+#gardenLane:not([hidden]) ~ #sceneWrap { margin-top: -30px; }
 /* the stall face owns the market headline now — retire the in-yard strip */
 #farmYard .farm-market-strip { display: none; }
 /* the cottage's two rooms cross-link at the top of each page */
@@ -3735,7 +3755,8 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 #gardenScene .land { fill: url(#grassGrad); }
 #gardenScene .dirt-path { fill: rgba(122, 96, 60, 0.30); }
 #gardenScene .tuft { fill: none; stroke: rgba(60, 90, 50, 0.5); stroke-width: 1.2; stroke-linecap: round; }
-:root[data-theme="dark"] #gardenScene .tuft { stroke: rgba(160, 190, 140, 0.35); }
+:root[data-theme="dark"] #gardenScene .tuft,
+#farmYard[data-daypart="night"] #gardenScene .tuft { stroke: rgba(160, 190, 140, 0.35); }
 /* beds */
 #gardenScene .dirt { fill: url(#soilGrad); stroke: rgba(80, 60, 35, 0.55); stroke-width: 1.4; stroke-linejoin: round; }
 #gardenScene .furrow { fill: none; stroke: rgba(80, 60, 35, 0.38); stroke-width: 1.6; stroke-linecap: round; }
@@ -3745,13 +3766,39 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 #gardenScene .leaf { fill: #5E8A50; }
 #gardenScene .leaf2 { fill: #527C46; }
 #gardenScene .leaf3 { fill: #6B9A5B; }
-#farmYard[data-daypart="night"] #gardenScene .leaf,
-:root[data-theme="dark"] #gardenScene .leaf { fill: #44663C; }
-#farmYard[data-daypart="night"] #gardenScene .leaf2,
-:root[data-theme="dark"] #gardenScene .leaf2 { fill: #3B5934; }
-#farmYard[data-daypart="night"] #gardenScene .leaf3,
-:root[data-theme="dark"] #gardenScene .leaf3 { fill: #507247; }
+/* per-crop foliage hues — the garden reads as DIFFERENT crops at a glance,
+   not one mono-plant until the emoji pops */
+#gardenScene .bed[data-crop="wheat"] .leaf,  #gardenScene .bed[data-crop="corn"] .leaf,  #gardenScene .bed[data-crop="sunflower"] .leaf  { fill: #8A9A48; }
+#gardenScene .bed[data-crop="wheat"] .leaf2, #gardenScene .bed[data-crop="corn"] .leaf2, #gardenScene .bed[data-crop="sunflower"] .leaf2 { fill: #7A8A3E; }
+#gardenScene .bed[data-crop="wheat"] .leaf3, #gardenScene .bed[data-crop="corn"] .leaf3, #gardenScene .bed[data-crop="sunflower"] .leaf3 { fill: #9AAB56; }
+#gardenScene .bed[data-crop="tomato"] .leaf,  #gardenScene .bed[data-crop="strawberry"] .leaf,  #gardenScene .bed[data-crop="pumpkin"] .leaf  { fill: #3F6B3F; }
+#gardenScene .bed[data-crop="tomato"] .leaf2, #gardenScene .bed[data-crop="strawberry"] .leaf2, #gardenScene .bed[data-crop="pumpkin"] .leaf2 { fill: #356033; }
+#gardenScene .bed[data-crop="tomato"] .leaf3, #gardenScene .bed[data-crop="strawberry"] .leaf3, #gardenScene .bed[data-crop="pumpkin"] .leaf3 { fill: #4E7A4A; }
+#gardenScene .bed[data-crop="carrot"] .leaf  { fill: #66A04E; }
+#gardenScene .bed[data-crop="carrot"] .leaf3 { fill: #79B25C; }
+/* harmony enriches the greens — but only in daylight (see night rules below) */
 #farmYard[data-harmony="3"] #gardenScene .leaf { fill: #62954F; }
+/* night/dark always win over crop hues and harmony (these come LAST on
+   purpose — a harmony-3 garden at night was growing one daylight-green leaf
+   per plant) */
+#farmYard[data-daypart="night"] #gardenScene .bed .leaf,
+:root[data-theme="dark"] #gardenScene .bed .leaf { fill: #44663C; }
+#farmYard[data-daypart="night"] #gardenScene .bed .leaf2,
+:root[data-theme="dark"] #gardenScene .bed .leaf2 { fill: #3B5934; }
+#farmYard[data-daypart="night"] #gardenScene .bed .leaf3,
+:root[data-theme="dark"] #gardenScene .bed .leaf3 { fill: #507247; }
+/* grounding: cast shadow + soil speckles */
+#gardenScene .bed-shadow { fill: rgba(60, 45, 25, 0.18); }
+#gardenScene .speck { fill: rgba(80, 60, 35, 0.45); }
+/* the top-decile harvest celebrates IN the scene */
+#gardenScene .perfect-star { opacity: 0; }
+#gardenScene .bed.perfect .perfect-star { opacity: 1; animation: perfectTwinkle 2.2s ease-in-out infinite; }
+#gardenScene .bed.perfect .under-glow { opacity: 1; }
+@keyframes perfectTwinkle {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-3px) scale(1.25); }
+}
+#gardenScene .fx-sun-rays { fill: none; stroke: rgba(244, 193, 71, 0.7); stroke-width: 1.6; stroke-linecap: round; }
 /* the whole cluster sways like a breeze is moving through */
 #gardenScene .plants { transform-box: fill-box; transform-origin: 50% 100%; animation: sceneSway 4.8s ease-in-out infinite; }
 #gardenScene .bed:nth-child(2n) .plants { animation-delay: -1.8s; animation-duration: 5.4s; }
@@ -9384,6 +9431,12 @@ function switchTab(name) {
   });
   state.activeTab = name;
   if (name === 'cards' || name === 'journal') state._cottageRoom = name;
+  // catch-up: growth/flips that happened while the farm was hidden paint now
+  if (name === 'farm' && _farmSceneDirty) {
+    _farmSceneDirty = false;
+    restyleReadyPlots();
+    state.plots.forEach(p => { if (!p.locked && p.crop) updateBedScene(p); });
+  }
   // scroll to top so player isn't dropped mid-page when switching
   window.scrollTo({ top: 0, behavior: 'instant' });
   // Tend FAB is Farm-tab-only — refresh its visibility immediately on switch
@@ -10023,6 +10076,11 @@ function faceReadyLabel(plot) {
 // Rebuilt on user-action render()s only; per-frame growth + structural flips
 // go through updateBedScene()/syncBedSceneStructural() — in-place, gotcha-safe.
 let _sceneRefs = {};
+// The old card grid is display:none but still BUILT on renders (cheap,
+// action-time). Its per-FRAME updates are pure waste now (~48 full-document
+// querySelector scans/frame against an invisible subtree, per the perf
+// audit) — this flag retires that path while keeping it resurrectable.
+const LEGACY_GRID_ACTIVE = false;
 
 function _scenePlantHTML(px, py, k) {
   // one plant: three leaves fanning from the base; the fruit (crop emoji)
@@ -10045,7 +10103,7 @@ function renderGardenScene() {
   const firstLockedIdx = state.plots.findIndex(p => p.locked);
   const visible = state.plots.filter((p, i) => !p.locked || i === firstLockedIdx);
   const rows = Math.max(1, Math.ceil(visible.length / 3));
-  const H = 64 + rows * 84 + 22;
+  const H = 64 + rows * 88 + 22;
   const ROW_SCALE = [1, 0.88, 0.78];
 
   let beds = '';
@@ -10057,7 +10115,9 @@ function renderGardenScene() {
     const sc = ROW_SCALE[Math.min(r, 2)];
     const colX = [64, 180, 296][c];
     const cx = 180 + (colX - 180) * (1 - r * 0.1);
-    const cy = H - 48 - r * 80;
+    const cy = H - 48 - r * 88;
+    // chips counter-scale so their text stays constant screen-size on back rows
+    const cs = (1 / sc).toFixed(3);
     const quad = 'M -42 -28 L 42 -28 L 54 28 L -54 28 Z';
     const furrows = [-12, 2, 16].map(y => `<path class="furrow" d="M -${44 - (y < 0 ? 6 : 0)} ${y} q ${44} 4 ${88 - (y < 0 ? 12 : 0)} 0"/>`).join('');
 
@@ -10092,25 +10152,31 @@ function renderGardenScene() {
     const spots = [[-28, -11, 0.86], [0, -11, 0.86], [28, -11, 0.86], [-33, 9, 1], [0, 9, 1], [33, 9, 1]];
     const plants = crop ? `<g class="plants">${spots.map(([px, py, ps], n) => _scenePlantHTML(px, py, n)).join('')}</g>` : '';
     const fxRain = hasRain ? `<g class="fx-rain"><circle cx="-20" cy="-38" r="1.7"/><circle cx="2" cy="-44" r="1.4"/><circle cx="22" cy="-37" r="1.7"/></g>` : '';
-    const fxSun = hasSun ? `<ellipse class="fx-sun" cx="0" cy="-4" rx="50" ry="26"/>` : '';
+    // rays as well as the halo — gold-on-gold soil (dawn/golden) hid the halo alone
+    const fxSun = hasSun ? `<g class="fx-sun-g"><ellipse class="fx-sun" cx="0" cy="-4" rx="50" ry="26"/><path class="fx-sun-rays" d="M -54 -16 l -7 -4 M 54 -16 l 7 -4 M -40 -28 l -5 -7 M 40 -28 l 5 -7 M 0 -34 l 0 -8"/></g>` : '';
     const fxGamble = hasGamble ? `<text class="fx-gamble" x="40" y="-20" font-size="10">✦</text>` : '';
 
+    const isPerfect = ready && effYield >= 5.0;
     beds += `
-      <g class="bed ${ready ? 'ready' : ''} ${crop ? 'growing' : 'empty'} ${topRarity}" data-bedid="${i}" transform="translate(${cx} ${cy}) scale(${sc})">
+      <g class="bed ${ready ? 'ready' : ''} ${crop ? 'growing' : 'empty'} ${topRarity} ${isPerfect ? 'perfect' : ''}" data-bedid="${i}" ${crop ? `data-crop="${p.crop}"` : ''} transform="translate(${cx} ${cy}) scale(${sc})">
         <ellipse class="under-glow" cx="0" cy="6" rx="58" ry="32"/>
+        <path class="bed-shadow" d="${quad}" transform="translate(3 4)"/>
         <path class="dirt" d="${quad}"/>
         ${furrows}
-        ${crop ? '' : `<text class="plus" y="6" text-anchor="middle" font-size="22">＋</text>`}
+        <circle class="speck" cx="-30" cy="-18" r="1"/><circle class="speck" cx="24" cy="-4" r="1.2"/><circle class="speck" cx="-14" cy="22" r="1"/><circle class="speck" cx="40" cy="20" r="1.1"/>
+        ${crop ? '' : `<text class="plus" y="8" text-anchor="middle" font-size="22">＋</text>`}
         ${fxSun}
         ${plants}
         ${fxRain}
         ${fxGamble}
-        <g class="chip time-chip" transform="translate(0 40)">
+        <text class="perfect-star" y="-28" text-anchor="middle" font-size="14">✨</text>
+        ${crop ? `
+        <g class="chip time-chip" transform="translate(0 ${40 * sc < 36 ? 36 : 40}) scale(${cs})">
           <rect x="-36" y="-9" width="72" height="15" rx="7.5"/>
           <text y="2.5" text-anchor="middle" font-size="9" class="chip-text"></text>
-        </g>
-        ${crop ? `
-        <g class="chip yield-chip" transform="translate(38 -36)">
+        </g>` : ''}
+        ${crop && Math.abs(effYield - 1) > 0.005 ? `
+        <g class="chip yield-chip" transform="translate(34 -30) scale(${cs})">
           <rect x="-19" y="-8" width="38" height="14" rx="7"/>
           <text y="2.5" text-anchor="middle" font-size="8.5" class="chip-text">×${effYield.toFixed(2)}</text>
         </g>` : ''}
@@ -10141,7 +10207,7 @@ function renderGardenScene() {
         <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
       </radialGradient>
       <radialGradient id="sunFxGrad" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="rgba(244,193,71,0.30)"/>
+        <stop offset="0%" stop-color="rgba(244,193,71,0.45)"/>
         <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
       </radialGradient>
     </defs>
@@ -10162,39 +10228,58 @@ function renderGardenScene() {
   wrap.querySelectorAll('.bed').forEach(g => {
     const i = parseInt(g.getAttribute('data-bedid') ?? g.getAttribute('data-plotid'), 10);
     if (isNaN(i)) return;
+    const plot = state.plots[i];
+    // cache everything the per-frame updater needs — no attribute reads or
+    // querySelectors inside the rAF path
     _sceneRefs[i] = {
       group: g,
       hit: g.querySelector('.bed-hit'),
-      plants: Array.from(g.querySelectorAll('.plant')),
+      plantsCached: Array.from(g.querySelectorAll('.plant')).map(el => ({
+        el, px: el.getAttribute('data-px'), py: el.getAttribute('data-py'),
+        back: parseFloat(el.getAttribute('data-py')) < 0,
+      })),
       fruits: Array.from(g.querySelectorAll('.fruit')),
       timeChip: g.querySelector('.time-chip .chip-text'),
       pipBoon: g.querySelector('.pip-boon'),
+      // a fat harvest reads at a glance: yield gently inflates the plants
+      // (baked at render — yield only changes via user actions)
+      yBoost: plot && plot.crop ? 1 + Math.min(0.22, Math.max(0, plot.yieldMult * getPermaYieldMultForPlot(i) - 1) * 0.08) : 1,
+      _lastS: null, _lastFruit: null, _lastChip: null,
     };
-    const plot = state.plots[i];
     if (plot && !plot.locked && plot.crop) updateBedScene(plot);
-    else if (plot && !plot.locked && _sceneRefs[i].timeChip) _sceneRefs[i].timeChip.textContent = 'tap to plant';
   });
 }
 
-// per-frame growth: plants scale with progress, fruits ripen in, chip ticks
+// per-frame growth: plants scale with progress, fruits ripen in, chip ticks.
+// Every write is guarded by a last-value cache — the scale string quantizes
+// to 3 decimals and the chip changes ~1×/sec, so most frames write NOTHING
+// (the QA panel measured ~12k wasted DOM ops/sec without these guards).
 function updateBedScene(plot) {
   const refs = _sceneRefs[plot.id];
   if (!refs || !plot.crop) return;
   const prog = progressOf(plot);
   const ready = isReady(plot);
-  const s = 0.45 + Math.min(1, prog) * 0.65;
-  refs.plants.forEach(pl => {
-    const px = pl.getAttribute('data-px'), py = pl.getAttribute('data-py');
-    pl.setAttribute('transform', `translate(${px} ${py}) scale(${(py < 0 ? s * 0.86 : s).toFixed(3)})`);
-  });
-  const fruitOn = ready || prog >= 0.82;
-  const emoji = CROPS[plot.crop].emoji;
-  refs.fruits.forEach(f => {
-    if (f.textContent !== emoji) f.textContent = emoji;
-    f.setAttribute('opacity', fruitOn ? (ready ? '1' : '0.85') : '0');
-  });
+  const s = (0.45 + Math.min(1, prog) * 0.65) * (refs.yBoost || 1);
+  const sKey = s.toFixed(3);
+  if (refs._lastS !== sKey) {
+    refs._lastS = sKey;
+    const sBack = (s * 0.86).toFixed(3);
+    for (const p of refs.plantsCached) {
+      p.el.setAttribute('transform', `translate(${p.px} ${p.py}) scale(${p.back ? sBack : sKey})`);
+    }
+  }
+  const fruitState = ready ? 2 : (prog >= 0.82 ? 1 : 0);
+  if (refs._lastFruit !== fruitState) {
+    refs._lastFruit = fruitState;
+    const emoji = CROPS[plot.crop].emoji;
+    refs.fruits.forEach(f => {
+      if (f.textContent !== emoji) f.textContent = emoji;
+      f.setAttribute('opacity', fruitState === 2 ? '1' : fruitState === 1 ? '0.85' : '0');
+    });
+  }
   if (refs.timeChip) {
-    refs.timeChip.textContent = ready ? faceReadyLabel(plot) : fmtTimeRemaining(plot.totalMs - plot.elapsedMs) + ' left';
+    const t = ready ? faceReadyLabel(plot) : fmtTimeRemaining(plot.totalMs - plot.elapsedMs) + ' left';
+    if (refs._lastChip !== t) { refs._lastChip = t; refs.timeChip.textContent = t; }
   }
 }
 
@@ -10204,17 +10289,19 @@ function syncBedSceneStructural(plot, i, ready, picks) {
   if (!refs) return;
   if (ready && !refs.group.classList.contains('ready')) {
     refs.group.classList.add('ready');
+    // the top-decile celebration lives in the scene now, not the hidden cards
+    if (plot.yieldMult * getPermaYieldMultForPlot(i) >= 5.0) refs.group.classList.add('perfect');
     if (refs.hit) refs.hit.setAttribute('aria-label', `bed ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`);
   }
   if (refs.pipBoon) refs.pipBoon.classList.toggle('on', picks > 0);
   updateBedScene(plot);
 }
 
-// the bed anchor for floats/juice — scene first, hidden card as fallback
+// the bed anchor for floats/juice — scene only. (No hidden-card fallback: a
+// display:none node returns a zeroed rect and fires juice at the screen
+// corner — callers all guard against null.)
 function bedAnchorEl(i) {
-  return (_sceneRefs[i] && _sceneRefs[i].hit)
-    || document.querySelector(`.plot[data-plotid="${i}"] .crop-visual-wrap`)
-    || document.querySelector(`.plot[data-plotid="${i}"]`);
+  return (_sceneRefs[i] && _sceneRefs[i].hit) || null;
 }
 
 // tap + keyboard routing on the scene (same three verbs as the grid)
@@ -10596,6 +10683,8 @@ function restyleReadyPlots() {
     if (!el || el.classList.contains('locked')) return;
     const ready = isReady(plot);
     const picks = picksAvailable(plot);
+    // legacy grid retired: structural flips go straight to the drawn scene
+    if (!LEGACY_GRID_ACTIVE) { syncBedSceneStructural(plot, i, ready, picks); return; }
     const actions = el.querySelector('.plot-actions');
     if (!actions) return;
 
@@ -10665,6 +10754,9 @@ function restyleReadyPlots() {
 function updatePlotTick(plot) {
   // the drawn scene grows every frame (plants scale, fruits ripen, chip ticks)
   updateBedScene(plot);
+  _syncPeekForPlot(plot);
+  // everything below writes into the display:none card grid — retired
+  if (!LEGACY_GRID_ACTIVE) return;
   const plotEl = document.querySelector(`.plot[data-plotid="${plot.id}"]`);
   if (!plotEl) return;
   const fill = plotEl.querySelector('.progress-fill');
@@ -10701,8 +10793,12 @@ function updatePlotTick(plot) {
     const fermentEl = plotEl.querySelector('.ferment-bonus');
     if (fermentEl) fermentEl.textContent = getFermentBonusText(plot);
   }
-  // peek-sheet sync: if this plot's sheet is open, its countdown/ferment tick
-  // too, and ripening swaps the CTA to Harvest — the sheet never goes stale.
+}
+
+// peek-sheet sync: if this plot's sheet is open, its countdown/ferment tick
+// too, and ripening swaps the CTA to Harvest — the sheet never goes stale.
+// (Runs from updatePlotTick regardless of the legacy-grid flag.)
+function _syncPeekForPlot(plot) {
   if (state._peekPlotId === plot.id) {
     const pm = document.getElementById('plotPeekModal');
     if (pm && !pm.hidden) {
@@ -10733,6 +10829,7 @@ function updatePlotTick(plot) {
 }
 
 let _lastContractTickRender = 0;
+let _farmSceneDirty = false; // growth/flips happened while off the farm tab
 function tick(now) {
   const dt = now - state.lastTick;
   state.lastTick = now;
@@ -10756,12 +10853,12 @@ function tick(now) {
     if (wasReady !== isNowReady || wasPicks !== nowPicks) {
       structuralChange = true;
     }
-    // ALWAYS run the in-place updater — including on the flip frame. Without
-    // this, a normal crop's ready flip skipped updatePlotTick, elapsedMs then
-    // clamped forever, and an open peek sheet froze at "0s left" with no
-    // Harvest CTA. (The crop-visual write inside is !isReady-guarded, so it
-    // never fights restyleReadyPlots' finalization.)
-    updatePlotTick(plot);
+    // ALWAYS run the in-place updater on the farm — including on the flip
+    // frame (an open peek sheet would otherwise freeze at "0s left" with no
+    // Harvest CTA). Off the farm tab, skip the DOM work entirely (it paints
+    // an invisible subtree) and mark the scene dirty for a catch-up pass.
+    if (state.activeTab === 'farm') updatePlotTick(plot);
+    else _farmSceneDirty = true;
   }
   // GOTCHA FIX: a ready-flip or pick-landing used to trigger a full render()
   // — an innerHTML rebuild of the whole grid that ate any in-flight tap, and
