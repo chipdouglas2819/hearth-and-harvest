@@ -3682,6 +3682,28 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 .lane-obj:nth-child(1):hover, .lane-obj:nth-child(2):hover,
 .lane-obj:nth-child(3):hover, .lane-obj:nth-child(4):hover { transform: translateY(-2px); }
 .lane-icon { font-size: 27px; line-height: 1.1; filter: drop-shadow(0 2px 2px rgba(60, 45, 25, 0.30)); }
+/* drawn buildings (little SVG structures, not emoji) */
+.lane-icon svg { width: 36px; height: 31px; display: block; }
+.lane-icon .b-wood { fill: #8A6B43; }
+.lane-icon .b-counter { fill: #A07F52; }
+.lane-icon .b-awning { fill: #C96F4A; }
+.lane-icon .b-awning-stripes { stroke: rgba(251, 246, 233, 0.85); stroke-width: 2.6; fill: none; }
+.lane-icon .b-frame { fill: #A07F52; stroke: #6B5232; stroke-width: 1.4; }
+.lane-icon .b-paper { fill: #FBF6E9; stroke: rgba(107, 82, 50, 0.4); stroke-width: 0.7; }
+.lane-icon .b-box { fill: #7B9A60; stroke: #5C7547; stroke-width: 1.2; }
+.lane-icon .b-slot { fill: rgba(27, 35, 29, 0.45); }
+.lane-icon .mb-flag { fill: #C96F4A; transform-box: fill-box; transform-origin: 32px 8px; transform: rotate(118deg); transition: transform 0.5s ease; }
+#laneMail.has-alert .mb-flag { transform: rotate(0deg); }
+.lane-icon .b-wall { fill: #E8DCC2; stroke: #8A6B43; stroke-width: 1.2; }
+.lane-icon .b-roof { fill: #A0563C; }
+.lane-icon .b-door { fill: #7B5A36; }
+.lane-icon .b-win { fill: #C9D8E4; stroke: #8A6B43; stroke-width: 1; transition: fill 1s ease; }
+/* the cottage lights its window after dark — somebody's home */
+#farmYard[data-daypart="night"] .lane-icon .b-win,
+#farmYard[data-daypart="dusk"] .lane-icon .b-win,
+:root[data-theme="dark"] .lane-icon .b-win { fill: #F4C147; filter: drop-shadow(0 0 4px rgba(244, 193, 71, 0.8)); }
+:root[data-theme="dark"] .lane-icon .b-wall { fill: #4A4436; }
+:root[data-theme="dark"] .lane-icon .b-paper { fill: #D8D2C0; }
 .lane-face {
   font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--forest);
   min-height: 14px; background: rgba(254, 252, 247, 0.6); border-radius: 999px; padding: 0 6px;
@@ -3845,6 +3867,53 @@ body.calm-state #gardenScene .plants { animation-duration: 8s; }
 /* the bed's tap target: invisible, generous, focusable */
 #gardenScene .bed-hit { fill: transparent; cursor: pointer; outline: none; }
 #gardenScene .bed-hit:focus-visible { stroke: var(--moss); stroke-width: 2; stroke-dasharray: 4 3; }
+/* ===== the day's weather paints the scene (pure ambiance) ===== */
+#gardenScene .weather-fog, #gardenScene .weather-rain-sky, #gardenScene .weather-dew,
+#gardenScene .weather-warm, #gardenScene .weather-robin { display: none; pointer-events: none; }
+#farmYard[data-weather="mist"] #gardenScene .weather-fog { display: block; }
+#gardenScene .weather-fog ellipse { fill: rgba(254, 252, 247, 0.30); }
+:root[data-theme="dark"] #gardenScene .weather-fog ellipse, #farmYard[data-daypart="night"] #gardenScene .weather-fog ellipse { fill: rgba(220, 228, 214, 0.16); }
+#gardenScene .fog1 { animation: fogDrift 16s ease-in-out infinite alternate; }
+#gardenScene .fog2 { animation: fogDrift 21s ease-in-out infinite alternate-reverse; }
+@keyframes fogDrift { from { transform: translateX(-14px); } to { transform: translateX(14px); } }
+#farmYard[data-weather="rain"] #gardenScene .weather-rain-sky { display: block; }
+#gardenScene .weather-rain-sky line { stroke: rgba(110, 160, 210, 0.55); stroke-width: 1.3; stroke-linecap: round; }
+#gardenScene .weather-rain-sky { animation: skyRain 1.6s linear infinite; }
+@keyframes skyRain {
+  0%   { transform: translateY(-12px); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: translateY(26px); opacity: 0; }
+}
+#farmYard[data-weather="dew"] #gardenScene .weather-dew { display: block; }
+#gardenScene .weather-dew circle { fill: rgba(254, 252, 247, 0.85); animation: dewTwinkle 3.4s ease-in-out infinite; }
+#gardenScene .weather-dew circle:nth-child(2) { animation-delay: -1.2s; }
+#gardenScene .weather-dew circle:nth-child(3) { animation-delay: -2.2s; }
+#gardenScene .weather-dew circle:nth-child(4) { animation-delay: -0.6s; }
+@keyframes dewTwinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+#farmYard[data-weather="golden"] #gardenScene .weather-warm,
+#farmYard[data-weather="soft"] #gardenScene .weather-warm { display: block; opacity: 0.5; }
+#farmYard[data-weather="soft"] #gardenScene .weather-warm { opacity: 0.25; }
+#farmYard[data-weather="robin"] #gardenScene .weather-robin { display: block; }
+#farmYard[data-weather="butterfly"] #gardenScene .butterfly { display: block; animation: butterflyFloat 7s ease-in-out infinite; }
+#farmYard[data-weather="breeze"] #gardenScene .plants { animation-duration: 3s; }
+/* ===== wellness, visible: a breath washes the garden in soft gold ===== */
+#gardenScene .calm-wash { opacity: 0; transition: opacity 2s ease; pointer-events: none; }
+body.calm-state #gardenScene .calm-wash { opacity: 0.55; }
+#gardenScene .calm-motes { display: none; pointer-events: none; }
+body.calm-state #gardenScene .calm-motes { display: block; }
+#gardenScene .mote { fill: rgba(244, 193, 71, 0.75); }
+#gardenScene .m1 { animation: moteFloat 9s ease-in-out infinite; }
+#gardenScene .m2 { animation: moteFloat 11s ease-in-out infinite; animation-delay: -4s; }
+#gardenScene .m3 { animation: moteFloat 10s ease-in-out infinite; animation-delay: -7s; }
+@keyframes moteFloat {
+  0%, 100% { transform: translate(0, 0); opacity: 0.2; }
+  25%      { transform: translate(8px, -10px); opacity: 0.9; }
+  55%      { transform: translate(-6px, -20px); opacity: 0.6; }
+  80%      { transform: translate(5px, -8px); opacity: 0.9; }
+}
+/* second rain group + glint offset so boon weather feels alive, not metronomic */
+#gardenScene .fx-rain-b { animation-delay: -1.1s; }
+#gardenScene .fx-gamble-b { animation-delay: -1.4s; }
 /* harmony lives in the land: flowers gather, then a butterfly */
 #gardenScene .wildflowers { display: none; }
 #farmYard[data-harmony="2"] #gardenScene .wf-a { display: block; }
@@ -3868,7 +3937,12 @@ body.calm-state #gardenScene .plants { animation-duration: 8s; }
   #gardenScene .bed.ready .plants,
   #gardenScene .fx-rain,
   #gardenScene .fx-gamble,
-  #gardenScene .butterfly { animation: none !important; }
+  #gardenScene .butterfly,
+  #gardenScene .fog1, #gardenScene .fog2,
+  #gardenScene .weather-rain-sky,
+  #gardenScene .weather-dew circle,
+  #gardenScene .mote,
+  #gardenScene .bed.perfect .perfect-star { animation: none !important; }
   .plot.ready .crop-visual,
   .plot.perfect-harvest .crop-visual-wrap::after,
   .plot.mythic-active,
@@ -3904,22 +3978,42 @@ body.calm-state #gardenScene .plants { animation-duration: 8s; }
            updated in place — never innerHTML'd by a timer. -->
       <div id="gardenLane" hidden>
         <button class="lane-obj" id="laneStall" aria-label="Market stall — today's prices">
-          <span class="lane-icon" aria-hidden="true">🧺</span>
+          <span class="lane-icon" aria-hidden="true"><svg viewBox="0 0 40 34">
+            <rect class="b-wood" x="8" y="17" width="3" height="14"/><rect class="b-wood" x="29" y="17" width="3" height="14"/>
+            <rect class="b-counter" x="6" y="22" width="28" height="6" rx="2"/>
+            <path class="b-awning" d="M 4 17 L 9 6 L 31 6 L 36 17 Z"/>
+            <path class="b-awning-stripes" d="M 13 7 L 11 16 M 20 6.6 L 20 16 M 27 7 L 29 16"/>
+          </svg></span>
           <span class="lane-face" id="stallFace"></span>
           <span class="lane-label">market</span>
         </button>
         <button class="lane-obj" id="laneBoard" aria-label="Noticeboard — village requests">
-          <span class="lane-icon" aria-hidden="true">📋</span>
+          <span class="lane-icon" aria-hidden="true"><svg viewBox="0 0 40 34">
+            <rect class="b-wood" x="10" y="20" width="3" height="12"/><rect class="b-wood" x="27" y="20" width="3" height="12"/>
+            <rect class="b-frame" x="5" y="4" width="30" height="18" rx="2.5"/>
+            <rect class="b-paper" x="9" y="7.5" width="8.5" height="10"/>
+            <rect class="b-paper" x="21" y="8" width="8.5" height="10" transform="rotate(5 25 13)"/>
+          </svg></span>
           <span class="lane-face" id="boardFace"></span>
           <span class="lane-label">requests</span>
         </button>
         <button class="lane-obj" id="laneMail" aria-label="Mailbox — card packs">
-          <span class="lane-icon" id="mailIcon" aria-hidden="true">📪</span>
+          <span class="lane-icon" id="mailIcon" aria-hidden="true"><svg viewBox="0 0 40 34">
+            <rect class="b-wood" x="18" y="17" width="4" height="15"/>
+            <rect class="b-box" x="7" y="5" width="26" height="13" rx="6.5"/>
+            <rect class="b-slot" x="12" y="10" width="11" height="3" rx="1.5"/>
+            <g class="mb-flag"><rect x="31" y="-3" width="2.6" height="11" rx="1.2"/><path d="M 33.5 -3 L 39 -0.5 L 33.5 2 Z"/></g>
+          </svg></span>
           <span class="lane-face" id="mailFace"></span>
           <span class="lane-label">mailbox</span>
         </button>
         <button class="lane-obj" id="laneCottage" aria-label="The cottage — your collection and journal">
-          <span class="lane-icon" aria-hidden="true">🏡</span>
+          <span class="lane-icon" aria-hidden="true"><svg viewBox="0 0 40 34">
+            <rect class="b-wall" x="8" y="14" width="24" height="17" rx="1.5"/>
+            <path class="b-roof" d="M 5 15.5 L 20 3 L 35 15.5 Z"/>
+            <rect class="b-door" x="22" y="21" width="7" height="10" rx="1.2"/>
+            <rect class="b-win" x="12" y="19" width="7" height="6.5" rx="1"/>
+          </svg></span>
           <span class="lane-face" id="cottageFace"></span>
           <span class="lane-label">cottage</span>
         </button>
@@ -5523,12 +5617,10 @@ function refreshGardenLane() {
     boardFace.textContent = active > 0 ? `${active} 📜` : (offers > 0 ? `${offers} new` : '·');
     document.getElementById('laneBoard').classList.toggle('has-alert', offers > 0 && slotsFree);
   }
-  // Mailbox: flag up + glow when a pack waits; quiet X/10 fill otherwise
-  const mailIcon = document.getElementById('mailIcon');
+  // Mailbox: the drawn flag swings up + the box glows when a pack waits
   const mailFace = document.getElementById('mailFace');
-  if (mailIcon && mailFace) {
+  if (mailFace) {
     const pending = state.pendingPacks || 0;
-    mailIcon.textContent = pending > 0 ? '📬' : '📪';
     mailFace.textContent = pending > 0 ? `${pending} 🎴` : `${state.totalHarvests % HARVESTS_PER_PACK}/${HARVESTS_PER_PACK}`;
     document.getElementById('laneMail').classList.toggle('has-alert', pending > 0);
   }
@@ -5674,15 +5766,18 @@ function addJournalEntry(text, key) {
 }
 
 // --- daily farm moment (the "what's different today" hook) ---
+// Each moment now carries a WEATHER KEY — the day's mood paints the actual
+// scene (mist banks, rain in the air, golden light, a robin on the fence),
+// not just a line of text. Still pure ambiance: nothing to manage.
 const DAILY_MOMENTS = [
-  '🌅 A still morning. Dew beads on every leaf.',
-  '🌤️ Soft light today — the garden seems to lean toward it.',
-  '🍃 A cool breeze moves through the rows.',
-  '🌫️ Light mist hangs low over the soil.',
-  '🐦 A robin visited at dawn and stayed a while.',
-  '☀️ The afternoon turns warm and golden.',
-  '🌧️ Rain is in the air.',
-  '🦋 A pale butterfly drifts between the plots.',
+  { key: 'dew',       text: '🌅 A still morning. Dew beads on every leaf.' },
+  { key: 'soft',      text: '🌤️ Soft light today — the garden seems to lean toward it.' },
+  { key: 'breeze',    text: '🍃 A cool breeze moves through the rows.' },
+  { key: 'mist',      text: '🌫️ Light mist hangs low over the soil.' },
+  { key: 'robin',     text: '🐦 A robin visited at dawn and stayed a while.' },
+  { key: 'golden',    text: '☀️ The afternoon turns warm and golden.' },
+  { key: 'rain',      text: '🌧️ Rain is in the air.' },
+  { key: 'butterfly', text: '🦋 A pale butterfly drifts between the plots.' },
 ];
 // Option B (honest ambiance): the daily moment is pure scenery — no hidden
 // effect. It lives in its own "Today" strip (see renderDailyMomentStrip), NOT
@@ -5691,7 +5786,9 @@ function rollDailyFarmMoment() {
   const today = getCurrentDayKey();
   if (state.dailyMomentDayKey === today) return;
   state.dailyMomentDayKey = today;
-  state.dailyMomentText = DAILY_MOMENTS[Math.floor(Math.random() * DAILY_MOMENTS.length)];
+  const m = DAILY_MOMENTS[Math.floor(Math.random() * DAILY_MOMENTS.length)];
+  state.dailyMomentText = m.text;
+  state.dailyMomentKey = m.key;
 }
 const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
 const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
@@ -6832,6 +6929,7 @@ function saveGame() {
       journalSeen: state.journalSeen || {},
       dailyMomentDayKey: state.dailyMomentDayKey || null,
       dailyMomentText: state.dailyMomentText || null,
+      dailyMomentKey: state.dailyMomentKey || null,
       savedAtMs: Date.now(),
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
@@ -6921,6 +7019,7 @@ function loadGame() {
     state.journalSeen = loaded.journalSeen || {};
     state.dailyMomentDayKey = loaded.dailyMomentDayKey || null;
     state.dailyMomentText = loaded.dailyMomentText || null;
+    state.dailyMomentKey = loaded.dailyMomentKey || null;
     state.activeTab = loaded.activeTab || 'farm';
     state.themeMode = loaded.themeMode || 'time';
 
@@ -9876,6 +9975,11 @@ function renderDailyMomentStrip() {
       yardLine.onclick = weatherSheet;
     }
   }
+  // …and the weather PAINTS the scene: mist banks, rain in the air, golden
+  // light, the robin on the fence. (Old saves without a key just get a clear
+  // day until the next midnight roll.)
+  const yard = document.getElementById('farmYard');
+  if (yard) yard.dataset.weather = state.dailyMomentKey || '';
 }
 
 // Updates tab-bar badges based on what needs attention.
@@ -10132,6 +10236,9 @@ function renderGardenScene() {
   const ROW_SCALE = [1, 0.88, 0.78];
 
   let beds = '';
+  // tap targets live in their OWN layer, built in plot order — so keyboard
+  // tabbing walks bed 1→2→3 even though the art renders back-row-first
+  const hits = [];
   // back rows first so the front row overlaps them (painter's order)
   const ordered = visible.map((p, k) => ({ p, k })).sort((a, b) => Math.floor(b.k / 3) - Math.floor(a.k / 3));
   for (const { p, k } of ordered) {
@@ -10149,16 +10256,16 @@ function renderGardenScene() {
     if (p.locked) {
       const cost = PLOT_COSTS[i];
       beds += `
-        <g class="bed locked" data-plotid="${i}" transform="translate(${cx} ${cy}) scale(${sc})">
+        <g class="bed locked" data-bedid="${i}" transform="translate(${cx} ${cy}) scale(${sc})">
           <path class="grasspatch" d="${quad}"/>
           <g class="sign">
             <rect x="-2" y="-14" width="4" height="22" rx="1.5" class="sign-post"/>
             <rect x="-30" y="-30" width="60" height="20" rx="4" class="sign-board"/>
             <text y="-16" text-anchor="middle" font-size="11" class="sign-text">◉ ${fmtMoney(cost)}</text>
           </g>
-          <rect class="bed-hit" x="-58" y="-34" width="116" height="78" tabindex="0" role="button"
-            aria-label="unclaimed bed — costs ${fmtMoney(cost)} coins, press to open the soil"/>
         </g>`;
+      hits[k] = `<rect class="bed-hit" transform="translate(${cx} ${cy}) scale(${sc})" x="-58" y="-34" width="116" height="78" tabindex="0" role="button" data-plotid="${i}"
+        aria-label="unclaimed bed — costs ${fmtMoney(cost)} coins, press to open the soil"/>`;
       continue;
     }
 
@@ -10178,10 +10285,14 @@ function renderGardenScene() {
     const shape = crop ? CROP_PLANT_SHAPE[p.crop] : null;
     const spots = [[-28, -11, 0.86], [0, -11, 0.86], [28, -11, 0.86], [-33, 9, 1], [0, 9, 1], [33, 9, 1]];
     const plants = crop ? `<g class="plants">${spots.map(([px, py, ps], n) => _scenePlantHTML(px, py, n, shape)).join('')}</g>` : '';
-    const fxRain = hasRain ? `<g class="fx-rain"><circle cx="-20" cy="-38" r="1.7"/><circle cx="2" cy="-44" r="1.4"/><circle cx="22" cy="-37" r="1.7"/></g>` : '';
+    // boon weather must be SEEN from across the yard, not squinted at
+    const fxRain = hasRain ? `
+      <g class="fx-rain"><circle cx="-26" cy="-40" r="1.8"/><circle cx="-4" cy="-46" r="1.5"/><circle cx="18" cy="-39" r="1.8"/></g>
+      <g class="fx-rain fx-rain-b"><circle cx="-14" cy="-44" r="1.5"/><circle cx="8" cy="-38" r="1.8"/><circle cx="28" cy="-45" r="1.4"/></g>` : '';
     // rays as well as the halo — gold-on-gold soil (dawn/golden) hid the halo alone
     const fxSun = hasSun ? `<g class="fx-sun-g"><ellipse class="fx-sun" cx="0" cy="-4" rx="50" ry="26"/><path class="fx-sun-rays" d="M -54 -16 l -7 -4 M 54 -16 l 7 -4 M -40 -28 l -5 -7 M 40 -28 l 5 -7 M 0 -34 l 0 -8"/></g>` : '';
-    const fxGamble = hasGamble ? `<text class="fx-gamble" x="40" y="-20" font-size="10">✦</text>` : '';
+    const fxGamble = hasGamble ? `<text class="fx-gamble" x="40" y="-20" font-size="10">✦</text><text class="fx-gamble fx-gamble-b" x="-42" y="-14" font-size="8">✦</text>` : '';
+    const aura = topRarity ? `<ellipse class="aura" cx="0" cy="-2" rx="50" ry="27" fill="url(#${topRarity === 'mythic' ? 'auraMythic' : 'auraGold'})"/>` : '';
 
     const isPerfect = ready && effYield >= 5.0;
     beds += `
@@ -10192,6 +10303,7 @@ function renderGardenScene() {
         ${furrows}
         <circle class="speck" cx="-30" cy="-18" r="1"/><circle class="speck" cx="24" cy="-4" r="1.2"/><circle class="speck" cx="-14" cy="22" r="1"/><circle class="speck" cx="40" cy="20" r="1.1"/>
         ${crop ? '' : `<text class="plus" y="8" text-anchor="middle" font-size="22">＋</text>`}
+        ${aura}
         ${fxSun}
         ${plants}
         ${fxRain}
@@ -10209,11 +10321,11 @@ function renderGardenScene() {
         </g>` : ''}
         <text class="pip pip-boon ${picks > 0 ? 'on' : ''}" x="-44" y="-30" font-size="12">⭐</text>
         <text class="pip pip-contract ${crop && isCropWantedByContract(p.crop) ? 'on' : ''}" x="44" y="34" font-size="12">📜</text>
-        <rect class="bed-hit" x="-58" y="-40" width="116" height="86" tabindex="0" role="button" data-plotid="${i}"
-          aria-label="${!crop ? `bed ${i + 1} — tilled and waiting, press to plant`
-            : ready ? `bed ${i + 1} — ${crop.name} ready, press to harvest`
-            : `bed ${i + 1} — ${crop.name} growing, press for details`}"/>
       </g>`;
+    hits[k] = `<rect class="bed-hit" transform="translate(${cx} ${cy}) scale(${sc})" x="-58" y="-40" width="116" height="86" tabindex="0" role="button" data-plotid="${i}"
+      aria-label="${!crop ? `bed ${i + 1} — tilled and waiting, press to plant`
+        : ready ? `bed ${i + 1} — ${crop.name} ready, press to harvest`
+        : `bed ${i + 1} — ${crop.name} growing, press for details`}"/>`;
   }
 
   // the land itself: grass with a soft horizon curve, a worn path along the
@@ -10237,6 +10349,18 @@ function renderGardenScene() {
         <stop offset="0%" stop-color="rgba(244,193,71,0.45)"/>
         <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
       </radialGradient>
+      <linearGradient id="goldWash" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.35)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0.05)"/>
+      </linearGradient>
+      <radialGradient id="auraGold" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.40)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
+      </radialGradient>
+      <radialGradient id="auraMythic" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(157,111,211,0.42)"/>
+        <stop offset="100%" stop-color="rgba(157,111,211,0)"/>
+      </radialGradient>
     </defs>
     <path class="land" d="M 0 26 Q 180 8 360 26 L 360 ${H} L 0 ${H} Z"/>
     <path class="dirt-path" d="M 0 30 Q 180 14 360 30 L 360 44 Q 180 30 0 44 Z"/>
@@ -10253,7 +10377,26 @@ function renderGardenScene() {
     <g class="wildflowers wf-a"><text x="36" y="60" font-size="9">🌼</text><text x="322" y="74" font-size="8">🌼</text></g>
     <g class="wildflowers wf-b"><text x="300" y="${H - 14}" font-size="9">🌸</text><text x="58" y="${H - 30}" font-size="8">🌼</text><text x="190" y="56" font-size="8">🌸</text></g>
     <text class="butterfly" x="120" y="64" font-size="10">🦋</text>
+    <text class="weather-robin" x="252" y="12" font-size="10">🐦</text>
     ${beds}
+    ${hits.join('')}
+    <g class="weather-rain-sky">
+      ${Array.from({ length: 9 }, (_, n) => { const x = 22 + n * 40 + (n % 3) * 7; const y = 30 + (n % 4) * (H / 5); return `<line x1="${x}" y1="${y}" x2="${x - 2.5}" y2="${y + 9}"/>`; }).join('')}
+    </g>
+    <g class="weather-fog">
+      <ellipse class="fog1" cx="110" cy="${Math.round(H * 0.55)}" rx="130" ry="17"/>
+      <ellipse class="fog2" cx="265" cy="${Math.round(H * 0.72)}" rx="140" ry="19"/>
+    </g>
+    <g class="weather-dew">
+      <circle cx="70" cy="${H - 26}" r="1.4"/><circle cx="186" cy="${H - 60}" r="1.2"/><circle cx="300" cy="${H - 34}" r="1.4"/><circle cx="130" cy="62" r="1.1"/>
+    </g>
+    <rect class="weather-warm" x="0" y="0" width="360" height="${H}" fill="url(#goldWash)"/>
+    <rect class="calm-wash" x="0" y="0" width="360" height="${H}" fill="url(#goldWash)"/>
+    <g class="calm-motes">
+      <circle class="mote m1" cx="80" cy="${Math.round(H * 0.45)}" r="1.7"/>
+      <circle class="mote m2" cx="200" cy="${Math.round(H * 0.6)}" r="1.4"/>
+      <circle class="mote m3" cx="305" cy="${Math.round(H * 0.4)}" r="1.6"/>
+    </g>
   </svg>`;
 
   // capture refs + paint initial live values through the same updaters
@@ -10265,7 +10408,7 @@ function renderGardenScene() {
     // querySelectors inside the rAF path
     _sceneRefs[i] = {
       group: g,
-      hit: g.querySelector('.bed-hit'),
+      hit: wrap.querySelector(`.bed-hit[data-plotid="${i}"]`), // hits live in their own plot-ordered layer now
       plantsCached: Array.from(g.querySelectorAll('.plant')).map(el => ({
         el, px: el.getAttribute('data-px'), py: el.getAttribute('data-py'),
         back: parseFloat(el.getAttribute('data-py')) < 0,
@@ -10418,9 +10561,12 @@ function render() {
   const yardEl = document.getElementById('farmYard');
   if (yardEl) yardEl.dataset.harmony = harmonyStageIndex();
 
-  // plots — show all unlocked plots, plus only the FIRST locked plot (next-to-buy)
+  // Legacy card grid: display:none since the Garden Scene; building it cost
+  // roughly half of every action-render (per the perf audit). Skipped unless
+  // the legacy flag is re-enabled.
   const grid = document.getElementById('plotsGrid');
   grid.innerHTML = '';
+  if (LEGACY_GRID_ACTIVE) {
   const firstLockedIdx = state.plots.findIndex(p => p.locked);
   state.plots.forEach((plot, i) => {
     if (plot.locked && i !== firstLockedIdx) return; // hide all locked plots except next-to-buy
@@ -10603,9 +10749,9 @@ function render() {
     }
     grid.appendChild(el);
   });
+  } // end LEGACY_GRID_ACTIVE
 
-  // the visible farm: the drawn garden scene (the hidden card grid above
-  // remains the in-place update target for legacy paths)
+  // the visible farm: the drawn garden scene
   renderGardenScene();
   // contextual surfaces (replaced the always-on Dashboard strip)
   renderFarmMarket();
