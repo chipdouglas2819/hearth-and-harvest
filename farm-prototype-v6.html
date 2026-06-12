@@ -3689,9 +3689,33 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
   gap: 6px;
 }
 .cottage-bar b { color: var(--forest); }
-.cottage-bar .link-btn { margin-left: auto; }
+.cottage-bar .link-btn { margin-left: auto; min-height: 44px; display: inline-flex; align-items: center; padding: 0 10px; }
 /* tab bar shrinks to Home + Settings — the lane is how you reach the rest */
 .tab-btn[data-tab="cards"], .tab-btn[data-tab="contracts"], .tab-btn[data-tab="journal"] { display: none; }
+/* the harmony leaf is interactive — give the 17px glyph a real touch target */
+.harmony-cue { padding: 13px 10px; margin-right: 2px; }
+/* locked beds become a full-width banner row — a 150px-tall card in a square
+   grid stretched its whole row into portraits */
+.plot.locked {
+  grid-column: 1 / -1;
+  aspect-ratio: auto;
+  min-height: 84px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 14px;
+  text-align: left;
+}
+.plot.locked .lock-icon, .plot.locked .lock-cost { margin-bottom: 0; }
+/* dawn, dusk and golden hour belong to everyone — the dark-theme yard
+   palette only owns true day/night (default theme is time-based dark after
+   7pm, which was eating the two prettiest skies) */
+:root[data-theme="dark"] #farmYard[data-daypart="dawn"]   { --sky-top: #F4CBB7; --sky-bot: #F8E6C4; --yard-top: #E3E6C2; --yard-bot: #D2DBAE; --soil-1: #C9A877; --soil-2: #B08F62; }
+:root[data-theme="dark"] #farmYard[data-daypart="golden"] { --sky-top: #F2C083; --sky-bot: #F7E0B0; --yard-top: #E4E0B4; --yard-bot: #D4D3A0; --soil-1: #C9A877; --soil-2: #B08F62; }
+:root[data-theme="dark"] #farmYard[data-daypart="dusk"]   { --sky-top: #A793B8; --sky-bot: #D9B49C; --yard-top: #BFC4A4; --yard-bot: #A8B18E; --soil-1: #C9A877; --soil-2: #B08F62; }
+.peek-upgrades.quiet { color: var(--sage); font-style: italic; }
+.plant-loadout-link { width: 100%; margin-top: 8px; min-height: 44px; }
 
 /* reduced motion: still the yard's remaining movers too */
 @media (prefers-reduced-motion: reduce) {
@@ -3759,8 +3783,9 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
   </div>
 
   <div id="tab-contracts" class="tab-content" role="tabpanel">
+    <div class="cottage-bar">📋 The Noticeboard · <b>the village asks</b></div>
     <div class="panel">
-      <h3>Daily Contracts</h3>
+      <h3>Village requests</h3>
       <div id="contractContent"></div>
     </div>
   </div>
@@ -5236,8 +5261,11 @@ function openPlotPeekSheet(i) {
   // plot upgrades — visible at last (they used to hide in the loadout modal)
   const ups = (state.plotUpgrades && state.plotUpgrades[i]) || {};
   const upNames = Object.keys(PLOT_UPGRADES).filter(k => ups[k]).map(k => PLOT_UPGRADES[k].name);
+  // Always render the line — a player who owns none should still LEARN the
+  // system exists and where it lives.
   const upgradesLine = upNames.length
-    ? `<div class="peek-upgrades">⚒ ${upNames.join(' · ')}</div>` : '';
+    ? `<div class="peek-upgrades">⚒ ${upNames.join(' · ')}</div>`
+    : `<div class="peek-upgrades quiet">⚒ no plot upgrades yet — browse them in the card editor above</div>`;
 
   const nextMs = (!isReady(plot) && picks === 0) ? msUntilNextPick(plot) : null;
 
@@ -5249,7 +5277,7 @@ function openPlotPeekSheet(i) {
     <div class="peek-yield">×${effectiveYield.toFixed(2)} yield at harvest · ${plot.picksTaken}/${plot.totalPicks} boons picked</div>
     <div class="peek-chips">${chips}</div>
     ${nextMs != null ? `<div class="plot-next-boon" id="peekNextBoon">next boon in ${fmtTimeRemaining(nextMs)}</div>` : ''}
-    <div class="peek-section">your equipped cards</div>
+    <div class="peek-section">cards &amp; upgrades — tap to edit</div>
     ${loadoutHtml}
     ${upgradesLine}
     <div class="peek-actions" id="peekActions"></div>
@@ -5266,7 +5294,13 @@ function openPlotPeekSheet(i) {
     const hb = document.createElement('button');
     hb.className = 'btn btn-harvest';
     hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(crop.baseYield * effectiveYield)})`;
-    hb.onclick = (ev) => { closeAllModals(); harvest(i, ev); };
+    // Anchor the celebration to the BED, not this button — the sheet is
+    // hidden before harvest runs, and a zeroed rect fires juice at (0,0).
+    hb.onclick = () => {
+      const bedEl = document.querySelector(`.plot[data-plotid="${i}"] .crop-visual-wrap`) || document.querySelector(`.plot[data-plotid="${i}"]`);
+      closeAllModals();
+      harvest(i, { target: bedEl });
+    };
     actions.appendChild(hb);
   }
   const strip = document.getElementById('peekLoadoutStrip');
@@ -5295,6 +5329,16 @@ document.getElementById('plotsGrid').addEventListener('click', (e) => {
   if (isReady(plot)) { harvest(i, e); return; }
   openPlotPeekSheet(i);
 });
+// Keyboard route for the same three verbs: Enter/Space on a focused bed acts
+// like a tap (the click handler above does the state routing).
+document.getElementById('plotsGrid').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.target.closest('button')) return;
+  const card = e.target.closest('.plot');
+  if (!card) return;
+  e.preventDefault();
+  card.click();
+});
 
 // ============ THE GARDEN LANE ============
 // Four places on the path: stall (market), noticeboard (requests), mailbox
@@ -5311,7 +5355,10 @@ function refreshGardenLane() {
   if (stallFace) {
     const f = state.marketFeaturedCrop ? CROPS[state.marketFeaturedCrop] : null;
     const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
-    stallFace.textContent = f ? `${f.emoji}▲${s ? ' ' + s.emoji + '▼' : ''}` : '·';
+    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+    // The WHAT and the HOW MUCH, zero taps — the old strip showed +40%, so the
+    // stall face must too (the sheet keeps the why).
+    stallFace.textContent = f ? `${f.emoji}▲${fPct}${s ? ' ' + s.emoji + '▼' : ''}` : '·';
   }
   // Noticeboard face: papers pinned (active) / offers waiting
   const boardFace = document.getElementById('boardFace');
@@ -5355,7 +5402,9 @@ document.getElementById('laneMail').onclick = () => {
   if ((state.pendingPacks || 0) > 0) openPackModal();
   else switchTab('cards');
 };
-document.getElementById('laneCottage').onclick = () => switchTab('cards');
+// The cottage remembers which room you visited last — a daily journal-reader
+// shouldn't pay the Collection toll on every visit.
+document.getElementById('laneCottage').onclick = () => switchTab(state._cottageRoom || 'cards');
 // Inside the cottage, its two rooms cross-link (the tab bar only shows Home
 // + Settings now — these are how you move between Collection and Journal).
 document.getElementById('cottageToJournal').onclick = () => switchTab('journal');
@@ -7861,7 +7910,7 @@ function harvest(plotId, ev) {
     state.pendingPacks += 1;
     // Say it out loud the moment it's earned — a pack silently filed behind a
     // tab badge is a reward the player never feels.
-    showGardenToast('🎴', 'A new pack is ready!', 'waiting for you in Cards', 4200);
+    showGardenToast('🎴', 'A new pack is ready!', 'waiting in your mailbox 📬', 4200);
     if (typeof sndPackOpen === 'function') sndPackOpen();
   }
   checkAchievements();
@@ -7941,6 +7990,15 @@ function applyBuff(plotId, buff) {
   plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
   plot.picksTaken += 1;
   state.totalPicksTaken = (state.totalPicksTaken || 0) + 1;
+  // A rolled outcome ("+70%!" / "miss" / "−50%") must be SEEN the moment it
+  // lands — the face chips are hidden now, so float it over the bed itself.
+  if (outcome) {
+    const bedEl = document.querySelector(`.plot[data-plotid="${plotId}"]`);
+    if (bedEl) {
+      const r = bedEl.getBoundingClientRect();
+      addFloat(String(outcome), r.left + r.width / 2, r.top + r.height * 0.35);
+    }
+  }
   sndPick();
   checkAchievements();
   // Auto-advance: if there are still picks pending anywhere, refresh the modal
@@ -8220,6 +8278,13 @@ function openPlantModal(plotId) {
     btn.onclick = () => !locked && plant(plotId, key);
     opts.appendChild(btn);
   }
+  // Equip-before-plant: the empty bed's only tap opens this modal, so this is
+  // the doorway to the plot's cards & upgrades while nothing is growing.
+  const loadoutLink = document.createElement('button');
+  loadoutLink.className = 'btn btn-ghost plant-loadout-link';
+  loadoutLink.textContent = `🎴 cards & upgrades for plot ${plotId + 1}`;
+  loadoutLink.onclick = () => { closeAllModals(); openLoadoutModal(plotId); };
+  opts.appendChild(loadoutLink);
   document.getElementById('plantModal').hidden = false;
 }
 
@@ -8996,14 +9061,16 @@ function updateDaypart() {
   if (!isNight) t = (h - 5) / 16;          // sun arcs 5h→21h
   else t = ((h >= 21 ? h - 21 : h + 3) / 8); // moon arcs 21h→5h (wraps midnight)
   const left = (8 + Math.max(0, Math.min(1, t)) * 84) + '%';
-  if (orb.textContent !== glyph) {
-    // Sun↔moon handoff: jump to the new position instantly — without this the
-    // outgoing body glides across the whole sky for a minute like a glitch.
+  if (orb.textContent !== glyph || !orb.dataset.placed) {
+    // Sun↔moon handoff AND first placement: jump instantly — otherwise the
+    // orb glides across the whole sky for a minute like a glitch (on load it
+    // would crawl from the CSS default position).
     orb.style.transition = 'none';
     orb.textContent = glyph;
     orb.style.left = left;
     void orb.offsetWidth;
     orb.style.transition = '';
+    orb.dataset.placed = '1';
   } else {
     orb.style.left = left;
   }
@@ -9014,10 +9081,15 @@ let _wasCalm = null;
 setInterval(() => {
   if (state.themeMode === 'time') applyTheme();
   updateDaypart();
-  // Market restocks at midnight even if the app just sits open on the yard
+  // Midnight rollover, even if the app just sits open on the yard: the stall
+  // face restocks (the old strip is retired) and the day's mood re-rolls.
   const beforeMarketDay = state.marketDayKey;
   rotateMarketIfNewDay();
-  if (state.marketDayKey !== beforeMarketDay) { renderFarmMarket(); }
+  if (state.marketDayKey !== beforeMarketDay) {
+    refreshGardenLane();
+    rollDailyFarmMoment();
+    renderDailyMomentStrip();
+  }
   // Calm expiry: stop the ✦ badge / soft tint lying after the window closes
   const calmNow = isCalmState();
   if (_wasCalm !== null && calmNow !== _wasCalm) {
@@ -9198,11 +9270,15 @@ function switchTab(name) {
     el.classList.toggle('active', el.id === 'tab-' + name);
   });
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    const isActive = btn.dataset.tab === name;
-    btn.classList.toggle('active', isActive);
-    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    const isReal = btn.dataset.tab === name;
+    // Visual "you are here": cottage/noticeboard pages light the Home button
+    // (their own tab buttons are hidden — the lane is how you got there).
+    const isVisual = isReal || (btn.dataset.tab === 'farm' && ['cards', 'contracts', 'journal'].includes(name));
+    btn.classList.toggle('active', isVisual);
+    btn.setAttribute('aria-selected', isReal ? 'true' : 'false');
   });
   state.activeTab = name;
+  if (name === 'cards' || name === 'journal') state._cottageRoom = name;
   // scroll to top so player isn't dropped mid-page when switching
   window.scrollTo({ top: 0, behavior: 'instant' });
   // Tend FAB is Farm-tab-only — refresh its visibility immediately on switch
@@ -9900,6 +9976,15 @@ function render() {
       btn.onclick = () => canBuy && buyPlot(i);
       el.appendChild(btn);
     } else {
+      // Keyboard farming: the bed is the button now (face buttons are CSS-
+      // hidden), so it must be focusable and announce its verb.
+      el.tabIndex = 0;
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', !plot.crop
+        ? `plot ${i + 1} — tilled and waiting, press to plant`
+        : isReady(plot)
+          ? `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`
+          : `plot ${i + 1} — ${CROPS[plot.crop].name} growing, press for details`);
       // loadout strip — always shown for unlocked plots
       const loadout = state.loadouts[i] || [];
 
@@ -10180,6 +10265,7 @@ function restyleReadyPlots() {
         wrap.classList.add('ready-tap');
         wrap.onclick = (ev) => harvest(i, ev);
       }
+      el.setAttribute('aria-label', `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`);
       const fill = el.querySelector('.progress-fill');
       if (fill) fill.style.width = '100%';
       const info = el.querySelector('.plot-info');
@@ -10242,7 +10328,11 @@ function updatePlotTick(plot) {
   const info = plotEl.querySelector('.plot-info');
   if (info && info.children.length >= 2) {
     const remain = plot.totalMs - plot.elapsedMs;
-    info.children[0].textContent = isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left';
+    // Slow Ferment's accruing +% rides the face time chip — the buff chips
+    // that used to carry it are hidden, and a ready bed can't open the sheet.
+    info.children[0].textContent = isReady(plot)
+      ? readyLabelForPlot(plot) + (plot.flags && plot.flags.skillFerment ? ' · ' + getFermentBonusText(plot) : '')
+      : fmtTimeRemaining(remain) + ' left';
   }
   // live "next boon in Xm" whisper — without this it freezes at whatever
   // render() last wrote (full renders only happen on user actions now)
@@ -10277,7 +10367,11 @@ function updatePlotTick(plot) {
         const hb = document.createElement('button');
         hb.className = 'btn btn-harvest';
         hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(CROPS[plot.crop].baseYield * plot.yieldMult * getPermaYieldMultForPlot(plot.id))})`;
-        hb.onclick = (ev) => { closeAllModals(); harvest(plot.id, ev); };
+        hb.onclick = () => {
+          const bedEl = document.querySelector(`.plot[data-plotid="${plot.id}"] .crop-visual-wrap`) || document.querySelector(`.plot[data-plotid="${plot.id}"]`);
+          closeAllModals();
+          harvest(plot.id, { target: bedEl });
+        };
         pa.appendChild(hb);
       }
     }
@@ -10307,9 +10401,13 @@ function tick(now) {
     const nowPicks = picksAvailable(plot);
     if (wasReady !== isNowReady || wasPicks !== nowPicks) {
       structuralChange = true;
-    } else {
-      updatePlotTick(plot);
     }
+    // ALWAYS run the in-place updater — including on the flip frame. Without
+    // this, a normal crop's ready flip skipped updatePlotTick, elapsedMs then
+    // clamped forever, and an open peek sheet froze at "0s left" with no
+    // Harvest CTA. (The crop-visual write inside is !isReady-guarded, so it
+    // never fights restyleReadyPlots' finalization.)
+    updatePlotTick(plot);
   }
   // GOTCHA FIX: a ready-flip or pick-landing used to trigger a full render()
   // — an innerHTML rebuild of the whole grid that ate any in-flight tap, and
@@ -10333,7 +10431,7 @@ function tick(now) {
     ensureContractOffered();
     rotateMarketIfNewDay();
     const afterSig = (state.offeredContracts || []).map(c => c.id).join() + '|' + state.marketDayKey;
-    if (beforeSig !== afterSig) renderContract();
+    if (beforeSig !== afterSig) { renderContract(); refreshGardenLane(); }
   }
   requestAnimationFrame(tick);
 }
