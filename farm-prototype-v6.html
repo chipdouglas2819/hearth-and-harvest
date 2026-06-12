@@ -704,17 +704,6 @@ body.calm-state #skyOrb { filter: drop-shadow(0 0 16px rgba(244, 193, 71, 0.8));
   justify-content: space-between;
   align-items: center;
 }
-.tap-counter {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--moss);
-  background: rgba(143, 166, 142, 0.15);
-  padding: 2px 6px;
-  border-radius: 6px;
-  letter-spacing: 0.05em;
-}
-.tap-counter.full { color: var(--sage); opacity: 0.5; }
-
 /* === per-plot loadout strip === */
 .loadout-strip {
   display: grid;
@@ -3467,40 +3456,121 @@ body.calm-state #tab-farm {
 
 /* ============ YARD OVERRIDES (late in cascade on purpose) ============
    Bed faces whisper: the plant is the status. Name text goes away (the crop
-   IS the name), the yield number becomes a tiny corner chip, labels lighten
-   for legibility on soil. Everything rich stays one tap away. */
+   IS the name), the yield number becomes a tiny corner chip, labels get a
+   soil-scrim pill so they read on dirt in every daypart and theme.
+   (Hardened per QA Panel A: contrast, growing-bed soil, reduced motion.) */
 .plot .crop-name { display: none; }
 .plot .crop-header { position: absolute; top: 8px; right: 10px; z-index: 2; }
 .plot .yield-mult {
   font-family: var(--mono);
   font-size: 10px;
-  color: rgba(254, 252, 247, 0.92);
-  background: rgba(80, 60, 35, 0.45);
+  color: rgba(254, 252, 247, 0.95);
+  background: rgba(80, 60, 35, 0.68);
+  border: 1px solid rgba(254, 252, 247, 0.25);
   border-radius: 999px;
   padding: 2px 7px;
 }
-.plot .plot-label { color: rgba(254, 252, 247, 0.75); position: relative; z-index: 2; }
-.plot .plot-info { color: rgba(254, 252, 247, 0.9); font-size: 11px; }
-.plot .plot-info span:first-child {
-  background: rgba(80, 60, 35, 0.40);
+.plot .plot-label {
+  color: rgba(254, 252, 247, 0.95);
+  position: relative; z-index: 2;
+  background: rgba(80, 60, 35, 0.55);
+  border-radius: 999px;
+  padding: 2px 8px;
+  align-self: flex-start;
+}
+.plot .plot-info { color: rgba(254, 252, 247, 0.95); font-size: 11px; }
+.plot .plot-info span {
+  background: rgba(80, 60, 35, 0.65);
   border-radius: 999px;
   padding: 1px 8px;
 }
-.plot .plot-next-boon { color: rgba(254, 252, 247, 0.75); }
+.plot .plot-next-boon {
+  color: rgba(254, 252, 247, 0.92);
+  background: rgba(80, 60, 35, 0.55);
+  border-radius: 999px;
+  padding: 1px 8px;
+  align-self: center;
+}
 .plot .progress-track { background: rgba(80, 60, 35, 0.35); height: 4px; }
-.plot .plot-empty div { color: rgba(254, 252, 247, 0.85) !important; }
+.plot .plot-empty div {
+  color: rgba(254, 252, 247, 0.95) !important;
+  background: rgba(80, 60, 35, 0.55);
+  border-radius: 999px;
+  padding: 2px 10px;
+  display: inline-block;
+}
+.plot .plot-empty { text-align: center; }
+.plot .plot-empty .soil-illustration { display: none; } /* read as a stain on real soil */
+/* GROWING beds are soil too — the old white-card gradient must not win */
+.plot.growing {
+  background: radial-gradient(120% 90% at 50% 20%, var(--soil-1), var(--soil-2)), var(--soil-2);
+}
 /* empty beds read as tilled rows waiting for seed */
 .plot:not(.locked):not(.growing) {
   background:
     repeating-linear-gradient(0deg, rgba(80, 60, 35, 0.16) 0 7px, transparent 7px 17px),
     radial-gradient(120% 90% at 50% 20%, var(--soil-1), var(--soil-2));
 }
-.plot.locked .lock-icon, .plot.locked .lock-cost { color: var(--ink); opacity: 0.75; }
-/* loadout slots sit on soil now — give them a touch more presence */
+/* buff chips + loadout slots sit on soil now — give them real backing */
+.plot .buff-chip { background: rgba(254, 252, 247, 0.9); }
+:root[data-theme="dark"] .plot .buff-chip { background: rgba(31, 41, 33, 0.85); }
 .plot .loadout-strip-slot { background: rgba(254, 252, 247, 0.85); }
 :root[data-theme="dark"] .plot .loadout-strip-slot { background: rgba(31, 41, 33, 0.8); }
+/* rarity cues: a wash is invisible on tan soil — signal with a ring instead */
+.plot.legendary-active {
+  border-color: rgba(212, 160, 44, 0.65);
+  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 10px rgba(244, 193, 71, 0.35);
+}
+.plot.mythic-active {
+  border-color: rgba(157, 111, 211, 0.65);
+  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 10px rgba(157, 111, 211, 0.35);
+}
+.plot.legendary-active::after, .plot.mythic-active::after { border-radius: 18px; }
+/* celebration must not flatten the soil — keep the inset depression */
+.plot.perfect-harvest {
+  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 0 1px var(--gold), 0 4px 16px rgba(244, 193, 71, 0.25);
+}
+/* locked beds: readable at night and in dark theme */
+.plot.locked .lock-icon, .plot.locked .lock-cost { color: var(--ink); }
+#farmYard[data-daypart="night"] .plot.locked .lock-icon,
+#farmYard[data-daypart="night"] .plot.locked .lock-cost,
+#farmYard[data-daypart="dusk"] .plot.locked .lock-icon,
+#farmYard[data-daypart="dusk"] .plot.locked .lock-cost,
+:root[data-theme="dark"] .plot.locked .lock-icon,
+:root[data-theme="dark"] .plot.locked .lock-cost { color: #FBF6E9; }
+#farmYard[data-daypart="night"] .plot.locked .btn-secondary,
+:root[data-theme="dark"] .plot.locked .btn-secondary { color: #FBF6E9; border-color: rgba(251, 246, 233, 0.4); }
+/* the market strip sits on grass now — give it a panel back in every light */
+#farmYard .farm-market-strip {
+  background: rgba(254, 252, 247, 0.85);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+:root[data-theme="dark"] #farmYard .farm-market-strip { background: rgba(31, 41, 33, 0.82); }
+/* the day's-mood pill: solid enough to read, big enough to tap, never
+   theme-invisible (literal cream — dark theme remaps var(--cream) to near-black) */
+.yard-moment { background: rgba(254, 252, 247, 0.85); padding: 5px 12px; }
+:root[data-theme="dark"] .yard-moment, #farmYard[data-daypart="night"] .yard-moment {
+  background: rgba(31, 41, 33, 0.75);
+  color: #FBF6E9;
+}
+.yard-moment::after { content: ''; position: absolute; inset: -12px -8px; }
+.yard-moment:focus-visible { outline: 2px solid var(--moss); outline-offset: 2px; }
+/* silence decorative fence flowers for screen readers (CSS alt text) */
+#farmYard[data-harmony="2"] #skyBand::before { content: '🌼' / ''; }
+#farmYard[data-harmony="3"] #skyBand::before { content: '🌼\00a0\00a0🌸\00a0\00a0\00a0\00a0🌼' / ''; }
+/* bed action buttons reach the 44px touch floor */
+.plot .btn, .plot-actions .btn { min-height: 44px; }
 /* a calm garden literally moves slower */
 body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; }
+/* reduced motion: still the yard's remaining movers too */
+@media (prefers-reduced-motion: reduce) {
+  #skyOrb { transition: none; }
+  .plot.ready .crop-visual,
+  .plot.perfect-harvest .crop-visual-wrap::after,
+  .plot.mythic-active,
+  .btn-harvest::before { animation: none !important; }
+}
 </style>
 </head>
 <body>
@@ -3523,7 +3593,7 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
          lane (Phase 3) holds the stall/board/mailbox/cottage; beds sit in soil. -->
     <div id="farmYard" data-daypart="day" data-harmony="0">
       <div id="skyBand">
-        <div id="skyOrb">☀️</div>
+        <div id="skyOrb" aria-hidden="true">☀️</div>
         <button id="yardMomentLine" class="yard-moment" hidden></button>
       </div>
       <div id="gardenLane" hidden></div>
@@ -8575,20 +8645,50 @@ function updateDaypart() {
   else if (h >= 19 && h < 21) part = 'dusk';
   else part = 'night';
   yard.dataset.daypart = part;
-  const isNight = part === 'night' || part === 'dusk';
-  orb.textContent = isNight ? '🌙' : '☀️';
-  // Sun arcs 5h→21h across the band; moon arcs 21h→5h (wrapping midnight).
+  // The sun sets through dusk; the moon owns the true night (21h→5h).
+  const isNight = part === 'night';
+  const glyph = isNight ? '🌙' : '☀️';
   let t;
-  if (!isNight) t = (h - 5) / 16;
-  else t = ((h >= 21 ? h - 21 : h + 3) / 8);
-  orb.style.left = (8 + Math.max(0, Math.min(1, t)) * 84) + '%';
+  if (!isNight) t = (h - 5) / 16;          // sun arcs 5h→21h
+  else t = ((h >= 21 ? h - 21 : h + 3) / 8); // moon arcs 21h→5h (wraps midnight)
+  const left = (8 + Math.max(0, Math.min(1, t)) * 84) + '%';
+  if (orb.textContent !== glyph) {
+    // Sun↔moon handoff: jump to the new position instantly — without this the
+    // outgoing body glides across the whole sky for a minute like a glitch.
+    orb.style.transition = 'none';
+    orb.textContent = glyph;
+    orb.style.left = left;
+    void orb.offsetWidth;
+    orb.style.transition = '';
+  } else {
+    orb.style.left = left;
+  }
 }
-// Re-check time-based theme + the yard's light once a minute. Cheap, and the
-// player expects both to move on their own without a reload.
+// Once a minute: theme, the yard's light, market day rollover, and calm-state
+// expiry — all the time-driven surfaces that used to wait for a user action.
+let _wasCalm = null;
 setInterval(() => {
   if (state.themeMode === 'time') applyTheme();
   updateDaypart();
+  // Market restocks at midnight even if the app just sits open on the yard
+  const beforeMarketDay = state.marketDayKey;
+  rotateMarketIfNewDay();
+  if (state.marketDayKey !== beforeMarketDay) { renderFarmMarket(); }
+  // Calm expiry: stop the ✦ badge / soft tint lying after the window closes
+  const calmNow = isCalmState();
+  if (_wasCalm !== null && calmNow !== _wasCalm) {
+    document.body.classList.toggle('calm-state', calmNow);
+    const hc = document.getElementById('harmonyCue');
+    if (hc) hc.classList.toggle('calm', calmNow);
+    renderTendFab();
+  }
+  _wasCalm = calmNow;
 }, 60 * 1000);
+// Mobile browsers throttle timers in background tabs — refresh the light the
+// moment the player returns, so "it changed while I was away" actually shows.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { updateDaypart(); if (state.themeMode === 'time') applyTheme(); }
+});
 // React to OS theme changes when in system mode.
 if (window.matchMedia) {
   const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -9001,27 +9101,8 @@ function renderActiveContractHTML(c) {
   `;
 }
 
-// Live-tick the contract countdowns at 1Hz while the Contracts tab is
-// visible. Surgical: updates only the time-remaining text, no full panel
-// re-render (cheaper, and keeps reroll-ad overlays/etc. stable).
-function tickContractTimes() {
-  const tab = document.getElementById('tab-contracts');
-  if (!tab || !tab.classList.contains('active')) return;
-  let anyExpired = false;
-  tab.querySelectorAll('.contract-time[data-contract-id]').forEach(el => {
-    const id = el.getAttribute('data-contract-id');
-    const c = (state.activeContracts || []).find(x => x.id === id);
-    if (!c) return;
-    const remainingMs = c.acceptedAtMs + c.params.deadlineHours * 3600000 - Date.now();
-    if (remainingMs <= 0) anyExpired = true;
-    el.textContent = `${fmtTimeRemaining(Math.max(0, remainingMs))} left`;
-  });
-  // One full re-render when something crosses zero, so checkContractExpiry
-  // can move it to history and free its slot. Bounded to one trigger per
-  // tick because the next tick will see an empty .contract-time list.
-  if (anyExpired) renderContract();
-}
-setInterval(tickContractTimes, 1000);
+// (The old 1Hz contract-countdown ticker was removed with the deadlines —
+// patient contracts render "whenever you're ready" and never expire.)
 
 function renderOfferedContractHTML(c, locked) {
   const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
@@ -9480,7 +9561,7 @@ function render() {
 
       // Build top label — includes contract symbol when this crop matches an active demand
       const contractBadge = plot.crop && isCropWantedByContract(plot.crop)
-        ? `<span class="plot-contract-badge" title="An active contract wants this crop">📜</span>`
+        ? `<span class="plot-contract-badge" role="img" aria-label="an active contract wants this crop" title="An active contract wants this crop">📜</span>`
         : '';
       const labelHtml = `
         <div class="plot-label">
@@ -9499,7 +9580,7 @@ function render() {
           const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
           const stars = getStarsForBuff(buff.id);
           const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
-          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label} · ★${stars}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
+          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label} · ★${stars}${active ? '' : ' · inactive'}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
         }).join('') +
         '</div>';
 
@@ -9549,7 +9630,7 @@ function render() {
         el.innerHTML = labelHtml + loadoutHtml + `
           <div class="crop-header">
             <div class="crop-name">${crop.name}</div>
-            <div class="yield-mult" title="Yield multiplier — applied to base yield at harvest">×${effectiveYield.toFixed(2)}</div>
+            <div class="yield-mult" role="img" aria-label="yield multiplier ${effectiveYield.toFixed(2)} times">×${effectiveYield.toFixed(2)}</div>
           </div>
           <div class="growth-display">
             <div class="crop-visual-wrap ${ready ? 'ready-tap' : ''}" data-plotid="${i}">
@@ -9739,6 +9820,14 @@ function restyleReadyPlots() {
       el.classList.add('ready');
       const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
       if (effectiveYield >= 5.0) el.classList.add('perfect-harvest');
+      // Finalize the plant itself: full-grown emoji at full scale. Without
+      // this, a plot that ripens in one big-dt frame (backgrounded tab, test
+      // speed) sits "ready" showing a tiny seedling until the next render.
+      const cv = el.querySelector('.crop-visual');
+      if (cv) {
+        cv.textContent = CROPS[plot.crop].emoji;
+        cv.style.transform = `translate(-50%, -50%) scale(${(visualScale(effectiveYield) * 1.05).toFixed(4)})`;
+      }
       const wrap = el.querySelector('.crop-visual-wrap');
       if (wrap && !wrap.classList.contains('ready-tap')) {
         wrap.classList.add('ready-tap');
@@ -9806,6 +9895,14 @@ function updatePlotTick(plot) {
     const remain = plot.totalMs - plot.elapsedMs;
     info.children[0].textContent = isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left';
   }
+  // live "next boon in Xm" whisper — without this it freezes at whatever
+  // render() last wrote (full renders only happen on user actions now)
+  const nb = plotEl.querySelector('.plot-next-boon');
+  if (nb) {
+    const ms = msUntilNextPick(plot);
+    if (ms == null || isReady(plot) || picksAvailable(plot) > 0) nb.remove();
+    else nb.textContent = `next boon in ${fmtTimeRemaining(ms)}`;
+  }
   // live ferment counter
   if (plot.flags && plot.flags.skillFerment) {
     const fermentEl = plotEl.querySelector('.ferment-bonus');
@@ -9844,19 +9941,24 @@ function tick(now) {
   // — an innerHTML rebuild of the whole grid that ate any in-flight tap, and
   // at 60×/600× test speed those flips are constant. Now structural changes
   // restyle the existing cards IN PLACE; full render() only ever runs on
-  // player actions (plant/harvest/pick/buy/tab).
+  // player actions (plant/harvest/pick/buy).
   if (structuralChange) {
     restyleReadyPlots();
     renderBoonFab();
     renderTendFab();
     renderTabBadges();
   }
-  // Live contract countdown: if the player is sitting on the Contracts tab,
-  // refresh the panel every ~30s so the "Xh Ym Zs left" timer ticks down.
-  // Cheap (only when tab is active and only every 30s wall-clock).
+  // Contracts-tab freshness WITHOUT rebuilding a panel the player may be
+  // mid-tap on (patient contracts have no countdowns — the old 30s rebuild
+  // was the same tap-eater class Phase 0 removed). Run the day-rollover
+  // checks directly; only re-render if they actually changed something.
   if (state.activeTab === 'contracts' && now - _lastContractTickRender > 30000) {
     _lastContractTickRender = now;
-    renderContract();
+    const beforeSig = (state.offeredContracts || []).map(c => c.id).join() + '|' + state.marketDayKey;
+    ensureContractOffered();
+    rotateMarketIfNewDay();
+    const afterSig = (state.offeredContracts || []).map(c => c.id).join() + '|' + state.marketDayKey;
+    if (beforeSig !== afterSig) renderContract();
   }
   requestAnimationFrame(tick);
 }
