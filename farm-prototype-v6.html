@@ -647,12 +647,13 @@ body.calm-state #skyOrb { filter: drop-shadow(0 0 16px rgba(244, 193, 71, 0.8));
 
 .plots-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
   justify-content: center;
   padding: 12px 12px 0;
+  max-width: 760px;
+  margin: 0 auto;
 }
-@media (min-width: 720px) { .plots-grid { grid-template-columns: repeat(3, 1fr); max-width: 760px; margin: 0 auto; } }
 
 /* Beds: patches of soil, not cards. */
 .plot {
@@ -3563,9 +3564,77 @@ body.calm-state #tab-farm {
 .plot .btn, .plot-actions .btn { min-height: 44px; }
 /* a calm garden literally moves slower */
 body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; }
+
+/* ============ PHASE 2: square touchable beds + the peek sheet ============ */
+/* The bed face strips down to a glance: plant, time chip, yield chip, pips.
+   Everything rich (loadout, buffs, picked count, buttons) lives in the peek
+   sheet now. Hidden via CSS, not removed — the in-place tick/restyle paths
+   keep updating the same nodes, so no logic changes were needed. */
+.plot { aspect-ratio: 1 / 1; padding: 10px; cursor: pointer; }
+.plot.locked { aspect-ratio: auto; min-height: 150px; cursor: default; }
+.plot:not(.locked) .loadout-strip { display: none; }
+.plot .active-buffs { display: none; }
+.plot .plot-info span:last-child { display: none; }
+.plot .plot-next-boon { display: none; }
+.plot:not(.locked) .plot-actions { display: none; }
+.plot .plot-info { margin-top: auto; display: flex; justify-content: center; }
+.plot .growth-display { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.plot .crop-visual-wrap { width: min(96px, 82%); height: auto; aspect-ratio: 1; }
+.plot .crop-visual { font-size: 42px; }
+/* glance pips */
+.bed-pip, .plot .plot-contract-badge {
+  position: absolute;
+  z-index: 3;
+  font-size: 14px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+.bed-pip[hidden] { display: none !important; }
+.pip-boon { top: 32px; left: 10px; }
+.plot .plot-contract-badge { bottom: 34px; right: 10px; }
+/* ready choreography: the ripe bed lifts and bobs gently — prettiest thing
+   on screen, never an alarm */
+.plot.ready { animation: bedBob 2.4s ease-in-out infinite; }
+@keyframes bedBob {
+  0%, 100% { transform: translateY(-3px); }
+  50%      { transform: translateY(-6px); }
+}
+/* empty bed: a soft ＋ says "tap me" without a button */
+.plot .plot-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; align-items: center; }
+.plot .plot-empty::before { content: '＋'; display: block; font-size: 30px; line-height: 1; color: rgba(254, 252, 247, 0.85); }
+
+/* the peek sheet — detail slides up, the yard stays in view */
+.peek-modal { align-items: flex-end !important; padding: 0; }
+.peek-sheet {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--paper);
+  border-radius: 18px 18px 0 0;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  max-height: 62vh;
+  overflow-y: auto;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+  animation: peekUp 0.26s ease-out;
+}
+@keyframes peekUp { from { transform: translateY(48px); opacity: 0; } }
+.peek-grab { width: 44px; height: 5px; border-radius: 3px; background: var(--border-strong); margin: 0 auto 10px; }
+.peek-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.peek-crop { font-family: var(--serif); font-size: 19px; font-weight: 600; color: var(--forest); }
+.peek-time { font-family: var(--mono); font-size: 12px; color: var(--moss); white-space: nowrap; }
+.peek-yield { font-family: var(--mono); font-size: 12px; color: var(--moss); margin: 6px 0 8px; }
+.peek-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.peek-quiet { font-style: italic; color: var(--sage); font-size: 12px; }
+.peek-section { font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--sage); margin: 10px 0 6px; }
+.peek-upgrades { font-size: 12px; color: var(--moss); margin-top: 8px; }
+.peek-actions { display: flex; gap: 10px; margin-top: 12px; }
+.peek-actions .btn { flex: 1; min-height: 44px; }
+#peekBody .plot-next-boon { display: block; color: var(--moss); font-size: 12px; margin-bottom: 4px; background: none; padding: 0; }
+#peekBody .loadout-strip { display: grid; }
+
 /* reduced motion: still the yard's remaining movers too */
 @media (prefers-reduced-motion: reduce) {
   #skyOrb { transition: none; }
+  .plot.ready { animation: none; }
   .plot.ready .crop-visual,
   .plot.perfect-harvest .crop-visual-wrap::after,
   .plot.mythic-active,
@@ -3909,6 +3978,17 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
       <button class="btn btn-ghost" id="exerciseIntroBackBtn">back</button>
       <button class="btn btn-primary" id="exerciseIntroStartBtn">begin</button>
     </div>
+  </div>
+</div>
+
+<!-- Plot peek sheet: tap a growing bed → its rich detail slides up from the
+     bottom while the yard stays visible above. The card's old dashboard
+     (name, countdown, yield-why, loadout, buffs, picks) lives here now. -->
+<div class="modal peek-modal" id="plotPeekModal" hidden>
+  <div class="peek-sheet" role="dialog" aria-label="Plot details">
+    <div class="peek-grab" aria-hidden="true"></div>
+    <div id="peekBody"></div>
+    <button class="modal-close" data-close>close</button>
   </div>
 </div>
 
@@ -5020,6 +5100,113 @@ function harmonyStageIndex() {
   const h = getHarmony();
   return h < 35 ? 0 : h < 70 ? 1 : h < 100 ? 2 : 3;
 }
+// ============ PLOT PEEK SHEET ============
+// Tap a growing bed → a bottom sheet with everything the old card crammed on
+// its face: name + live countdown, yield + why (buff chips), boons picked,
+// loadout (tap to edit), plot upgrades, Choose Boon. The yard stays visible
+// above. Built fresh on open (safe: ticks never rebuild it — they only poke
+// text via the sheet-sync in updatePlotTick).
+function openPlotPeekSheet(i) {
+  if (anyModalOpen()) return;
+  const plot = state.plots[i];
+  if (!plot || plot.locked || !plot.crop) return;
+  const crop = CROPS[plot.crop];
+  const body = document.getElementById('peekBody');
+  if (!body) return;
+  const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+  const picks = picksAvailable(plot);
+  const remain = plot.totalMs - plot.elapsedMs;
+
+  // buff chips — same markup as the old card face (ferment span keeps its
+  // class + data-plotid so the live tick can find and update it here too)
+  const chips = plot.activeBuffs.map(b => {
+    const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
+    let outcome = '';
+    if (b._outcome) {
+      const isMiss = String(b._outcome).includes('miss') || String(b._outcome).startsWith('−');
+      outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}">${b._outcome}</span>`;
+    }
+    const tip = (b.desc || '').replace(/<[^>]+>/g, '');
+    return `<span class="buff-chip ${b.rarity}" title="${tip}">${b.name}${outcome}${extra}</span>`;
+  }).join('') || '<span class="peek-quiet">no boons yet this run</span>';
+
+  // loadout strip — same look as before, lives here now
+  const loadout = state.loadouts[i] || [];
+  const loadoutHtml = '<div class="loadout-strip" role="button" tabindex="0" aria-label="edit boon loadout" id="peekLoadoutStrip">' +
+    Array.from({ length: MAX_PERMA_SLOTS }, (_, j) => {
+      const id = loadout[j];
+      const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+      if (!buff) return '<div class="loadout-strip-slot"><span class="slot-empty">+</span></div>';
+      const active = isBuffActiveOnPlot(buff, plot);
+      const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
+      const stars = getStarsForBuff(buff.id);
+      const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
+      return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
+    }).join('') + '</div>';
+
+  // plot upgrades — visible at last (they used to hide in the loadout modal)
+  const ups = (state.plotUpgrades && state.plotUpgrades[i]) || {};
+  const upNames = Object.keys(PLOT_UPGRADES).filter(k => ups[k]).map(k => PLOT_UPGRADES[k].name);
+  const upgradesLine = upNames.length
+    ? `<div class="peek-upgrades">⚒ ${upNames.join(' · ')}</div>` : '';
+
+  const nextMs = (!isReady(plot) && picks === 0) ? msUntilNextPick(plot) : null;
+
+  body.innerHTML = `
+    <div class="peek-head">
+      <span class="peek-crop">${crop.emoji} ${crop.name}</span>
+      <span class="peek-time" id="peekTime">${isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left'}</span>
+    </div>
+    <div class="peek-yield">×${effectiveYield.toFixed(2)} yield at harvest · ${plot.picksTaken}/${plot.totalPicks} boons picked</div>
+    <div class="peek-chips">${chips}</div>
+    ${nextMs != null ? `<div class="plot-next-boon" id="peekNextBoon">next boon in ${fmtTimeRemaining(nextMs)}</div>` : ''}
+    <div class="peek-section">your equipped cards</div>
+    ${loadoutHtml}
+    ${upgradesLine}
+    <div class="peek-actions" id="peekActions"></div>
+  `;
+  const actions = document.getElementById('peekActions');
+  if (picks > 0) {
+    const pb = document.createElement('button');
+    pb.className = 'btn btn-pick pulse';
+    pb.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+    pb.onclick = () => { closeAllModals(); openBuffModal(i); };
+    actions.appendChild(pb);
+  }
+  if (isReady(plot)) {
+    const hb = document.createElement('button');
+    hb.className = 'btn btn-harvest';
+    hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(crop.baseYield * effectiveYield)})`;
+    hb.onclick = (ev) => { closeAllModals(); harvest(i, ev); };
+    actions.appendChild(hb);
+  }
+  const strip = document.getElementById('peekLoadoutStrip');
+  if (strip) {
+    const go = () => { closeAllModals(); openLoadoutModal(i); };
+    strip.onclick = go;
+    strip.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  }
+  state._peekPlotId = i;
+  document.getElementById('plotPeekModal').hidden = false;
+}
+
+// One delegated tap handler on the never-rebuilt grid container — the bed's
+// CURRENT state decides the verb (empty→plant, growing→peek, ready→harvest).
+// There is structurally no tap target a rebuild can destroy.
+document.getElementById('plotsGrid').addEventListener('click', (e) => {
+  if (e.target.closest('button')) return;                       // buttons keep their own jobs
+  if (e.target.closest('.crop-visual-wrap.ready-tap')) return;  // the crop's own tap harvests
+  if (e.target.closest('.loadout-strip')) return;
+  const card = e.target.closest('.plot');
+  if (!card || card.classList.contains('locked')) return;
+  const i = parseInt(card.getAttribute('data-plotid'), 10);
+  const plot = state.plots[i];
+  if (!plot || plot.locked) return;
+  if (!plot.crop) { openPlantModal(i); return; }
+  if (isReady(plot)) { harvest(i, e); return; }
+  openPlotPeekSheet(i);
+});
+
 // Generic gentle toast (reuses the tend-toast visual) for first-time notes
 // and "what just happened" moment cards. Non-blocking, auto-dismiss.
 function showGardenToast(icon, label, detail, ms) {
@@ -6672,7 +6859,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'gardenSheetModal', 'slotPickerModal', 'swapPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'gardenSheetModal', 'plotPeekModal', 'slotPickerModal', 'swapPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -8538,6 +8725,9 @@ function closeAllModals() {
   if (swapPicker) swapPicker.hidden = true;
   const gardenSheet = document.getElementById('gardenSheetModal');
   if (gardenSheet) gardenSheet.hidden = true;
+  const peek = document.getElementById('plotPeekModal');
+  if (peek) peek.hidden = true;
+  state._peekPlotId = null;
   _slotPickerCtx = null;
   // Closing during a breathing exercise = no reward, but cancel cleanly so
   // we don't leave timers running.
@@ -9565,7 +9755,7 @@ function render() {
         : '';
       const labelHtml = `
         <div class="plot-label">
-          <span>plot ${i + 1} ${contractBadge}</span>
+          <span>plot ${i + 1}</span>
         </div>
       `;
 
@@ -9628,6 +9818,8 @@ function render() {
         const glowAmount = Math.max(0, effectiveYield - 1.5) * 6;
 
         el.innerHTML = labelHtml + loadoutHtml + `
+          ${contractBadge}
+          <span class="bed-pip pip-boon" role="img" aria-label="a boon pick is waiting" title="a boon pick is waiting"${picks > 0 ? '' : ' hidden'}>⭐</span>
           <div class="crop-header">
             <div class="crop-name">${crop.name}</div>
             <div class="yield-mult" role="img" aria-label="yield multiplier ${effectiveYield.toFixed(2)} times">×${effectiveYield.toFixed(2)}</div>
@@ -9849,6 +10041,8 @@ function restyleReadyPlots() {
 
     // --- pick landed (tick only ever increases picks; decreases are user
     //     actions which trigger a full render) ---
+    const pip = el.querySelector('.pip-boon');
+    if (pip) pip.hidden = picks === 0;
     const pickBtn = actions.querySelector('.btn-pick');
     if (picks > 0) {
       if (!pickBtn) {
@@ -9907,6 +10101,31 @@ function updatePlotTick(plot) {
   if (plot.flags && plot.flags.skillFerment) {
     const fermentEl = plotEl.querySelector('.ferment-bonus');
     if (fermentEl) fermentEl.textContent = getFermentBonusText(plot);
+  }
+  // peek-sheet sync: if this plot's sheet is open, its countdown/ferment tick
+  // too, and ripening swaps the CTA to Harvest — the sheet never goes stale.
+  if (state._peekPlotId === plot.id) {
+    const pm = document.getElementById('plotPeekModal');
+    if (pm && !pm.hidden) {
+      const pt = document.getElementById('peekTime');
+      if (pt) pt.textContent = isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(plot.totalMs - plot.elapsedMs) + ' left';
+      const pf = pm.querySelector('.ferment-bonus');
+      if (pf) pf.textContent = getFermentBonusText(plot);
+      const pnb = document.getElementById('peekNextBoon');
+      if (pnb) {
+        const ms = msUntilNextPick(plot);
+        if (ms == null || isReady(plot) || picksAvailable(plot) > 0) pnb.remove();
+        else pnb.textContent = `next boon in ${fmtTimeRemaining(ms)}`;
+      }
+      const pa = document.getElementById('peekActions');
+      if (pa && isReady(plot) && !pa.querySelector('.btn-harvest')) {
+        const hb = document.createElement('button');
+        hb.className = 'btn btn-harvest';
+        hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(CROPS[plot.crop].baseYield * plot.yieldMult * getPermaYieldMultForPlot(plot.id))})`;
+        hb.onclick = (ev) => { closeAllModals(); harvest(plot.id, ev); };
+        pa.appendChild(hb);
+      }
+    }
   }
 }
 
