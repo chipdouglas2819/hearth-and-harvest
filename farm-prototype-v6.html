@@ -81,11 +81,9 @@
       <!-- THE GARDEN SCENE: one drawn, angled (3/4-view) SVG world. Beds are
            dirt patches IN the land, crops are clusters of plants growing in
            rows, boons paint visible effects on their bed, harmony lives in
-           the grass and flowers. The old card grid below is kept as hidden
-           update targets (the in-place tick paths still write to it) but the
-           scene is the visible truth. -->
+           the grass and flowers. This is the whole farm — renderGardenScene()
+           builds it into #sceneWrap; ticks update it in place. -->
       <div id="sceneWrap"></div>
-      <section class="plots-grid" id="plotsGrid"></section>
     </div>
   </div>
 

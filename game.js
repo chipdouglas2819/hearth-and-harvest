@@ -1176,32 +1176,9 @@ function openPlotPeekSheet(i) {
   document.getElementById('plotPeekModal').hidden = false;
 }
 
-// One delegated tap handler on the never-rebuilt grid container — the bed's
-// CURRENT state decides the verb (empty→plant, growing→peek, ready→harvest).
-// There is structurally no tap target a rebuild can destroy.
-document.getElementById('plotsGrid').addEventListener('click', (e) => {
-  if (e.target.closest('button')) return;                       // buttons keep their own jobs
-  if (e.target.closest('.crop-visual-wrap.ready-tap')) return;  // the crop's own tap harvests
-  if (e.target.closest('.loadout-strip')) return;
-  const card = e.target.closest('.plot');
-  if (!card || card.classList.contains('locked')) return;
-  const i = parseInt(card.getAttribute('data-plotid'), 10);
-  const plot = state.plots[i];
-  if (!plot || plot.locked) return;
-  if (!plot.crop) { openPlantModal(i); return; }
-  if (isReady(plot)) { harvest(i, e); return; }
-  openPlotPeekSheet(i);
-});
-// Keyboard route for the same three verbs: Enter/Space on a focused bed acts
-// like a tap (the click handler above does the state routing).
-document.getElementById('plotsGrid').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  if (e.target.closest('button')) return;
-  const card = e.target.closest('.plot');
-  if (!card) return;
-  e.preventDefault();
-  card.click();
-});
+// Bed taps are routed by the drawn scene itself (see _routeSceneTap, which the
+// SVG hit-rects call) — empty→plant, growing→peek, ready→harvest. There is no
+// hidden card grid to delegate from anymore.
 
 // ============ THE GARDEN LANE ============
 // Four places on the path: stall (market), noticeboard (requests), mailbox
@@ -5804,11 +5781,6 @@ function faceReadyLabel(plot) {
 // Rebuilt on user-action render()s only; per-frame growth + structural flips
 // go through updateBedScene()/syncBedSceneStructural() — in-place, gotcha-safe.
 let _sceneRefs = {};
-// The old card grid is display:none but still BUILT on renders (cheap,
-// action-time). Its per-FRAME updates are pure waste now (~48 full-document
-// querySelector scans/frame against an invisible subtree, per the perf
-// audit) — this flag retires that path while keeping it resurrectable.
-const LEGACY_GRID_ACTIVE = false;
 
 // Three plant silhouettes so crops differ by SHAPE, not just hue: leafy bush
 // (roots & bushes), tall stalk (grains & sunflowers), low trailing vine
@@ -6196,196 +6168,6 @@ function render() {
   const yardEl = document.getElementById('farmYard');
   if (yardEl) yardEl.dataset.harmony = harmonyStageIndex();
 
-  // Legacy card grid: display:none since the Garden Scene; building it cost
-  // roughly half of every action-render (per the perf audit). Skipped unless
-  // the legacy flag is re-enabled.
-  const grid = document.getElementById('plotsGrid');
-  grid.innerHTML = '';
-  if (LEGACY_GRID_ACTIVE) {
-  const firstLockedIdx = state.plots.findIndex(p => p.locked);
-  state.plots.forEach((plot, i) => {
-    if (plot.locked && i !== firstLockedIdx) return; // hide all locked plots except next-to-buy
-    const el = document.createElement('div');
-    el.className = 'plot';
-    el.setAttribute('data-plotid', i);
-
-    if (plot.locked) {
-      el.classList.add('locked');
-      const cost = PLOT_COSTS[i];
-      const canBuy = state.money >= cost;
-      el.innerHTML = `
-        <div class="plot-label"><span>plot ${i + 1}</span></div>
-        <div class="lock-icon">⌂ unclaimed</div>
-        <div class="lock-cost"><span class="coin-icon">◉</span> ${fmtMoney(cost)}</div>
-      `;
-      const btn = document.createElement('button');
-      btn.className = 'btn ' + (canBuy ? 'btn-primary' : 'btn-secondary');
-      btn.textContent = canBuy ? 'Buy land' : 'not enough coin';
-      btn.disabled = !canBuy;
-      btn.onclick = () => canBuy && buyPlot(i);
-      el.appendChild(btn);
-    } else {
-      // Keyboard farming: the bed is the button now (face buttons are CSS-
-      // hidden), so it must be focusable and announce its verb.
-      el.tabIndex = 0;
-      el.setAttribute('role', 'button');
-      el.setAttribute('aria-label', !plot.crop
-        ? `plot ${i + 1} — tilled and waiting, press to plant`
-        : isReady(plot)
-          ? `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`
-          : `plot ${i + 1} — ${CROPS[plot.crop].name} growing, press for details`);
-      // loadout strip — always shown for unlocked plots
-      const loadout = state.loadouts[i] || [];
-
-      // Build top label — includes contract symbol when this crop matches an active demand
-      const contractBadge = plot.crop && isCropWantedByContract(plot.crop)
-        ? `<span class="plot-contract-badge" role="img" aria-label="an active contract wants this crop" title="An active contract wants this crop">📜</span>`
-        : '';
-      const labelHtml = `
-        <div class="plot-label">
-          <span>${i + 1}</span>
-        </div>
-      `;
-
-      // Build loadout strip — shows crop emoji for crop-specific cards, 🌿 for general
-      const loadoutHtml = '<div class="loadout-strip" data-plotid="' + i + '" title="Click to edit loadout">' +
-        Array.from({length: MAX_PERMA_SLOTS}, (_, j) => {
-          const id = loadout[j];
-          const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
-          if (!buff) return '<div class="loadout-strip-slot"><span class="slot-empty">+</span></div>';
-          const active = isBuffActiveOnPlot(buff, plot);
-          const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
-          const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
-          const stars = getStarsForBuff(buff.id);
-          const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
-          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label} · ★${stars}${active ? '' : ' · inactive'}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
-        }).join('') +
-        '</div>';
-
-      if (!plot.crop) {
-        el.innerHTML = labelHtml + loadoutHtml + `
-          <div class="plot-empty">
-            <div class="soil-illustration"></div>
-            <div style="text-align:center; color: var(--moss); font-size: 13px;">tilled and waiting</div>
-          </div>
-        `;
-        const actions = document.createElement('div');
-        actions.className = 'plot-actions';
-        const btn = document.createElement('button');
-        btn.className = 'btn btn-primary';
-        btn.textContent = 'Plant a Crop';
-        btn.onclick = () => openPlantModal(i);
-        actions.appendChild(btn);
-        el.appendChild(actions);
-      } else {
-        const crop = CROPS[plot.crop];
-        const prog = progressOf(plot);
-        const ready = isReady(plot);
-        const picks = picksAvailable(plot);
-        const remain = plot.totalMs - plot.elapsedMs;
-        el.classList.add('growing');
-        if (ready) el.classList.add('ready');
-        const hasMythic = plot.activeBuffs.some(b => b.rarity === 'mythic');
-        const hasLegendary = plot.activeBuffs.some(b => b.rarity === 'legendary');
-        if (hasMythic) el.classList.add('mythic-active');
-        else if (hasLegendary) el.classList.add('legendary-active');
-        // "Perfect harvest" sparkle: top-decile runs only. Optimal-AI mean is
-        // ~3.4×, so ≥5.0× actually feels rare and earned. Sparkle only fires
-        // when the player has built something genuinely standout.
-        const _perfectMult = plot.yieldMult * getPermaYieldMultForPlot(i);
-        if (ready && _perfectMult >= 5.0) el.classList.add('perfect-harvest');
-
-        const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
-        const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
-        const yScale = visualScale(effectiveYield);
-        // Continuous growth: the plant scales smoothly with progress (0.55 → 1.05)
-        // instead of snapping between four fixed sizes. updatePlotTick keeps this
-        // moving between renders, so growth is a quiet, visible thing.
-        const stageScale = 0.55 + Math.min(1, prog) * 0.5;
-        const finalScale = yScale * stageScale;
-        const glowAmount = Math.max(0, effectiveYield - 1.5) * 6;
-
-        el.innerHTML = labelHtml + loadoutHtml + `
-          ${contractBadge}
-          <span class="bed-pip pip-boon" role="img" aria-label="a boon pick is waiting" title="a boon pick is waiting"${picks > 0 ? '' : ' hidden'}>⭐</span>
-          <div class="crop-header">
-            <div class="crop-name">${crop.name}</div>
-            <div class="yield-mult" role="img" aria-label="yield multiplier ${effectiveYield.toFixed(2)} times">×${effectiveYield.toFixed(2)}</div>
-          </div>
-          <div class="growth-display">
-            <div class="crop-visual-wrap ${ready ? 'ready-tap' : ''}" data-plotid="${i}">
-              <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
-            </div>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" style="width: ${prog * 100}%"></div>
-          </div>
-          <div class="plot-info">
-            <span>${ready ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left'}</span>
-            <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
-          </div>
-          ${(() => {
-            // Show "next boon in Xm" line ONLY when there's a future pick to wait for
-            // and there isn't already an available pick (in which case the FAB is the
-            // priority message).
-            if (ready || picks > 0) return '';
-            const ms = msUntilNextPick(plot);
-            if (ms == null) return '';
-            return `<div class="plot-next-boon">next boon in ${fmtTimeRemaining(ms)}</div>`;
-          })()}
-          <div class="active-buffs">
-            ${plot.activeBuffs.map(b => {
-              const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
-              let outcome = '';
-              if (b._outcome) {
-                const isMiss = String(b._outcome).includes('miss') || String(b._outcome).startsWith('−');
-                const fresh = (Date.now() - (b._appliedAt || 0)) < 2000;
-                outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}${fresh ? ' fresh' : ''}">${b._outcome}</span>`;
-              }
-              // Tooltip: tap-and-hold on mobile, hover on desktop. Strips
-              // HTML tags from desc since title= can't render them.
-              const tip = (b.desc || '').replace(/<[^>]+>/g, '');
-              return `<span class="buff-chip ${b.rarity}" title="${tip}">${b.name}${outcome}${extra}</span>`;
-            }).join('')}
-          </div>
-        `;
-
-        const actions = document.createElement('div');
-        actions.className = 'plot-actions';
-
-        if (picks > 0) {
-          const pickBtn = document.createElement('button');
-          pickBtn.className = 'btn btn-pick pulse';
-          pickBtn.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
-          pickBtn.onclick = () => openBuffModal(i);
-          actions.appendChild(pickBtn);
-        }
-
-        if (ready) {
-          const hb = document.createElement('button');
-          hb.className = 'btn btn-harvest';
-          const expectedYield = Math.floor(crop.baseYield * effectiveYield);
-          hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expectedYield})`;
-          hb.onclick = (ev) => harvest(i, ev);
-          actions.appendChild(hb);
-        }
-
-        el.appendChild(actions);
-      }
-
-      // attach handler to loadout strip synchronously
-      const strip = el.querySelector('.loadout-strip');
-      if (strip) strip.onclick = () => openLoadoutModal(i);
-      // Tap the crop itself to harvest it — the core verb becomes "touch the
-      // vegetable," not "press a button." (The Harvest button stays for clarity.)
-      // Keyed off the .ready-tap class (only present when ripe) to stay in scope.
-      const readyCrop = el.querySelector('.crop-visual-wrap.ready-tap');
-      if (readyCrop) readyCrop.onclick = (ev) => harvest(i, ev);
-    }
-    grid.appendChild(el);
-  });
-  } // end LEGACY_GRID_ACTIVE
-
   // the visible farm: the drawn garden scene
   renderGardenScene();
   // contextual surfaces (replaced the always-on Dashboard strip)
@@ -6483,137 +6265,28 @@ function render() {
 }
 
 // ============ TICK ============
-// In-place structural restyle — replaces the old "full render() on a timer"
-// reflex that rebuilt the whole grid via innerHTML the instant a crop ripened
-// or a pick landed, eating any in-flight tap (constant at 60×/600× test
-// speeds). This updates the EXISTING card nodes only: toggles classes, swaps
-// text, creates/removes the two action buttons inside the stable
-// .plot-actions container. Full render() still runs on every user action.
+// Structural flips (a bed becoming ready, a boon pick landing) on tick frames.
+// These go STRAIGHT to the drawn scene — never a full render() — so a tap in
+// flight is never destroyed by a mid-press DOM rebuild (the one architecture
+// rule). syncBedSceneStructural mirrors the flip: glow on, ⭐ pip on, ripe
+// fruits in, aria label updated.
 function restyleReadyPlots() {
   state.plots.forEach((plot, i) => {
     if (plot.locked || !plot.crop) return;
-    const ready = isReady(plot);
-    const picks = picksAvailable(plot);
-    // Legacy grid retired: structural flips go straight to the drawn scene.
-    // CRITICAL ORDER: this gate must come BEFORE any card lookup — the grid
-    // is permanently empty now, and an early `if (!el) return` here silently
-    // severed ready/pick flips from the scene (QA regression catch).
-    if (!LEGACY_GRID_ACTIVE) { syncBedSceneStructural(plot, i, ready, picks); return; }
-    const el = document.querySelector(`.plot[data-plotid="${i}"]`);
-    if (!el || el.classList.contains('locked')) return;
-    const actions = el.querySelector('.plot-actions');
-    if (!actions) return;
-
-    // --- ready flip ---
-    if (ready && !el.classList.contains('ready')) {
-      el.classList.add('ready');
-      const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
-      if (effectiveYield >= 5.0) el.classList.add('perfect-harvest');
-      // Finalize the plant itself: full-grown emoji at full scale. Without
-      // this, a plot that ripens in one big-dt frame (backgrounded tab, test
-      // speed) sits "ready" showing a tiny seedling until the next render.
-      const cv = el.querySelector('.crop-visual');
-      if (cv) {
-        cv.textContent = CROPS[plot.crop].emoji;
-        cv.style.transform = `translate(-50%, -50%) scale(${(visualScale(effectiveYield) * 1.05).toFixed(4)})`;
-      }
-      const wrap = el.querySelector('.crop-visual-wrap');
-      if (wrap && !wrap.classList.contains('ready-tap')) {
-        wrap.classList.add('ready-tap');
-        wrap.onclick = (ev) => harvest(i, ev);
-      }
-      el.setAttribute('aria-label', `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`);
-      const fill = el.querySelector('.progress-fill');
-      if (fill) fill.style.width = '100%';
-      const info = el.querySelector('.plot-info');
-      if (info && info.children.length >= 1) info.children[0].textContent = faceReadyLabel(plot);
-      if (!actions.querySelector('.btn-harvest')) {
-        const hb = document.createElement('button');
-        hb.className = 'btn btn-harvest';
-        const expected = Math.floor(CROPS[plot.crop].baseYield * effectiveYield);
-        hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expected})`;
-        hb.onclick = (ev) => harvest(i, ev);
-        actions.appendChild(hb);
-      }
-    }
-
-    // --- pick landed (tick only ever increases picks; decreases are user
-    //     actions which trigger a full render) ---
-    const pip = el.querySelector('.pip-boon');
-    if (pip) pip.hidden = picks === 0;
-    const pickBtn = actions.querySelector('.btn-pick');
-    if (picks > 0) {
-      if (!pickBtn) {
-        const pb = document.createElement('button');
-        pb.className = 'btn btn-pick pulse';
-        pb.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
-        pb.onclick = () => openBuffModal(i);
-        actions.insertBefore(pb, actions.firstChild);
-      } else {
-        const badge = pickBtn.querySelector('.pick-badge');
-        if (badge) badge.textContent = picks;
-      }
-      const info = el.querySelector('.plot-info');
-      if (info && info.children.length >= 2) info.children[1].textContent = `${plot.picksTaken}/${plot.totalPicks} picked`;
-    }
-
-    // The "next boon in Xm" whisper is moot once a pick is here or the crop is ripe
-    if (ready || picks > 0) {
-      const nb = el.querySelector('.plot-next-boon');
-      if (nb) nb.remove();
-    }
-    // the drawn scene mirrors the flip (glow on, pip on, fruits in, aria)
-    syncBedSceneStructural(plot, i, ready, picks);
+    syncBedSceneStructural(plot, i, isReady(plot), picksAvailable(plot));
   });
 }
 
+// Per-frame growth: the drawn plants scale, fruits ripen, and the time chip
+// ticks. In-place writes only (last-value-guarded inside updateBedScene), so
+// this is gotcha-safe to run every animation frame.
 function updatePlotTick(plot) {
-  // the drawn scene grows every frame (plants scale, fruits ripen, chip ticks)
   updateBedScene(plot);
   _syncPeekForPlot(plot);
-  // everything below writes into the display:none card grid — retired
-  if (!LEGACY_GRID_ACTIVE) return;
-  const plotEl = document.querySelector(`.plot[data-plotid="${plot.id}"]`);
-  if (!plotEl) return;
-  const fill = plotEl.querySelector('.progress-fill');
-  if (fill) fill.style.width = (progressOf(plot) * 100) + '%';
-  // Living growth: the plant visibly grows between full renders — smooth scale
-  // with progress, and the seedling becomes the crop at 25% without waiting
-  // for a structural re-render. In-place style writes only (gotcha-safe).
-  const cv = plotEl.querySelector('.crop-visual');
-  if (cv && plot.crop && !isReady(plot)) {
-    const prog = progressOf(plot);
-    const c = CROPS[plot.crop];
-    const want = (prog < 0.25) ? c.seedling : c.emoji;
-    if (cv.textContent !== want) cv.textContent = want;
-    const yScale = visualScale(plot.yieldMult * getPermaYieldMultForPlot(plot.id));
-    cv.style.transform = `translate(-50%, -50%) scale(${(yScale * (0.55 + Math.min(1, prog) * 0.5)).toFixed(4)})`;
-  }
-  const info = plotEl.querySelector('.plot-info');
-  if (info && info.children.length >= 2) {
-    const remain = plot.totalMs - plot.elapsedMs;
-    // Compact face chip ("✓ +56%" / "✓ 12s window") — it must fit a 100px
-    // bed; the peek sheet carries the full sentence.
-    info.children[0].textContent = isReady(plot) ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left';
-  }
-  // live "next boon in Xm" whisper — without this it freezes at whatever
-  // render() last wrote (full renders only happen on user actions now)
-  const nb = plotEl.querySelector('.plot-next-boon');
-  if (nb) {
-    const ms = msUntilNextPick(plot);
-    if (ms == null || isReady(plot) || picksAvailable(plot) > 0) nb.remove();
-    else nb.textContent = `next boon in ${fmtTimeRemaining(ms)}`;
-  }
-  // live ferment counter
-  if (plot.flags && plot.flags.skillFerment) {
-    const fermentEl = plotEl.querySelector('.ferment-bonus');
-    if (fermentEl) fermentEl.textContent = getFermentBonusText(plot);
-  }
 }
 
 // peek-sheet sync: if this plot's sheet is open, its countdown/ferment tick
 // too, and ripening swaps the CTA to Harvest — the sheet never goes stale.
-// (Runs from updatePlotTick regardless of the legacy-grid flag.)
 function _syncPeekForPlot(plot) {
   if (state._peekPlotId === plot.id) {
     const pm = document.getElementById('plotPeekModal');
