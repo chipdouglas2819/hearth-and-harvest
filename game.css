@@ -127,12 +127,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   font-family: var(--serif);
   line-height: 1;
 }
-.label-tiny {
-  font-size: 10px; letter-spacing: 0.18em;
-  text-transform: uppercase; color: var(--moss);
-  font-weight: 500;
-}
-.money .label-tiny { display: none; } /* compact: don't need a "coin" label next to the icon */
 .money .value {
   font-family: var(--serif);
   font-weight: 600;
@@ -148,52 +142,12 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
    anywhere we want the same gold color used in the topbar coin display. */
 .coin-icon { color: var(--butter); font-weight: 700; }
 
-.topbar-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.btn-pill {
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 15px;
-  font-style: italic;
-  padding: 9px 16px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.18s ease;
-  border: 1px solid transparent;
-}
-.btn-pill.boons { background: var(--butter); color: var(--ink); border-color: var(--gold); }
-.btn-pill.boons:hover:not(:disabled) { background: var(--gold); transform: translateY(-1px); box-shadow: var(--shadow-md); }
-.btn-pill.packs { background: linear-gradient(135deg, var(--mythic), var(--terracotta)); color: white; }
-.btn-pill.packs:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
-.btn-pill:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-pill .badge {
-  background: rgba(0,0,0,0.25);
-  color: white;
-  border-radius: 999px;
-  width: 22px; height: 22px;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-family: var(--sans);
-  font-style: normal;
-}
-.btn-pill.boons .badge { background: var(--terracotta); color: var(--cream); }
-.btn-pill.has-attention { animation: attentionPulse 1.5s ease-in-out infinite; }
-.btn-pill.packs.has-attention { animation: packPulse 1.8s ease-in-out infinite; }
+/* attentionPulse is reused by the live .btn-pick.pulse (Choose Boon button). */
 @keyframes attentionPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.6); }
   50% { box-shadow: 0 0 0 8px rgba(244, 193, 71, 0); }
 }
-@keyframes packPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(157, 111, 211, 0.6); }
-  50% { box-shadow: 0 0 0 8px rgba(157, 111, 211, 0); }
-}
 
-.speed-control { display: flex; align-items: center; gap: 4px; }
-.speed-control .label-tiny { display: none; } /* compact: pill text speaks for itself */
 .speed-row { display: flex; gap: 3px; }
 .speed-btn {
   font-family: var(--mono);
@@ -209,7 +163,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .speed-btn:hover { border-color: var(--moss); }
 .speed-btn.active { background: var(--forest); color: var(--cream); border-color: var(--forest); }
 
-.debug-btn { font-size: 16px; padding: 6px 12px; }
 .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .debug-target { margin: 12px 0; font-size: 13px; color: var(--moss); }
 .debug-target select { font-family: var(--mono); padding: 4px 8px; margin-left: 8px; }
@@ -249,17 +202,6 @@ main {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.tab-placeholder {
-  padding: 60px 20px;
-  text-align: center;
-  color: var(--moss);
-  font-style: italic;
-  font-size: 14px;
-  background: var(--paper);
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-}
-
 /* Bottom tab bar */
 .tab-bar {
   position: fixed;
@@ -350,34 +292,6 @@ main {
   0%, 100% { box-shadow: 0 0 0 0 rgba(244, 193, 71, 0.55); }
   50%      { box-shadow: 0 0 0 6px rgba(244, 193, 71, 0); }
 }
-
-/* === Contracts tab: market sub-header inside contract panel === */
-.contract-market-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 13px;
-  color: var(--forest);
-  padding: 8px 10px;
-  margin-bottom: 12px;
-  background: rgba(244, 193, 71, 0.07);
-  border-radius: 6px;
-}
-.contract-market-line .cml-label {
-  font-family: var(--mono);
-  font-style: normal;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--sage);
-  margin-right: 4px;
-}
-.contract-market-line .cml-up { color: var(--gold); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; }
-.contract-market-line .cml-down { color: var(--rust); font-family: var(--mono); font-style: normal; font-weight: 700; font-size: 11px; opacity: 0.85; }
-.contract-market-line .cml-divider { color: var(--sage); }
 
 /* === Farm tab: Today's Market strip === */
 .farm-market-strip {
@@ -634,67 +548,7 @@ body.calm-state #skyOrb { filter: drop-shadow(0 0 16px rgba(244, 193, 71, 0.8));
 .yard-moment[hidden] { display: none !important; }
 #farmYard .farm-market-strip { margin: 10px 12px 0; }
 
-.plots-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  justify-content: center;
-  padding: 12px 12px 0;
-  max-width: 760px;
-  margin: 0 auto;
-}
-
-/* Beds: patches of soil, not cards. */
-.plot {
-  background:
-    radial-gradient(120% 90% at 50% 20%, var(--soil-1), var(--soil-2)),
-    var(--soil-2);
-  border: 1px solid rgba(101, 78, 49, 0.35);
-  border-radius: 18px;
-  padding: 12px 12px 10px;
-  position: relative;
-  overflow: visible;
-  transition: all 0.2s ease;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 2px 6px rgba(60, 50, 30, 0.12);
-}
-
-.plot:hover { border-color: rgba(101, 78, 49, 0.6); transform: translateY(-2px); box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), var(--shadow-md); }
-
-.plot.locked {
-  border-style: dashed;
-  border-color: rgba(101, 78, 49, 0.4);
-  background: linear-gradient(180deg, rgba(143, 166, 142, 0.30), rgba(123, 154, 96, 0.22));
-  box-shadow: none;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-.plot.locked .lock-icon {
-  font-size: 22px; color: var(--sage); margin-bottom: 12px;
-  font-family: var(--serif);
-}
-.plot.locked .lock-cost {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--moss);
-  margin-bottom: 14px;
-}
-
-.plot-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--sage);
-  margin-bottom: 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-/* === per-plot loadout strip === */
+/* === per-plot loadout strip (lives in the plot peek sheet) === */
 .loadout-strip {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
@@ -772,103 +626,6 @@ body.calm-state #skyOrb { filter: drop-shadow(0 0 16px rgba(244, 193, 71, 0.8));
   line-height: 1;
   letter-spacing: -0.5px;
   text-shadow: 0 0 2px rgba(0,0,0,0.3);
-}
-.loadout-strip-slot .slot-text {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--forest);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
-  width: 100%;
-  text-align: center;
-}
-
-.plot-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  gap: 12px;
-}
-.plot-empty .soil-illustration {
-  width: 72px; height: 72px;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, var(--wood), #4a2d18);
-  opacity: 0.3;
-}
-
-.plot.growing { background: linear-gradient(to bottom, var(--paper) 0%, var(--plot-growing-bottom) 100%); }
-
-.plot.legendary-active::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 30%, rgba(244, 193, 71, 0.10), transparent 70%);
-  pointer-events: none;
-  border-radius: 14px;
-}
-.plot.mythic-active::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 50% 30%, rgba(157, 111, 211, 0.18), transparent 70%);
-  pointer-events: none;
-  animation: mythicPulse 3s ease-in-out infinite;
-  border-radius: 14px;
-}
-@keyframes mythicPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
-
-.crop-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.crop-name { font-family: var(--serif); font-size: 20px; font-weight: 600; color: var(--forest); }
-.yield-mult { font-family: var(--mono); font-size: 13px; color: var(--terracotta); font-weight: 600; }
-
-.growth-display {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 4px 0 12px;
-  height: 140px;
-  position: relative;
-  overflow: visible;
-  z-index: 1;
-}
-.crop-visual-wrap {
-  display: inline-block;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s ease;
-  position: relative;
-  width: 130px;
-  height: 130px;
-  pointer-events: auto;
-}
-.crop-visual-wrap.exhausted { pointer-events: none; }
-/* Ready crop = tappable to harvest (touch the vegetable, not a button). */
-.crop-visual-wrap.ready-tap { pointer-events: auto; cursor: pointer; }
-.crop-visual-wrap.ready-tap:active { transform: scale(0.9); }
-/* Idle life: growing crops sway gently, each plot on its own rhythm — the
-   farm breathes while you wait instead of sitting frozen. (Sway lives on the
-   wrap; the inner .crop-visual carries the growth scale — no conflict. Ready
-   plots are excluded so the harvest tap feedback stays crisp.) */
-.plot:not(.ready) .crop-visual-wrap { animation: cropSway 4.6s ease-in-out infinite; }
-.plot:nth-child(2n):not(.ready) .crop-visual-wrap { animation-delay: -1.7s; animation-duration: 5.3s; }
-.plot:nth-child(3n):not(.ready) .crop-visual-wrap { animation-delay: -2.9s; animation-duration: 4.1s; }
-@keyframes cropSway {
-  0%, 100% { transform: rotate(-1.3deg) translateY(0); }
-  50%      { transform: rotate(1.3deg) translateY(-2px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .plot:not(.ready) .crop-visual-wrap { animation: none; }
 }
 /* Harvest juice — flung crops + coins flying to the wallet + counter bounce. */
 .harvest-particle {
@@ -1287,39 +1044,6 @@ body.calm-state #tab-farm {
   50% { transform: scale(1.5); filter: drop-shadow(0 0 6px rgba(244, 193, 71, 0.9)); }
 }
 
-/* Tend reward state banner — prominent so the player immediately sees
-   whether the next session will give them -8% or be pure practice. */
-.tend-reward-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 14px;
-  margin: 14px auto 6px;
-  max-width: 340px;
-  border-radius: 999px;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-.tend-reward-banner.reward {
-  background: rgba(199, 93, 58, 0.10);
-  color: var(--terracotta);
-  border: 1px solid rgba(199, 93, 58, 0.30);
-}
-.tend-reward-banner.practice {
-  background: rgba(143, 166, 142, 0.10);
-  color: var(--sage);
-  border: 1px dashed var(--border-strong);
-  font-style: italic;
-  text-transform: none;
-  letter-spacing: 0.02em;
-  font-weight: 500;
-}
-.tend-reward-banner .trb-icon { font-size: 14px; line-height: 1; }
-
 /* First-time intro card — shown once per exercise before its first run */
 .exercise-intro {
   max-width: 420px;
@@ -1429,79 +1153,6 @@ body.calm-state #tab-farm {
   color: var(--moss);
   min-height: 14px;
 }
-.btn-tend {
-  background: linear-gradient(135deg, rgba(127, 191, 191, 0.20), rgba(127, 191, 191, 0.08));
-  border: 1px solid var(--moss);
-  color: var(--forest);
-  font-family: var(--serif);
-  font-style: italic;
-}
-.btn-tend:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); box-shadow: var(--shadow-md); }
-.btn-tend:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* tap-hint removed — it was intercepting the progress bar visually
-   and the entire 130x130 crop area is tappable (players figure it out) */
-
-.tap-popup {
-  position: absolute;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--moss);
-  pointer-events: none;
-  animation: tapPopup 0.6s ease-out forwards;
-  top: 0;
-  left: 50%;
-}
-@keyframes tapPopup {
-  0% { opacity: 0; transform: translate(-50%, 0); }
-  20% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -30px); }
-}
-
-.crop-visual {
-  font-size: 56px;
-  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s, filter 0.3s;
-  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12));
-  pointer-events: none;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform-origin: center;
-  line-height: 1;
-}
-
-.plot.ready .crop-visual {
-  animation: pulseReady 1.6s ease-in-out infinite;
-}
-@keyframes pulseReady {
-  0%, 100% { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.12)); }
-  50% { filter: drop-shadow(0 6px 16px rgba(244, 193, 71, 0.5)); }
-}
-
-.progress-track {
-  width: 100%;
-  height: 6px;
-  background: rgba(45, 74, 62, 0.08);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 10px;
-  position: relative;
-  z-index: 2;
-}
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--sage), var(--moss)); transition: width 0.1s ease-out; border-radius: 3px; }
-.plot.ready .progress-fill { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
-
-.plot-info {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--moss);
-  margin-bottom: 4px;
-  position: relative;
-  z-index: 2;
-}
 .plot-next-boon {
   font-family: var(--mono);
   font-size: 10px;
@@ -1511,33 +1162,6 @@ body.calm-state #tab-farm {
   letter-spacing: 0.04em;
   font-style: italic;
 }
-.plot-contract-badge {
-  font-size: 12px;
-  margin-left: 4px;
-  filter: drop-shadow(0 0 4px rgba(244, 193, 71, 0.5));
-}
-
-/* "Perfect harvest" sparkle — gentle gleam on ready plots with a strong yield.
-   Subtle gold glow + a slow pulse so the player gets a quiet celebration
-   before they even hit Harvest. */
-.plot.perfect-harvest .crop-visual-wrap::after {
-  content: '✨';
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  font-size: 22px;
-  animation: perfectSparkle 2.4s ease-in-out infinite;
-  pointer-events: none;
-  z-index: 4;
-}
-.plot.perfect-harvest {
-  box-shadow: 0 0 0 1px var(--gold), 0 4px 16px rgba(244, 193, 71, 0.25);
-}
-@keyframes perfectSparkle {
-  0%, 100% { opacity: 0.65; transform: scale(0.9) rotate(-8deg); }
-  50%      { opacity: 1.0;  transform: scale(1.15) rotate(8deg); }
-}
-
 /* Contract-wanted indicator on plant-select options */
 .plant-option .po-contract {
   display: block;
@@ -1558,15 +1182,6 @@ body.calm-state #tab-farm {
   box-shadow: 0 2px 8px rgba(244, 193, 71, 0.18);
 }
 
-.active-buffs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 12px;
-  min-height: 18px;
-  position: relative;
-  z-index: 2;
-}
 .buff-chip {
   font-size: 10px;
   padding: 2px 8px;
@@ -1599,16 +1214,6 @@ body.calm-state #tab-farm {
 .buff-chip.rare { border-left-color: var(--terracotta); background: rgba(199, 93, 58, 0.10); color: var(--rust); }
 .buff-chip.legendary { border-left-color: var(--gold); background: rgba(212, 160, 44, 0.14); color: var(--rust); font-weight: 600; }
 .buff-chip.mythic { border-left-color: var(--mythic); background: rgba(107, 63, 160, 0.14); color: var(--mythic); font-weight: 600; }
-
-.plot-actions {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  position: relative;
-  z-index: 10;
-  pointer-events: auto;
-}
 
 .btn {
   padding: 10px 16px;
@@ -1669,7 +1274,6 @@ body.calm-state #tab-farm {
 }
 .btn-ghost:hover { border-color: var(--moss); background: rgba(143, 166, 142, 0.06); }
 
-.sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 130px; }
 .panel {
   background: var(--paper);
   border: 1px solid var(--border);
@@ -1759,31 +1363,6 @@ body.calm-state #tab-farm {
 .harvest-entry .amount.contract-fail { color: var(--rust); opacity: 0.7; }
 .harvest-entry .amount.lucky         { color: var(--gold); font-weight: 700; text-shadow: 0 0 6px rgba(244, 193, 71, 0.5); }
 
-/* "What do the colors mean?" — collapsible legend for the activity feed */
-.activity-help {
-  margin: 8px 0 12px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: rgba(143, 166, 142, 0.08);
-  border: 1px dashed var(--border-strong);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-}
-.activity-help[hidden] { display: none; }
-.activity-help .ah-row { display: flex; align-items: center; gap: 10px; line-height: 1.4; }
-.activity-help .ah-dot {
-  width: 12px; height: 12px; border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-block;
-}
-.activity-help .ah-dot.terracotta { background: var(--terracotta); }
-.activity-help .ah-dot.gold       { background: var(--gold); }
-.activity-help .ah-dot.gold-glow  { background: var(--gold); box-shadow: 0 0 8px rgba(244, 193, 71, 0.85); }
-.activity-help .ah-dot.rust       { background: var(--rust); opacity: 0.7; }
-.activity-help .ah-text { color: var(--moss); }
-.activity-help .ah-text b { color: var(--forest); font-weight: 600; font-style: italic; font-family: var(--serif); }
 .harvest-entry .harvest-flavor { font-style: italic; font-size: 10px; color: var(--sage); margin-left: 4px; }
 .harvest-entry .harvest-attribution {
   display: block;
@@ -1834,34 +1413,6 @@ body.calm-state #tab-farm {
   background: rgba(244, 193, 71, 0.08);
   border: 1px solid var(--gold);
 }
-.contract-tier-tag {
-  font-family: var(--mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 4px;
-}
-.contract-tier-tag.bronze { color: var(--terracotta); }
-
-/* Contract quality chip — uses the same rarity vocabulary as cards so the
-   player's mental model is unified. The bronze/silver/gold tier still
-   determines the reward shape internally, but is no longer shown. */
-.contract-quality {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  margin-bottom: 6px;
-  background: rgba(143, 166, 142, 0.12);
-}
-.contract-quality.common    { color: var(--sage);       background: rgba(143, 166, 142, 0.14); }
-.contract-quality.uncommon  { color: var(--moss);       background: rgba(74, 107, 79, 0.14); }
-.contract-quality.rare      { color: var(--terracotta); background: rgba(199, 93, 58, 0.14); }
-.contract-quality.legendary { color: var(--rust);       background: linear-gradient(90deg, rgba(244, 193, 71, 0.22), rgba(199, 93, 58, 0.18)); font-weight: 700; }
 .contract-task {
   font-family: var(--serif);
   font-size: 14px;
@@ -1896,13 +1447,10 @@ body.calm-state #tab-farm {
 .contract-accept-btn { margin-top: 8px; width: 100%; padding: 6px 12px !important; font-size: 13px !important; }
 .contract-reroll-btn { margin-top: 4px; width: 100%; padding: 4px 8px !important; font-size: 10px !important; opacity: 0.75; }
 .contract-reroll-btn:hover { opacity: 1; }
-.reroll-ad-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); color: var(--cream); font-family: var(--mono); font-size: 13px; border-radius: 8px; z-index: 5; }
 /* Phase B: Silver tier + mixed contracts + multi-slot offers */
-.contract-tier-tag.silver { color: var(--moss); }
 .contract-active.silver { background: rgba(74, 107, 79, 0.10); border-color: var(--moss); }
 .contract-offered.silver { background: rgba(74, 107, 79, 0.08); border-color: var(--moss); }
 /* Phase C: Gold tier + multi-active contracts */
-.contract-tier-tag.gold { color: var(--gold); font-weight: 700; }
 .contract-active.gold { background: rgba(244, 193, 71, 0.10); border-color: var(--gold); border-width: 2px; }
 .contract-offered.gold { background: rgba(244, 193, 71, 0.08); border-color: var(--gold); border-width: 2px; border-style: solid; }
 .contract-offered.locked { opacity: 0.5; pointer-events: none; }
@@ -2204,11 +1752,10 @@ body.calm-state #tab-farm {
   gap: 14px;
   margin-bottom: 18px;
 }
-.pack-cards.has-bonus { grid-template-columns: repeat(4, 1fr); }
 /* Tablet — 2-up still works. Phones — full-width cards so each reads
    card-shaped rather than tall/narrow rectangle. */
-@media (max-width: 720px) { .pack-cards, .pack-cards.has-bonus { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 480px) { .pack-cards, .pack-cards.has-bonus { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .pack-cards { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .pack-cards { grid-template-columns: 1fr; } }
 
 .pack-card {
   border-radius: 14px;
@@ -2382,41 +1929,6 @@ body.calm-state #tab-farm {
 }
 .pack-actions .btn { padding: 12px 24px; font-size: 14px; }
 
-.shop-btn {
-  padding: 14px 18px;
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  font-family: var(--sans);
-  text-align: left;
-  transition: all 0.18s ease;
-  border: 1px solid transparent;
-  position: relative;
-  overflow: hidden;
-  min-width: 220px;
-}
-.shop-btn .sb-title { font-family: var(--serif); font-size: 16px; font-style: italic; font-weight: 600; }
-.shop-btn .sb-desc { font-size: 11px; opacity: 0.85; }
-.shop-btn.ad { background: linear-gradient(135deg, #4A6B4F, #6A8D6E); color: white; }
-.shop-btn.ad:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.1); }
-.shop-btn.premium { background: linear-gradient(135deg, var(--mythic), var(--terracotta)); color: white; }
-.shop-btn.premium:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); filter: brightness(1.05); }
-.shop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.ad-playing {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.85);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--mono);
-  font-size: 14px;
-  letter-spacing: 0.1em;
-}
-
 /* === loadout modal === */
 .lm-header {
   display: flex;
@@ -2550,22 +2062,10 @@ body.calm-state #tab-farm {
 }
 .lm-slot.filled .ls-stars .empty { color: var(--border); }
 @media (max-width: 540px) {
-  .lm-sticky-top { margin: 0 -22px 10px; padding-left: 22px; padding-right: 22px; }
   .lm-slot { min-height: 54px; padding: 6px 8px; }
   .lm-slot.filled .ls-name { font-size: 10px; }
 }
 
-.lm-section-title {
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 14px;
-  color: var(--moss);
-  margin: 14px 0 10px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-.lm-section-title .lm-sec-meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--sage); text-transform: uppercase; font-style: normal; }
 .lm-upgrades { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 8px; }
 .lm-upgrade { padding: 10px 12px; border-radius: 8px; border: 1px dashed var(--border); background: rgba(143, 166, 142, 0.04); display: flex; flex-direction: column; gap: 4px; }
 .lm-upgrade.owned { background: rgba(244, 193, 71, 0.10); border-color: var(--gold); border-style: solid; }
@@ -2679,18 +2179,6 @@ body.calm-state #tab-farm {
 .lm-card .lc-tag.crop { color: var(--terracotta); }
 .lm-card.on-other-plot { border-style: dashed; opacity: 0.78; }
 .lm-card.on-other-plot:hover { opacity: 1; border-style: solid; border-color: var(--moss); }
-.lm-card .lc-count {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--terracotta);
-  background: rgba(199, 93, 58, 0.14);
-  padding: 2px 6px;
-  border-radius: 4px;
-  position: absolute;
-  bottom: 6px; right: 8px;
-  letter-spacing: 0.04em;
-}
 
 .lm-empty { color: var(--sage); font-style: italic; text-align: center; padding: 20px 0; grid-column: 1/-1; font-size: 13px; }
 
@@ -2757,62 +2245,6 @@ body.calm-state #tab-farm {
 .slot-picker { max-width: 600px; padding: 28px 22px; }
 .slot-picker h2 { text-align: center; }
 .slot-picker .modal-subtitle { text-align: center; }
-
-/* Swap picker — shown when player taps a collection card while loadout
-   is full. Lets them pick WHICH slot to replace, not just bumping oldest. */
-.swap-picker { max-width: 420px; padding: 28px 22px; text-align: center; }
-.swap-picker h2 { margin-bottom: 4px; }
-.swap-picker .modal-subtitle { margin-bottom: 18px; }
-.swap-picker #swapPickerCardName {
-  font-style: italic;
-  font-family: var(--serif);
-  color: var(--forest);
-  font-weight: 600;
-}
-.swap-slots {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.swap-slot {
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--paper);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-  text-align: left;
-  position: relative;
-}
-.swap-slot:hover { border-color: var(--terracotta); background: rgba(199, 93, 58, 0.04); }
-.swap-slot::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; height: 3px;
-  border-radius: 10px 10px 0 0;
-  background: var(--sage);
-}
-.swap-slot.uncommon::before  { background: var(--moss); }
-.swap-slot.rare::before      { background: var(--terracotta); }
-.swap-slot.legendary::before { background: linear-gradient(90deg, var(--butter), var(--terracotta)); }
-.swap-slot.mythic::before    { background: linear-gradient(90deg, var(--mythic), var(--mythic-glow)); }
-.swap-slot .ss-pos {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--sage);
-  margin-top: 6px;
-}
-.swap-slot .ss-name {
-  font-family: var(--serif);
-  font-size: 14px;
-  font-weight: 600;
-  font-style: italic;
-  color: var(--forest);
-  margin-top: 2px;
-}
 
 /* Filter chip rows above the collection grid */
 .lm-filters {
@@ -3242,15 +2674,6 @@ body.calm-state #tab-farm {
   color: var(--forest);
 }
 
-/* Tiny "best 12" subscript next to current streak in Stats panel */
-.lifetime-sub {
-  font-family: var(--sans);
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--moss);
-  margin-left: 4px;
-}
-
 /* === Journal tab: Today panel (top of Journal) === */
 .today-panel-body {
   display: flex;
@@ -3408,16 +2831,6 @@ body.calm-state #tab-farm {
 }
 .link-btn:hover { color: var(--terracotta); }
 
-/* legacy .lifetime-stats (if anything still references it) */
-.lifetime-stats { display: flex; flex-direction: column; gap: 6px; }
-.lifetime-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px dashed var(--border);
-  font-size: 13px;
-}
-.lifetime-row:last-child { border-bottom: none; }
 .lifetime-label { color: var(--moss); letter-spacing: 0.04em; }
 .lifetime-value {
   font-family: var(--mono);
@@ -3444,101 +2857,11 @@ body.calm-state #tab-farm {
 }
 
 
-/* ============ YARD OVERRIDES (late in cascade on purpose) ============
-   Bed faces whisper: the plant is the status. Name text goes away (the crop
-   IS the name), the yield number becomes a tiny corner chip, labels get a
-   soil-scrim pill so they read on dirt in every daypart and theme.
-   (Hardened per QA Panel A: contrast, growing-bed soil, reduced motion.) */
-.plot .crop-name { display: none; }
-.plot .crop-header { position: absolute; top: 8px; right: 10px; z-index: 2; }
-.plot .yield-mult {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: rgba(254, 252, 247, 0.95);
-  background: rgba(80, 60, 35, 0.68);
-  border: 1px solid rgba(254, 252, 247, 0.25);
-  border-radius: 999px;
-  padding: 2px 7px;
-}
-.plot .plot-label {
-  color: rgba(254, 252, 247, 0.95);
-  position: relative; z-index: 2;
-  background: rgba(80, 60, 35, 0.55);
-  border-radius: 999px;
-  align-self: flex-start;
-  /* just the bed number now — a small soil tag, so it can never collide
-     with the yield chip on a 100px bed */
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  letter-spacing: 0;
-  overflow: hidden;
-}
-.plot .plot-info { color: rgba(254, 252, 247, 0.95); font-size: 11px; }
-.plot .plot-info span {
-  background: rgba(80, 60, 35, 0.65);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-.plot .plot-next-boon {
-  color: rgba(254, 252, 247, 0.92);
-  background: rgba(80, 60, 35, 0.55);
-  border-radius: 999px;
-  padding: 1px 8px;
-  align-self: center;
-}
-.plot .progress-track { background: rgba(80, 60, 35, 0.35); height: 4px; }
-.plot .plot-empty div {
-  color: rgba(254, 252, 247, 0.95) !important;
-  background: rgba(80, 60, 35, 0.55);
-  border-radius: 999px;
-  padding: 2px 10px;
-  display: inline-block;
-}
-.plot .plot-empty { text-align: center; }
-.plot .plot-empty .soil-illustration { display: none; } /* read as a stain on real soil */
-/* GROWING beds are soil too — the old white-card gradient must not win */
-.plot.growing {
-  background: radial-gradient(120% 90% at 50% 20%, var(--soil-1), var(--soil-2)), var(--soil-2);
-}
-/* empty beds read as tilled rows waiting for seed */
-.plot:not(.locked):not(.growing) {
-  background:
-    repeating-linear-gradient(0deg, rgba(80, 60, 35, 0.16) 0 7px, transparent 7px 17px),
-    radial-gradient(120% 90% at 50% 20%, var(--soil-1), var(--soil-2));
-}
-/* buff chips + loadout slots sit on soil now — give them real backing */
-.plot .buff-chip { background: rgba(254, 252, 247, 0.9); }
-:root[data-theme="dark"] .plot .buff-chip { background: rgba(31, 41, 33, 0.85); }
-.plot .loadout-strip-slot { background: rgba(254, 252, 247, 0.85); }
-:root[data-theme="dark"] .plot .loadout-strip-slot { background: rgba(31, 41, 33, 0.8); }
-/* rarity cues: a wash is invisible on tan soil — signal with a ring instead */
-.plot.legendary-active {
-  border-color: rgba(212, 160, 44, 0.65);
-  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 10px rgba(244, 193, 71, 0.35);
-}
-.plot.mythic-active {
-  border-color: rgba(157, 111, 211, 0.65);
-  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 10px rgba(157, 111, 211, 0.35);
-}
-.plot.legendary-active::after, .plot.mythic-active::after { border-radius: 18px; }
-/* celebration must not flatten the soil — keep the inset depression */
-.plot.perfect-harvest {
-  box-shadow: inset 0 2px 10px rgba(80, 60, 35, 0.25), 0 0 0 1px var(--gold), 0 4px 16px rgba(244, 193, 71, 0.25);
-}
-/* locked beds: readable at night and in dark theme */
-.plot.locked .lock-icon, .plot.locked .lock-cost { color: var(--ink); }
-#farmYard[data-daypart="night"] .plot.locked .lock-icon,
-#farmYard[data-daypart="night"] .plot.locked .lock-cost,
-#farmYard[data-daypart="dusk"] .plot.locked .lock-icon,
-#farmYard[data-daypart="dusk"] .plot.locked .lock-cost,
-:root[data-theme="dark"] .plot.locked .lock-icon,
-:root[data-theme="dark"] .plot.locked .lock-cost { color: #FBF6E9; }
-#farmYard[data-daypart="night"] .plot.locked .btn-secondary,
-:root[data-theme="dark"] .plot.locked .btn-secondary { color: #FBF6E9; border-color: rgba(251, 246, 233, 0.4); }
+/* ============ YARD SURFACE (late in cascade on purpose) ============
+   The old per-bed "card → soil" overrides were removed with the legacy card
+   grid; the drawn Garden Scene (game.js renderGardenScene) is the only farm
+   view now. What remains below is the live yard chrome: the market-strip
+   panel, the day's-mood pill, and the harmony fence-flowers. */
 /* the market strip sits on grass now — give it a panel back in every light */
 #farmYard .farm-market-strip {
   background: rgba(254, 252, 247, 0.85);
@@ -3571,47 +2894,12 @@ body.calm-state #tab-farm {
 /* silence decorative fence flowers for screen readers (CSS alt text) */
 #farmYard[data-harmony="2"] #skyBand::before { content: '🌼' / ''; }
 #farmYard[data-harmony="3"] #skyBand::before { content: '🌼\00a0\00a0🌸\00a0\00a0\00a0\00a0🌼' / ''; }
-/* bed action buttons reach the 44px touch floor */
-.plot .btn, .plot-actions .btn { min-height: 44px; }
-/* a calm garden literally moves slower */
-body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; }
-
-/* ============ PHASE 2: square touchable beds + the peek sheet ============ */
-/* The bed face strips down to a glance: plant, time chip, yield chip, pips.
-   Everything rich (loadout, buffs, picked count, buttons) lives in the peek
-   sheet now. Hidden via CSS, not removed — the in-place tick/restyle paths
-   keep updating the same nodes, so no logic changes were needed. */
-.plot { aspect-ratio: 1 / 1; padding: 10px; cursor: pointer; }
-.plot.locked { aspect-ratio: auto; min-height: 150px; cursor: default; }
-.plot:not(.locked) .loadout-strip { display: none; }
-.plot .active-buffs { display: none; }
-.plot .plot-info span:last-child { display: none; }
-.plot .plot-next-boon { display: none; }
-.plot:not(.locked) .plot-actions { display: none; }
-.plot .plot-info { margin-top: auto; display: flex; justify-content: center; }
-.plot .growth-display { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
-.plot .crop-visual-wrap { width: min(96px, 82%); height: auto; aspect-ratio: 1; }
-.plot .crop-visual { font-size: 42px; }
-/* glance pips */
-.bed-pip, .plot .plot-contract-badge {
-  position: absolute;
-  z-index: 3;
-  font-size: 14px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
-}
-.bed-pip[hidden] { display: none !important; }
+/* ============ THE BEDS ARE DRAWN NOW ============ */
+/* The farm is the SVG Garden Scene (game.js renderGardenScene); the old
+   card-grid bed face and ALL its .plot overrides were removed with the legacy
+   grid. Crops, glow, pips, the ripe-bob — everything bed-related is drawn in
+   game.js now. .pip-boon stays because the scene still applies that class. */
 .pip-boon { top: 32px; left: 10px; }
-.plot .plot-contract-badge { bottom: 34px; right: 10px; }
-/* ready choreography: the ripe bed lifts and bobs gently — prettiest thing
-   on screen, never an alarm */
-.plot.ready { animation: bedBob 2.4s ease-in-out infinite; }
-@keyframes bedBob {
-  0%, 100% { transform: translateY(-3px); }
-  50%      { transform: translateY(-6px); }
-}
-/* empty bed: a soft ＋ says "tap me" without a button */
-.plot .plot-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; align-items: center; }
-.plot .plot-empty::before { content: '＋'; display: block; font-size: 30px; line-height: 1; color: rgba(254, 252, 247, 0.85); }
 
 /* the peek sheet — detail slides up, the yard stays in view */
 .peek-modal { align-items: flex-end !important; padding: 0; }
@@ -3747,20 +3035,6 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 .tab-btn[data-tab="cards"], .tab-btn[data-tab="contracts"], .tab-btn[data-tab="journal"] { display: none; }
 /* the harmony leaf is interactive — give the 17px glyph a real touch target */
 .harmony-cue { padding: 13px 10px; margin-right: 2px; }
-/* locked beds become a full-width banner row — a 150px-tall card in a square
-   grid stretched its whole row into portraits */
-.plot.locked {
-  grid-column: 1 / -1;
-  aspect-ratio: auto;
-  min-height: 84px;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 10px 14px;
-  text-align: left;
-}
-.plot.locked .lock-icon, .plot.locked .lock-cost { margin-bottom: 0; }
 /* dawn, dusk and golden hour belong to everyone — the dark-theme yard
    palette only owns true day/night (default theme is time-based dark after
    7pm, which was eating the two prettiest skies) */
@@ -3771,9 +3045,10 @@ body.calm-state .plot:not(.ready) .crop-visual-wrap { animation-duration: 7.5s; 
 .plant-loadout-link { width: 100%; margin-top: 8px; min-height: 44px; }
 
 /* ============ THE GARDEN SCENE (drawn world) ============ */
-/* The card grid is retired from view — it lives on as hidden in-place update
-   targets so no legacy path breaks. The scene is the visible farm. */
-.plots-grid { display: none; }
+/* The whole farm is drawn here as one SVG — the only farm view. Shapes and
+   structure are built in game.js (renderGardenScene → updateBedScene /
+   syncBedSceneStructural, in-place so taps survive); the colors, dayparts,
+   weather and harmony states live in the rules below. */
 #sceneWrap { padding: 0 6px 10px; }
 #gardenScene { display: block; width: 100%; height: auto; }
 #gardenScene .land { fill: url(#grassGrad); }
@@ -3962,7 +3237,6 @@ body.calm-state #farmYard #gardenScene .plants { animation-name: sceneSway; anim
 /* reduced motion: still the yard's remaining movers too */
 @media (prefers-reduced-motion: reduce) {
   #skyOrb { transition: none; }
-  .plot.ready { animation: none; }
   #gardenLane { animation: none; }
   #gardenScene .plants,
   #gardenScene .bed.ready .plants,
@@ -3975,8 +3249,5 @@ body.calm-state #farmYard #gardenScene .plants { animation-name: sceneSway; anim
   #gardenScene .weather-robin,
   #gardenScene .mote,
   #gardenScene .bed.perfect .perfect-star { animation: none !important; }
-  .plot.ready .crop-visual,
-  .plot.perfect-harvest .crop-visual-wrap::after,
-  .plot.mythic-active,
   .btn-harvest::before { animation: none !important; }
 }

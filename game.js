@@ -579,8 +579,6 @@ function completeContractById(id) {
 // Web Audio synthesized tones — tiny pleasing chimes, no asset files needed.
 // Lazy-init AudioContext on first call (browser autoplay policy).
 let _audioCtx = null;
-let _lastTapSoundMs = 0;
-const TAP_SOUND_THROTTLE_MS = 30;
 
 function audioCtx() {
   if (!_audioCtx) {
@@ -613,13 +611,6 @@ function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
   gain.connect(ctx.destination);
   osc.start(t0);
   osc.stop(t0 + duration + 0.02);
-}
-
-function sndTap() {
-  const now = performance.now();
-  if (now - _lastTapSoundMs < TAP_SOUND_THROTTLE_MS) return;
-  _lastTapSoundMs = now;
-  playTone(660, 0.04, 0.025, 'triangle');
 }
 
 // Per-crop harvest variations grouped into three tonal "weights" so each
@@ -1794,10 +1785,6 @@ function getSetCompletion(set) {
   const owned = set.cardIds.filter(id => state.collection.some(c => c.id === id)).length;
   return { owned, total: set.cardIds.length, complete: owned === set.cardIds.length };
 }
-function isSetComplete(setId) {
-  const set = CARD_SETS.find(s => s.id === setId);
-  return set ? getSetCompletion(set).complete : false;
-}
 // Returns yield mult contribution from completed sets, given a crop being harvested.
 function getCardSetBonus(crop) {
   let mult = 1.0;
@@ -2295,18 +2282,6 @@ function renderStarGlyphs(stars) {
   return html;
 }
 
-// Compute the effective yield/time multipliers a card produces at its current star level
-function effectiveYieldMult(buff, stars) {
-  if (!buff.yieldMult) return 1.0;
-  const sm = getStarMultiplier(stars);
-  return 1 + (buff.yieldMult - 1) * sm;
-}
-function effectiveTimeMult(buff, stars) {
-  if (!buff.timeMult) return 1.0;
-  const sm = getStarMultiplier(stars);
-  return 1 - (1 - buff.timeMult) * sm;
-}
-
 // Human-readable description of a card's effect at a given star tier
 function effectiveDesc(buff, stars) {
   const sm = getStarMultiplier(stars);
@@ -2409,21 +2384,6 @@ function masteryTicksAtHours(hours) {
 }
 function masteryBonusForHours(hours) {
   return 1 + masteryTicksAtHours(hours) * MASTERY_BONUS_PER_5;
-}
-function hoursToNextMasteryTick(hours) {
-  let tierStart = 0;
-  for (const tier of MASTERY_TIERS) {
-    if (hours < tier.upTo) {
-      const intoTier = hours - tierStart;
-      const ticksInTier = Math.floor(intoTier / tier.hoursPerTick);
-      return tierStart + (ticksInTier + 1) * tier.hoursPerTick - hours;
-    }
-    tierStart = tier.upTo;
-  }
-  // last tier (Infinity upTo)
-  const last = MASTERY_TIERS[MASTERY_TIERS.length - 1];
-  const intoTier = hours - tierStart;
-  return last.hoursPerTick - (intoTier % last.hoursPerTick);
 }
 
 // One-time: reset state.speed to 1× for saves that still hold the old
@@ -2914,7 +2874,7 @@ function tryAutoReplant(plotId, cropType) {
 // (helper removed — tend reduction is now a continuous integral over hold time)
 
 function anyModalOpen() {
-  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'gardenSheetModal', 'plotPeekModal', 'slotPickerModal', 'swapPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'gardenSheetModal', 'plotPeekModal', 'slotPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
     .some(id => !document.getElementById(id).hidden);
 }
 
@@ -4070,17 +4030,6 @@ function unequipFromAllPlots(buffId) {
   }
 }
 
-function equipToPlot(plotId, buffId) {
-  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
-  const loadout = state.loadouts[plotId];
-  if (loadout.includes(buffId)) return; // already equipped here
-  // One-card-per-plot: remove from any other plot first
-  unequipFromAllPlots(buffId);
-  if (loadout.length >= MAX_PERMA_SLOTS) {
-    loadout.shift(); // bump oldest
-  }
-  loadout.push(buffId);
-}
 function unequipFromPlot(plotId, buffId) {
   if (!state.loadouts[plotId]) return;
   const idx = state.loadouts[plotId].indexOf(buffId);
@@ -4724,34 +4673,6 @@ function _renderSlotPickerGrid() {
   });
 }
 
-// Swap picker — shown when player taps a collection card while loadout
-// is full. Lets them choose WHICH of the 4 slots to replace.
-function openSwapPicker(plotId, incomingBuffId) {
-  const incoming = PERMA_POOL.find(b => b.id === incomingBuffId);
-  if (!incoming) return;
-  document.getElementById('swapPickerCardName').textContent = incoming.name;
-  const slotsEl = document.getElementById('swapPickerSlots');
-  slotsEl.innerHTML = '';
-  const loadout = state.loadouts[plotId] || [];
-  for (let i = 0; i < loadout.length; i++) {
-    const equippedBuff = PERMA_POOL.find(b => b.id === loadout[i]);
-    if (!equippedBuff) continue;
-    const card = document.createElement('button');
-    card.className = `swap-slot ${equippedBuff.rarity}`;
-    card.innerHTML = `
-      <div class="ss-pos">Slot ${i + 1}</div>
-      <div class="ss-name">${equippedBuff.name}</div>
-    `;
-    card.onclick = () => {
-      placeCardInSlot(plotId, i, incomingBuffId);
-      document.getElementById('swapPickerModal').hidden = true;
-      renderLoadoutModal();
-      render();
-    };
-    slotsEl.appendChild(card);
-  }
-  document.getElementById('swapPickerModal').hidden = false;
-}
 
 // Place a specific buff into a specific slot index, handling cross-plot moves.
 function placeCardInSlot(plotId, slotIdx, buffId) {
@@ -4792,8 +4713,6 @@ function closeAllModals() {
   document.getElementById('debugModal').hidden = true;
   const slotPicker = document.getElementById('slotPickerModal');
   if (slotPicker) slotPicker.hidden = true;
-  const swapPicker = document.getElementById('swapPickerModal');
-  if (swapPicker) swapPicker.hidden = true;
   const gardenSheet = document.getElementById('gardenSheetModal');
   if (gardenSheet) gardenSheet.hidden = true;
   const peek = document.getElementById('plotPeekModal');
@@ -5189,14 +5108,10 @@ document.querySelectorAll('.speed-btn').forEach(b => {
 });
 
 // ============ RENDER ============
-// Plant visual swells with yield multiplier so a big harvest looks big.
-// Curve: 1× → 1.0 scale, 3× → ~1.32, 5× → ~1.52, capped at 1.65 to keep
-// the sprite inside the card. Previous cap was 1.6× → only ~1.18 — too
-// subtle to feel rewarding. Now a fat harvest reads at a glance.
-function visualScale(yieldMult) {
-  return 1.0 + Math.min(0.65, (yieldMult - 1) * 0.28);
-}
-
+// render() rebuilds panels on USER ACTIONS only. Per-frame growth and
+// structural flips do NOT go through here — they go to the drawn scene via
+// updateBedScene() / syncBedSceneStructural() near the bottom (THE GARDEN
+// SCENE + TICK sections). Never call render() from a timer (the one rule).
 function renderContract() {
   const el = document.getElementById('contractContent');
   if (!el) return;
@@ -5270,70 +5185,6 @@ function describeContract(c) {
     return `Deliver ${parts.join(' + ')}`;
   }
   return '';
-}
-
-// Contract quality — per-tier variance-based label.
-//
-// Key insight: contract reward is BONUS on top of harvest income, not a
-// replacement. So absolute "coin/market-baseline" comparisons mislead —
-// every contract is technically profitable. The actually useful signal
-// for the player's "should I reroll?" question is "how did this contract
-// ROLL against its tier's expected reward?"
-//
-// Each tier has a deterministic expected coin formula. The actual coin
-// reward is that expected value with ±15% variance applied (silver/gold)
-// or no variance at all (bronze). Quality reflects where the rolled coin
-// sits relative to its tier's expected midpoint.
-//
-// Verified distribution (audit sim, 30k trials per tier × 3 progressions):
-//   bronze:                       100% good   (no variance, reliable)
-//   silver:  16% modest, 27% fair, 33% good, 24% great
-//   gold:                          77% good, 23% great   (pack alone = ≥good)
-//
-// Labels (modest/fair/good/great) deliberately avoid card-rarity words
-// to prevent semantic overload ("common card" = drop frequency, "common
-// contract" = bad offer — confusing). Color palette mirrors card
-// rarity (sage/moss/terracotta/gold) for visual consistency.
-function computeContractQuality(c) {
-  const coins = c.reward?.coins || 0;
-  const packs = c.reward?.packs || 0;
-
-  // Compute the tier's expected (no-variance) coin reward for this contract
-  // from the same formulas the generators use.
-  let expected = coins; // fallback if tier is unknown
-  if (c.tier === 'bronze') {
-    // Quick (12h deadline): 100 + count*35. Standard (24h): 150 + count*40.
-    const isQuick = c.params?.deadlineHours === 12;
-    expected = isQuick
-      ? 100 + (c.params?.count || 0) * 35
-      : 150 + (c.params?.count || 0) * 40;
-  } else if (c.tier === 'silver') {
-    if (c.template === 'deliver_mixed') {
-      const total = Object.values(c.params?.crops || {}).reduce((s, n) => s + n, 0);
-      expected = 460 + total * 70;
-    } else {
-      expected = 360 + (c.params?.count || 0) * 70;
-    }
-  } else if (c.tier === 'gold') {
-    expected = 1500 + (c.params?.count || 0) * 70;
-  }
-
-  const ratio = expected > 0 ? coins / expected : 1.0;
-
-  // Pack-bearing contracts (currently gold) — pack alone is the reason
-  // to accept. Coin variance roll bumps to "great" when high.
-  if (packs > 0) {
-    if (ratio >= 1.08) return { tier: 'legendary', label: 'great' };
-    return { tier: 'rare', label: 'good' };
-  }
-
-  // Coin-only — variance roll position within ±15% maps to label.
-  // 0.85 (worst possible) ↔ 1.15 (best possible). Bronze always rolls 1.0
-  // (no variance) → "good". Silver spans the full range.
-  if (ratio >= 1.08) return { tier: 'legendary', label: 'great' };
-  if (ratio >= 0.98) return { tier: 'rare',      label: 'good' };
-  if (ratio >= 0.90) return { tier: 'uncommon',  label: 'fair' };
-  return { tier: 'common', label: 'modest' };
 }
 
 function rewardLabel(reward) {
