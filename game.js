@@ -1,0 +1,6767 @@
+// ============================================================================
+//  Hearth & Harvest — GAME LOGIC (game.js)
+//  Loaded by farm-prototype-v6.html (markup) with game.css (styles).
+//  Vanilla JS, no build step, no dependencies. Plain <script src> — runs at
+//  end of <body>, so the DOM above exists when the init code at the bottom runs.
+//
+//  HOW IT'S ORGANIZED (search these banners to navigate):
+//    CONFIG            — CROPS, costs, pools, tunables
+//    SOUND             — Web Audio chimes
+//    GARDEN HARMONY    — the wellness "dial" (calm state, rare events)
+//    THE GARDEN SCENE  — the drawn 3/4-view SVG farm (renderGardenScene +
+//                        updateBedScene per-frame growth + the weather/wellness layers)
+//    ACTIONS           — plant / harvest / applyBuff / buyPlot
+//    TICK              — the rAF loop; updatePlotTick (in place) + restyleReadyPlots
+//    render()          — full rebuild on USER ACTIONS ONLY (never on a timer)
+//
+//  THE ONE ARCHITECTURE RULE (don't break it): the per-frame tick NEVER calls
+//  render(); anything tappable is built once and updated in place, so a tap
+//  can't be eaten by a node being rebuilt mid-press. Full render() runs only
+//  on user actions. See the TICK section for the in-place updaters.
+// ============================================================================
+// ============ CONFIG ============
+// Crop unlocks chain: each crop requires 1 prior-tier harvest to unlock.
+// Stored as `harvests` (clearer than the old `hours` field — same gating since
+// 1 prior-tier harvest covers all current thresholds).
+// baseYields trimmed -10% from earlier tuning to ease coin-pile inflation.
+const CROPS = {
+  // Cress: the "snack" crop — grows in minutes, not hours, so a first session
+  // (and any visit) can hold several full plant→grow→harvest loops. Small
+  // payout; excluded from contracts so it can't trivially farm them.
+  cress:     { name: 'Cress',     emoji: '🌿', seedling: '🌱', growthMs: 4 * 60*1000,     plantCost: 10,  baseYield: 20,   pickCount: 1, unlocksAt: null },
+  radish:    { name: 'Radish',    emoji: '🥬', seedling: '🌱', growthMs: 4 * 60*60*1000,  plantCost: 20,  baseYield: 70,   pickCount: 1, unlocksAt: null },
+  carrot:    { name: 'Carrot',    emoji: '🥕', seedling: '🌱', growthMs: 8 * 60*60*1000,  plantCost: 35,  baseYield: 160,  pickCount: 2, unlocksAt: { crop: 'radish',     harvests: 1 } },
+  tomato:    { name: 'Tomato',    emoji: '🍅', seedling: '🌱', growthMs: 12 * 60*60*1000, plantCost: 60,  baseYield: 250,  pickCount: 2, unlocksAt: { crop: 'carrot',     harvests: 1 } },
+  strawberry:{ name: 'Strawberry',emoji: '🍓', seedling: '🌱', growthMs: 18 * 60*60*1000, plantCost: 80,  baseYield: 400,  pickCount: 3, unlocksAt: { crop: 'tomato',     harvests: 1 } },
+  wheat:     { name: 'Wheat',     emoji: '🌾', seedling: '🌱', growthMs: 24 * 60*60*1000, plantCost: 100, baseYield: 540,  pickCount: 5, unlocksAt: { crop: 'strawberry', harvests: 1 } },
+  corn:      { name: 'Corn',      emoji: '🌽', seedling: '🌱', growthMs: 30 * 60*60*1000, plantCost: 175, baseYield: 690,  pickCount: 5, unlocksAt: { crop: 'wheat',      harvests: 1 } },
+  pumpkin:   { name: 'Pumpkin',   emoji: '🎃', seedling: '🌱', growthMs: 40 * 60*60*1000, plantCost: 220, baseYield: 950,  pickCount: 5, unlocksAt: { crop: 'corn',       harvests: 1 } },
+  sunflower: { name: 'Sunflower', emoji: '🌻', seedling: '🌱', growthMs: 50 * 60*60*1000, plantCost: 280, baseYield: 1300, pickCount: 5, unlocksAt: { crop: 'pumpkin',    harvests: 1 } },
+};
+
+// Derive harvests-of-a-crop from grow-hour mastery (1 harvest = growthHrs of mastery)
+function harvestsOf(crop) {
+  const growHrs = CROPS[crop].growthMs / 3600000;
+  return Math.floor((state.mastery[crop] || 0) / growHrs);
+}
+
+function isCropUnlocked(crop) {
+  const c = CROPS[crop];
+  if (!c.unlocksAt) return true;
+  return harvestsOf(c.unlocksAt.crop) >= c.unlocksAt.harvests;
+}
+
+// ============ PLOT UPGRADES ============
+// Per-plot upgrade tiers. Each tier is an independent purchase.
+// - Auto-Replant ($10K): replants the same crop after harvest if affordable
+// - Master Gardener ($75K): +25% mastery hours per harvest
+// - Practiced Soil ($300K): -10% grow time on this plot
+const PLOT_UPGRADES = {
+  autoReplant:    { name: 'Auto-Replant',    cost: 10000,  desc: 'Plot replants the same crop after harvest', flavor: 'never let the soil rest.' },
+  masterGardener: { name: 'Master Gardener', cost: 75000,  desc: '+25% mastery hours per harvest',            flavor: 'every season teaches.' },
+  practicedSoil:  { name: 'Practiced Soil',  cost: 300000, desc: '−10% grow time on this plot',               flavor: 'roots find their way faster here.' },
+  bonusPick:      { name: 'Bonus Pick',      cost: 400000, desc: '+1 boon pick on this plot’s runs',     flavor: 'a deeper hand at the harvest.' },
+};
+
+function getPlotUpgrades(plotId) {
+  if (!state.plotUpgrades) state.plotUpgrades = [];
+  return state.plotUpgrades[plotId] || {};
+}
+
+function plotHasUpgrade(plotId, key) {
+  const ups = getPlotUpgrades(plotId);
+  return ups[key] === true;
+}
+
+// Plot-index cost scaling: plot 1 = 0.5×, plot 8 = 3.0×, linear in between.
+// This gives players agency — upgrade your starter plots cheaply early game,
+// or save up for the premium plot upgrades late game.
+function plotUpgradeMultiplier(plotId) {
+  const PLOT_COUNT = 8;
+  const MIN = 0.5, MAX = 3.0;
+  const t = plotId / (PLOT_COUNT - 1); // 0 for plot 1 (id=0), 1 for plot 8 (id=7)
+  return MIN + (MAX - MIN) * t;
+}
+
+function plotUpgradeCost(plotId, key) {
+  const def = PLOT_UPGRADES[key];
+  if (!def) return Infinity;
+  const scaled = def.cost * plotUpgradeMultiplier(plotId);
+  // Round to nearest 1000 for the cleanest display (was 100 — still felt noisy)
+  // Tiny upgrades (<$10k) round to nearest 500 so plot-1 commons stay sensible.
+  if (scaled < 10000) return Math.round(scaled / 500) * 500;
+  return Math.round(scaled / 1000) * 1000;
+}
+
+function buyPlotUpgrade(plotId, key) {
+  const def = PLOT_UPGRADES[key];
+  if (!def) return false;
+  if (plotHasUpgrade(plotId, key)) return false;
+  const cost = plotUpgradeCost(plotId, key);
+  if (state.money < cost) return false;
+  state.money -= cost;
+  if (!state.plotUpgrades[plotId]) state.plotUpgrades[plotId] = {};
+  state.plotUpgrades[plotId][key] = true;
+  return true;
+}
+
+// ============ DAILY MARKET ============
+// Featured crop +40%, Saturated crop -30%. Both rotate at local midnight.
+// Anti-repeat: avoid the last 2 featured/saturated crops where possible.
+const MARKET_FEATURED_BONUS = 1.4;
+const MARKET_SATURATED_PENALTY = 0.7;
+
+// Local-time day key so contracts/market reset at midnight in the player's timezone.
+function getCurrentDayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+// ============ DAY/NIGHT CYCLE ============
+// Body overlay tint interpolates between time-of-day anchors based on local
+// clock. Subtle — never goes full dark, never blocks UI. Just a felt shift
+// across hours that mirrors what's outside the player's actual window.
+const TIME_TINT_ANCHORS = [
+  { hour: 0,  rgba: [40, 50, 80, 0.30] },     // night, deep blue
+  { hour: 5,  rgba: [40, 50, 80, 0.28] },     // pre-dawn
+  { hour: 6,  rgba: [255, 180, 130, 0.20] },  // dawn peach
+  { hour: 9,  rgba: [255, 230, 200, 0.10] },  // morning warm
+  { hour: 12, rgba: [255, 240, 210, 0.04] },  // midday clear
+  { hour: 16, rgba: [255, 220, 180, 0.10] },  // afternoon glow
+  { hour: 18, rgba: [255, 150, 90,  0.18] },  // dusk golden
+  { hour: 20, rgba: [180, 130, 170, 0.22] },  // twilight purple
+  { hour: 22, rgba: [80,  80,  130, 0.28] },  // late evening
+  { hour: 24, rgba: [40,  50,  80,  0.30] },  // wraps to night
+];
+function _lerpRgba(a, b, t) {
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * t),
+    Math.round(a[1] + (b[1] - a[1]) * t),
+    Math.round(a[2] + (b[2] - a[2]) * t),
+    +(a[3] + (b[3] - a[3]) * t).toFixed(3),
+  ];
+}
+function updateTimeOfDayTint() {
+  const now = new Date();
+  const hour = now.getHours() + now.getMinutes() / 60;
+  let i = 0;
+  while (i < TIME_TINT_ANCHORS.length - 1 && TIME_TINT_ANCHORS[i + 1].hour <= hour) i++;
+  const a = TIME_TINT_ANCHORS[i];
+  const b = TIME_TINT_ANCHORS[i + 1] || TIME_TINT_ANCHORS[0];
+  const span = (b.hour - a.hour) || 24;
+  const t = Math.max(0, Math.min(1, (hour - a.hour) / span));
+  const [r, g, bl, alpha] = _lerpRgba(a.rgba, b.rgba, t);
+  document.documentElement.style.setProperty('--time-tint', `rgba(${r}, ${g}, ${bl}, ${alpha})`);
+}
+// Initial paint + slow recompute every minute (transitions smooth via CSS)
+updateTimeOfDayTint();
+setInterval(updateTimeOfDayTint, 60000);
+
+// ============ DAILY STREAK ============
+// Cozy-genre engagement loop. Players who return daily get a small login
+// bonus AND build a streak; milestones reward sustained returns.
+//
+// Grace: up to 3 missed days don't break the streak (was 1). Real life
+// happens. 4+ day gap resets to 1 — until streak-revival ad is implemented
+// (separate follow-up).
+//
+// Milestone ladder — denser than the original (fills the 1→30 gap with
+// a 14d stop) but capped at 100d. A 365-day milestone was tried and
+// removed: it framed daily play as a year-long obligation, which is
+// the opposite of cozy. The Quiet Year achievement covers the year
+// goal separately for players who want that chase, without making it
+// a streak panel stress point.
+const STREAK_MILESTONES = [
+  { day: 7,   reward: { type: 'pack',                     label: '7 days in the garden!',           rewardLabel: '+1 pack' } },
+  { day: 14,  reward: { type: 'card', floor: 'uncommon',  label: '2 weeks of tending!',             rewardLabel: '+1 uncommon card' } },
+  { day: 30,  reward: { type: 'card', floor: 'rare',      label: '30 days — a season of care!',     rewardLabel: '+1 rare card' } },
+  { day: 100, reward: { type: 'card', floor: 'legendary', label: '100 days — incredible devotion!', rewardLabel: '+1 legendary card' } },
+];
+
+// Daily login bonus — small coin reward for showing up, separate from streak
+// so it always pays even on day 1 or after a broken streak. Scales with
+// plot count so it stays meaningful as the player progresses (1 plot = 50
+// coins, 8 plots = 400 coins — small relative to balance, but visible).
+function applyDailyLoginBonus() {
+  const plots = state.plots.filter(p => !p.locked).length || 1;
+  const bonus = 50 * plots;
+  state.money = (state.money || 0) + bonus;
+  state.lifetimeCoins = (state.lifetimeCoins || 0) + bonus;
+  state.harvestLog.unshift({
+    type: 'info',
+    text: `☀️ Welcome back — daily bonus +${bonus.toLocaleString()} coins`,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+}
+
+function updateDailyStreak() {
+  const today = getCurrentDayKey();
+  if (state.lastPlayedDayKey === today) return;     // already counted today
+  // "Days in the Garden": a gentle cumulative count of distinct days you've
+  // visited. No streaks, no consecutive requirement, no resets, no penalty —
+  // it can only ever go up. (Replaces the old breakable streak entirely.)
+  state.daysVisited = (state.daysVisited || 0) + 1;
+  state.lastPlayedDayKey = today;
+  applyDailyLoginBonus();
+  checkStreakMilestones();
+  // Living Farm: returning on a new day deepens harmony a little and rolls a
+  // fresh "what's different today" moment — the small hook that rewards opening
+  // the app even before crops are ready.
+  addHarmony(HARMONY_GAIN_DAILY);
+  rollDailyFarmMoment();
+}
+function checkStreakMilestones() {
+  for (const m of STREAK_MILESTONES) {
+    if ((state.daysVisited || 0) >= m.day && (state.lastVisitedMilestone || 0) < m.day) {
+      state.lastVisitedMilestone = m.day;
+      // Use the shared reward applier — same flow as achievements.
+      applyAchievementReward(m.reward);
+      showStreakMilestoneToast(m);
+      state.harvestLog.unshift({
+        type: 'info',
+        text: `🌱 ${m.reward.label} ${m.reward.rewardLabel}`,
+        t: Date.now(),
+      });
+      if (state.harvestLog.length > 6) state.harvestLog.pop();
+    }
+  }
+}
+function showStreakMilestoneToast(m) {
+  const existing = document.querySelector('.streak-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'streak-toast';
+  toast.innerHTML = `
+    <span class="streak-toast-icon">🌱</span>
+    <span>
+      <div class="streak-toast-label">A garden milestone</div>
+      <div class="streak-toast-detail">${m.reward.label} · ${m.reward.rewardLabel}</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  if (typeof sndLevelUp === 'function') sndLevelUp();
+  setTimeout(() => toast.remove(), 4200);
+}
+
+// Reset today's harvest/coin counters at local midnight
+function rotateTodayIfNewDay() {
+  const today = getCurrentDayKey();
+  if (state.todayDayKey === today) return;
+  state.todayDayKey = today;
+  state.todayHarvests = 0;
+  state.todayCoins = 0;
+}
+
+function rotateMarketIfNewDay() {
+  const today = getCurrentDayKey();
+  if (state.marketDayKey === today) return;
+  // Track recent picks (both featured and saturated) so the daily market feels fresh
+  const oldPicks = [state.marketFeaturedCrop, state.marketSaturatedCrop].filter(Boolean);
+  if (oldPicks.length) {
+    state.marketHistory = [...oldPicks, ...(state.marketHistory || [])].slice(0, 6);
+  }
+  // Cress sits outside the market too — it's the snack crop, not an economy lever.
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
+  const recent = new Set((state.marketHistory || []).slice(0, 4));
+  let pool = unlocked.filter(c => !recent.has(c));
+  if (pool.length < 2) pool = unlocked;
+  state.marketFeaturedCrop = pool[Math.floor(Math.random() * pool.length)];
+  // Pick a different crop for saturated; if only 1 unlocked, skip saturated.
+  // Defensive: explicitly null out if it ever ends up matching the featured.
+  const remaining = pool.filter(c => c !== state.marketFeaturedCrop);
+  state.marketSaturatedCrop = remaining.length > 0 ? remaining[Math.floor(Math.random() * remaining.length)] : null;
+  if (state.marketSaturatedCrop === state.marketFeaturedCrop) state.marketSaturatedCrop = null;
+  state.marketDayKey = today;
+  // The day's weather re-rolls with the market — HERE, so every rotation
+  // path (harvest render, contracts tick, the minute interval) brings the
+  // new day's mood with it. (The interval-only roll lost a race to any
+  // other caller that rotated first; yesterday's weather then stuck all day.)
+  rollDailyFarmMoment();
+}
+
+function getMarketYieldMultiplier(crop) {
+  if (crop === state.marketFeaturedCrop) return MARKET_FEATURED_BONUS;
+  if (crop === state.marketSaturatedCrop) return MARKET_SATURATED_PENALTY;
+  return 1.0;
+}
+
+// ============ CONTRACTS (Phase C: multi-active, tier-based pack rewards) ============
+// - Bronze:  coins only            (frequent daily-completable casual)
+// - Silver:  coins only            (medium ask, 30-48h deadline)
+// - Gold:    coins + guaranteed pack (3-7d deadline, big volume — prestige reward)
+// Silver pack chance was removed: variance felt like a roll the player had no
+// control over. Pack rewards now come exclusively from guaranteed sources
+// (gold contracts, harvest milestones, achievements) — deterministic and
+// fair. Silver coin bases bumped slightly to partially compensate for the
+// lost ~0.3 expected packs per silver completion.
+const MAX_ACTIVE_CONTRACTS = 3;
+const SILVER_PACK_CHANCE = 0;  // packs no longer roll from silver (was 0.30)
+
+// Bronze contracts are casual: only fast crops (≤12h grow), counts tuned to
+// be comfortably completable inside 24h with plenty of sleep/work buffer.
+// Math: a player who only checks the app a few times per day still finishes.
+const BRONZE_FAST_CROP_LIMIT_HOURS = 12;
+
+function bronzeCountForCrop(crop) {
+  const growthHrs = CROPS[crop].growthMs / 3600000;
+  // Hand-tuned for casual 24h play:
+  // - Radish (4h): 2-3 (max 6 in 24h, ask half)
+  // - Carrot (8h): 1-2 (max 3 in 24h)
+  // - Tomato (12h): 1 (max 2 in 24h, asking 1 leaves a full grow cycle of slack)
+  if (growthHrs <= 4) return 2 + Math.floor(Math.random() * 2);
+  if (growthHrs <= 8) return 1 + Math.floor(Math.random() * 2);
+  return 1;
+}
+
+function generateBronzeContract() {
+  // Cress is excluded from contracts everywhere — minutes-fast, would trivialize them.
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
+  const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
+  const fastEnough = c => CROPS[c].growthMs / 3600000 <= BRONZE_FAST_CROP_LIMIT_HOURS;
+  let pool = grown.filter(fastEnough);
+  if (pool.length === 0) pool = unlocked.filter(fastEnough);
+  if (pool.length === 0) pool = ['radish'];
+  const crop = pool[Math.floor(Math.random() * pool.length)];
+  // Bronze sub-style: 30% Quick (12h, smaller ask + reward), 70% Standard (24h)
+  const isQuick = Math.random() < 0.30;
+  const baseCnt = bronzeCountForCrop(crop);
+  let count, deadlineHours, coinBase, coinPer;
+  if (isQuick) {
+    count = Math.max(1, Math.floor(baseCnt * 0.6));
+    deadlineHours = 12;
+    coinBase = 100; coinPer = 35;
+  } else {
+    // Standard with light count randomness for variance
+    count = baseCnt + (Math.random() < 0.3 ? 1 : 0);
+    deadlineHours = 24;
+    coinBase = 150; coinPer = 40;
+  }
+  return {
+    id: `bronze_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    tier: 'bronze',
+    template: 'deliver_n_of_x',
+    params: { crop, count, deadlineHours },
+    // Bronze: coins only (no pack) — keeps casual pack inflation in check
+    reward: { coins: coinBase + count * coinPer, packs: 0, packChance: 0 },
+    status: 'offered',
+    progress: 0,
+  };
+}
+
+// Silver tier: ambitious-but-casual. Bigger counts on fast crops, or mixed
+// multi-crop deliveries. Deadline scales with the slowest crop in the ask.
+const SILVER_FAST_CROP_LIMIT_HOURS = 18; // strawberry now eligible
+// Apply ±15% randomness to a contract's coin reward — adds slot-machine variance
+// without changing balance (a high or low roll just shifts around the mean).
+function withCoinVariance(baseCoins) {
+  const variance = baseCoins * 0.15;
+  const offset = (Math.random() * 2 - 1) * variance;
+  return Math.max(50, Math.round(baseCoins + offset));
+}
+
+function silverDeadlineFor(crops) {
+  // Deadline = 1.5× the slowest crop's grow time, min 30h, max 48h
+  const slowestHrs = Math.max(...crops.map(c => CROPS[c].growthMs / 3600000));
+  return Math.max(30, Math.min(48, Math.ceil(slowestHrs * 1.5)));
+}
+
+function silverCountForCrop(crop) {
+  const growthHrs = CROPS[crop].growthMs / 3600000;
+  // Silver asks ~2× Bronze counts; deadlines stretch to fit
+  if (growthHrs <= 4) return 5 + Math.floor(Math.random() * 3);   // 5-7 radishes
+  if (growthHrs <= 8) return 3 + Math.floor(Math.random() * 2);   // 3-4 carrots
+  if (growthHrs <= 12) return 2 + Math.floor(Math.random() * 2);  // 2-3 tomatoes
+  return 2;                                                        // 2 strawberries (~36h deadline)
+}
+
+function generateSilverContract() {
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
+  const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
+  const fastEnough = c => CROPS[c].growthMs / 3600000 <= SILVER_FAST_CROP_LIMIT_HOURS;
+  let availPool = (grown.length > 0 ? grown : unlocked).filter(fastEnough);
+  if (availPool.length === 0) availPool = ['radish'];
+
+  // Need 2 different crops for mixed; otherwise force n_of_x
+  const canMix = availPool.length >= 2;
+  if (!canMix || Math.random() < 0.5) {
+    const crop = availPool[Math.floor(Math.random() * availPool.length)];
+    const count = silverCountForCrop(crop);
+    return {
+      id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      tier: 'silver',
+      template: 'deliver_n_of_x',
+      params: { crop, count, deadlineHours: silverDeadlineFor([crop]) },
+      reward: { coins: withCoinVariance(360 + count * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
+      status: 'offered',
+      progress: 0,
+    };
+  }
+  // Mixed: pick 2 different crops, smaller counts each
+  const shuffled = [...availPool].sort(() => Math.random() - 0.5);
+  const cropA = shuffled[0];
+  const cropB = shuffled[1];
+  const countA = Math.max(2, Math.floor(silverCountForCrop(cropA) * 0.6));
+  const countB = Math.max(2, Math.floor(silverCountForCrop(cropB) * 0.6));
+  const totalCount = countA + countB;
+  return {
+    id: `silver_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    tier: 'silver',
+    template: 'deliver_mixed',
+    params: {
+      crops: { [cropA]: countA, [cropB]: countB },
+      deadlineHours: silverDeadlineFor([cropA, cropB]),
+    },
+    reward: { coins: withCoinVariance(460 + totalCount * 70), packs: 0, packChance: SILVER_PACK_CHANCE },
+    status: 'offered',
+    progress: { [cropA]: 0, [cropB]: 0 },
+  };
+}
+
+// Gold tier: long-term volume contracts. ALL unlocked crops eligible (slow
+// crops welcome — that's the point). Deadline scales with slowest crop,
+// counts target ~70% of max-possible-harvests in the deadline window.
+function goldDeadlineFor(crops) {
+  const slowestHrs = Math.max(...crops.map(c => CROPS[c].growthMs / 3600000));
+  // 3 days minimum, 7 days max — multi-day "weekly quest" feel
+  return Math.max(72, Math.min(168, Math.ceil(slowestHrs * 4)));
+}
+
+function goldCountForCrop(crop, deadlineHrs) {
+  const growthHrs = CROPS[crop].growthMs / 3600000;
+  const maxPossible = Math.floor(deadlineHrs / growthHrs);
+  // Ask 60-80% of max — demanding but achievable
+  const factor = 0.60 + Math.random() * 0.20;
+  return Math.max(3, Math.floor(maxPossible * factor));
+}
+
+function generateGoldContract() {
+  const unlocked = Object.keys(CROPS).filter(c => isCropUnlocked(c) && c !== 'cress');
+  const grown = unlocked.filter(c => (state.mastery[c] || 0) > 0);
+  // ALL crops eligible — including slow ones (wheat/corn/pumpkin/sunflower)
+  let pool = grown.length > 0 ? grown : unlocked;
+  if (pool.length === 0) pool = ['radish'];
+  const crop = pool[Math.floor(Math.random() * pool.length)];
+  const deadlineHours = goldDeadlineFor([crop]);
+  const count = goldCountForCrop(crop, deadlineHours);
+  return {
+    id: `gold_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    tier: 'gold',
+    template: 'deliver_n_of_x',
+    params: { crop, count, deadlineHours },
+    reward: { coins: withCoinVariance(1500 + count * 70), packs: 1, packChance: 1.0 },
+    status: 'offered',
+    progress: 0,
+  };
+}
+
+// Slot count scales with player progression by PLOT COUNT (not unique crops).
+// Slot 1 is always Bronze (the safe casual option); higher slots are Silver
+// once the player has expanded enough to handle them. Duplicate crops between
+// slots are allowed — each slot rolls independently.
+function offeredTiersForState() {
+  // Hard cap at 3 contracts max — even a 5-plot farm shouldn't drown the
+  // player in expirables. Tier mix grows with plot count so engaged players
+  // see better quality (more Silvers, occasional Gold) without more volume.
+  const plotCount = state.plots.filter(p => !p.locked).length;
+  if (plotCount <= 1) return ['bronze'];
+  if (plotCount === 2) return ['bronze', 'silver'];
+  // 3+ plots: 1 Bronze + 1 Silver + (25% Gold else Silver)
+  const tiers = ['bronze', 'silver', Math.random() < 0.25 ? 'gold' : 'silver'];
+  return tiers;
+}
+
+// Daily generation cap: only generate up to tiers.length total slots per day.
+// Once accepted slots free up, they DON'T refill until midnight — completing
+// a contract doesn't generate a replacement. Plot expansion within the day
+// can still grow the slot count (tiers.length increases monotonically).
+function ensureContractOffered() {
+  rotateContractOffersIfNewDay();
+  const tiers = offeredTiersForState();
+  while ((state.contractsGeneratedToday || 0) < tiers.length) {
+    const t = tiers[state.contractsGeneratedToday];
+    const c = (t === 'gold') ? generateGoldContract()
+            : (t === 'silver') ? generateSilverContract()
+            :                     generateBronzeContract();
+    state.offeredContracts.push(c);
+    state.contractsGeneratedToday = (state.contractsGeneratedToday || 0) + 1;
+  }
+}
+
+// Daily reset: at local midnight, replace any remaining offered contracts
+// with a fresh batch and reset the daily generation counter.
+function rotateContractOffersIfNewDay() {
+  const today = getCurrentDayKey();
+  if (state.contractsOfferedDayKey === today) return;
+  state.offeredContracts = [];
+  state.contractsOfferedDayKey = today;
+  state.contractsGeneratedToday = 0;
+  state.contractRerollsUsedToday = 0;
+}
+
+const MAX_DAILY_REROLLS = 2;
+function canRerollContract() {
+  return (state.contractRerollsUsedToday || 0) < MAX_DAILY_REROLLS;
+}
+
+// Free, instant reroll — no fake ad. A cozy game doesn't make you sit
+// through a pretend commercial to ask the village for a different request.
+function rerollContractWithAd(id) {
+  if (!canRerollContract()) return;
+  const idx = state.offeredContracts.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  state.contractRerollsUsedToday = (state.contractRerollsUsedToday || 0) + 1;
+  // Replace the contract with a freshly generated one of the same tier
+  const oldTier = state.offeredContracts[idx].tier;
+  const replacement = oldTier === 'gold' ? generateGoldContract()
+                    : oldTier === 'silver' ? generateSilverContract()
+                    :                         generateBronzeContract();
+  state.offeredContracts[idx] = replacement;
+  if (typeof sndUiClick === 'function') sndUiClick();
+  render();
+}
+
+function acceptContract(id) {
+  const c = state.offeredContracts.find(x => x.id === id);
+  if (!c) return;
+  if (state.activeContracts.length >= MAX_ACTIVE_CONTRACTS) return;
+  c.status = 'active';
+  c.acceptedAtMs = Date.now();
+  state.activeContracts.push(c);
+  // Remove just this slot from offered (others stay available)
+  state.offeredContracts = state.offeredContracts.filter(x => x.id !== id);
+  render();
+}
+
+// Patient contracts: accepted requests WAIT for you — no auto-expiry, no
+// "expired while you were away" guilt. A cozy request keeps until it's done
+// or the player rerolls/replaces it. (Kept as a function because three call
+// sites still invoke it; it simply never removes anything now.)
+function checkContractExpiry() {
+  return false;
+}
+
+// Complete a specific contract by id — called when its progress is filled.
+// Tier-gated pack rewards: Bronze=0, Silver=30% chance, Gold=guaranteed.
+function completeContractById(id) {
+  const idx = state.activeContracts.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  const c = state.activeContracts[idx];
+  state.money += c.reward.coins;
+  state.lifetimeCoins = (state.lifetimeCoins || 0) + c.reward.coins;
+  let packsAwarded = c.reward.packs || 0;
+  const chance = c.reward.packChance || 0;
+  if (chance > 0 && Math.random() < chance) packsAwarded += 1;
+  state.pendingPacks += packsAwarded;
+  state.contractsCompleted += 1;
+  checkAchievements();
+  const label = c.template === 'deliver_mixed'
+    ? Object.keys(c.params.crops).map(cr => CROPS[cr].name).join('+')
+    : (CROPS[c.params.crop] ? CROPS[c.params.crop].name : '');
+  state.harvestLog.unshift({
+    type: 'contract_complete',
+    tier: c.tier,
+    label,
+    coins: c.reward.coins,
+    packs: packsAwarded,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+  state.activeContracts.splice(idx, 1);
+  // Visible mid-session feedback so the player sees WHY their coin count just
+  // jumped. Without this, contract completion is silent except for the Activity
+  // log entry — easy to miss when on Farm tab during a harvest.
+  showContractCompleteToast({ tier: c.tier, label, coins: c.reward.coins, packs: packsAwarded });
+  if (typeof sndLevelUp === 'function') sndLevelUp();
+}
+
+// ============ SOUND ============
+// Web Audio synthesized tones — tiny pleasing chimes, no asset files needed.
+// Lazy-init AudioContext on first call (browser autoplay policy).
+let _audioCtx = null;
+let _lastTapSoundMs = 0;
+const TAP_SOUND_THROTTLE_MS = 30;
+
+function audioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+function playTone(freq, duration, volume = 0.06, type = 'sine', delayMs = 0) {
+  // Master sound: slider 0–100 mapped to 0.0–1.0 multiplier on every tone's gain.
+  const soundGain = (state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100) / 100;
+  if (soundGain <= 0) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  // Browser autoplay policy unlocks audio on the first user gesture. Use
+  // that moment to also kick off the ambient drone if it's enabled.
+  if (typeof ensureAmbient === 'function' && !_ambientNodes) ensureAmbient();
+  const t0 = ctx.currentTime + delayMs / 1000;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  const effectiveVolume = Math.max(0.0001, volume * soundGain);
+  gain.gain.setValueAtTime(0.001, t0);
+  gain.gain.exponentialRampToValueAtTime(effectiveVolume, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+function sndTap() {
+  const now = performance.now();
+  if (now - _lastTapSoundMs < TAP_SOUND_THROTTLE_MS) return;
+  _lastTapSoundMs = now;
+  playTone(660, 0.04, 0.025, 'triangle');
+}
+
+// Per-crop harvest variations grouped into three tonal "weights" so each
+// crop tier feels distinct without writing 8 unique chimes:
+//  - light:   small fast crops (radish, carrot)         → bright high arpeggio
+//  - medium:  staple mid-tier  (tomato, strawberry, wheat) → warm middle (default)
+//  - heavy:   slow big crops   (corn, pumpkin, sunflower)  → deep grounded
+const HARVEST_TONES = {
+  light: [
+    { f: 659, d: 0.10, t: 0 },     // E5
+    { f: 784, d: 0.14, t: 60 },    // G5
+    { f: 988, d: 0.18, t: 130 },   // B5
+  ],
+  medium: [
+    { f: 523, d: 0.10, t: 0 },     // C5
+    { f: 659, d: 0.14, t: 60 },    // E5
+    { f: 784, d: 0.20, t: 130 },   // G5
+  ],
+  heavy: [
+    { f: 392, d: 0.12, t: 0 },     // G4
+    { f: 523, d: 0.16, t: 80 },    // C5
+    { f: 659, d: 0.22, t: 170 },   // E5
+  ],
+};
+const CROP_HARVEST_TIER = {
+  cress: 'light', radish: 'light', carrot: 'light',
+  tomato: 'medium', strawberry: 'medium', wheat: 'medium',
+  corn: 'heavy', pumpkin: 'heavy', sunflower: 'heavy',
+};
+function sndHarvest(crop) {
+  const tier = CROP_HARVEST_TIER[crop] || 'medium';
+  const tones = HARVEST_TONES[tier];
+  for (const t of tones) playTone(t.f, t.d, 0.05, 'sine', t.t);
+}
+function sndLucky() {
+  playTone(523, 0.08, 0.05);
+  playTone(659, 0.08, 0.05, 'sine', 50);
+  playTone(784, 0.08, 0.06, 'sine', 100);
+  playTone(1047, 0.30, 0.08, 'sine', 160); // C6 sparkle
+}
+function sndPackOpen() {
+  playTone(440, 0.08, 0.05);              // A4
+  playTone(554, 0.10, 0.06, 'sine', 80);  // C#5
+  playTone(659, 0.20, 0.07, 'sine', 170); // E5
+}
+function sndLevelUp() {
+  playTone(440, 0.08, 0.05);              // A4
+  playTone(587, 0.10, 0.06, 'sine', 70);  // D5
+  playTone(740, 0.18, 0.07, 'sine', 140); // F#5
+}
+function sndPick() { playTone(720, 0.06, 0.04, 'triangle'); }
+function sndUiClick() { playTone(880, 0.025, 0.02, 'triangle'); }
+// Chunky "pluck" with body — gives the harvest weight (a low thump + a snap),
+// layered under the existing per-crop chime so harvest sounds like an EVENT.
+function sndPluck(big) {
+  playTone(175, 0.10, 0.07, 'sine');            // body thump
+  playTone(90,  0.13, 0.05, 'triangle', 8);     // sub
+  playTone(520, 0.05, 0.04, 'triangle', 18);    // snap
+  if (big) playTone(784, 0.18, 0.06, 'sine', 70); // bright tail on big harvests
+}
+
+// Global soft-click feedback. Any <button> tap plays the gentle sndUiClick
+// chime — except buttons that already trigger their own richer sound
+// (harvest, pick) and the tab bar (which has its own gated handler that
+// only fires on tab-change, not on re-tapping the active tab).
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.classList.contains('tab-btn')) return;       // own handler
+  if (btn.classList.contains('btn-harvest')) return;   // sndHarvest plays
+  if (btn.classList.contains('btn-pick')) return;      // sndPick plays
+  if (btn.dataset.noClickSound != null) return;        // explicit opt-out
+  sndUiClick();
+}, true);
+
+// ============ AMBIENT WIND ============
+// Cozy "wind through leaves" sound — pink noise through a bandpass filter
+// modulated slowly to create natural-feeling wooshes. Pink noise is the
+// universally-soothing version of background sound (rain, surf, wind
+// approximations all use it). Avoids the horror-movie tonality of a low
+// detuned-sine drone.
+let _ambientNodes = null;
+function _makePinkNoiseSource(ctx) {
+  // Paul Kellet's economic pink noise approximation — fills a 2-second buffer
+  // with proper pink noise (1/f spectrum), looped seamlessly.
+  const bufferSize = 2 * ctx.sampleRate;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < bufferSize; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520;
+    b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+    b6 = w * 0.115926;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  return src;
+}
+function startAmbient() {
+  if (_ambientNodes) return;
+  const ambGain = (state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100) / 100;
+  if (ambGain <= 0) return;
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const noise = _makePinkNoiseSource(ctx);
+  // Bandpass at ~700Hz: less hissy, more "wind through trees in the distance"
+  // character. The lower center keeps the sound from fatiguing the ear over
+  // long sessions, where 1.2kHz had a subtle "shhhh" that got tiring.
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 700;
+  bp.Q.value = 0.7;
+  // High-shelf cut: more aggressive attenuation of upper frequencies so
+  // sibilance never pokes through, even on louder system volumes.
+  const hs = ctx.createBiquadFilter();
+  hs.type = 'highshelf';
+  hs.frequency.value = 3000;
+  hs.gain.value = -10;
+  const master = ctx.createGain();
+  // Master gain dropped from 0.022 to 0.012 — almost half. Should sit at the
+  // very edge of perception, never competing with anything else on screen.
+  master.gain.value = 0.012 * ambGain;
+  // LFO synced to box-breath pace (12s = 4-4-4 inhale-hold-exhale cycle).
+  // Player doing a Box Breath exercise feels the drone breathe in sync —
+  // a subtle "the world is breathing with you" detail. Modulation depth
+  // stays dialed-back so rise/fall is felt, not heard.
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 1 / 12; // 12s period — matches box-breath cycle
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.0015;
+  lfo.connect(lfoGain);
+  lfoGain.connect(master.gain);
+  noise.connect(bp);
+  bp.connect(hs);
+  hs.connect(master);
+  master.connect(ctx.destination);
+  noise.start();
+  lfo.start();
+  _ambientNodes = { noise, bp, hs, master, lfo };
+  _scheduleNextAtmosphere();  // bird/cricket layer rides with the drone
+}
+
+// ============ ATMOSPHERE (BIRDS & CRICKETS) ============
+// Procedurally synthesized day-time bird chirps and night-time cricket
+// sounds — no asset files. Sparse and very quiet by design so they add
+// texture without ever competing for attention. Schedules via random
+// setTimeout so there's no constant-firing interval.
+let _atmosphereTimer = null;
+
+function _atmosphereGain() {
+  const ambGain = (state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100) / 100;
+  const soundGain = (state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100) / 100;
+  return ambGain * soundGain; // respects both sliders
+}
+
+function _isDayTime() {
+  const h = new Date().getHours();
+  return h >= 7 && h < 19;  // 7am–7pm matches theme system
+}
+
+function _playBirdChirp() {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const ag = _atmosphereGain();
+  if (ag <= 0) return;
+  const t0 = ctx.currentTime;
+  // What made the previous version smoke-alarm-like:
+  //   - 3.2–5kHz range (right where alarms live)
+  //   - pure sine wave (mechanical)
+  //   - identical chirp shape repeated (predictable)
+  //
+  // Real birds: lower base frequency, fast vibrato (the "warble"), warmer
+  // timbre, varied phrases. Triangle oscillator + LFO modulation on
+  // frequency gives the organic bird-call character.
+  //
+  // 4–7 warbling chirps in a phrase — long enough to register as a
+  // "song fragment" rather than a brief blip. Randomized "voice" per call.
+  const chirpCount = 4 + Math.floor(Math.random() * 4);
+  // Bird "voice" — base frequency for this entire phrase (2.0–3.4 kHz,
+  // well below the 3–5 kHz smoke-alarm danger zone)
+  const voiceFreq = 2000 + Math.random() * 1400;
+  for (let i = 0; i < chirpCount; i++) {
+    const startAt = t0 + i * (0.110 + Math.random() * 0.08);
+    const duration = 0.10 + Math.random() * 0.08; // 100–180 ms per chirp
+    // Per-chirp pitch shifts within the phrase
+    const f0 = voiceFreq + (Math.random() - 0.5) * 350;
+    const f1 = f0 + (Math.random() - 0.4) * 250;
+    // Main oscillator — triangle for warmer harmonics than pure sine
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f0, startAt);
+    osc.frequency.linearRampToValueAtTime(f1, startAt + duration * 0.6);
+    osc.frequency.linearRampToValueAtTime(f0 + (Math.random() - 0.5) * 180, startAt + duration);
+    // Vibrato LFO — this is the key to bird-like warble (vs. steady alarm tone)
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = 22 + Math.random() * 18;  // 22–40 Hz vibrato rate
+    lfoGain.gain.value = 35 + Math.random() * 30;   // ±35–65 Hz wobble depth
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    // Gentler envelope — softer attack, no hard pop
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.014 * ag, startAt + duration * 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + duration + 0.02);
+    lfo.start(startAt);
+    lfo.stop(startAt + duration + 0.02);
+  }
+}
+
+function _playCricketChirp() {
+  const ctx = audioCtx();
+  if (!ctx) return;
+  const ag = _atmosphereGain();
+  if (ag <= 0) return;
+  const t0 = ctx.currentTime;
+  // 5–10 clicks (real cricket chirps are quick rapid-fire ticks, longer
+  // overall phrase makes them register as a "song" rather than a blip)
+  const clickCount = 5 + Math.floor(Math.random() * 6);
+  const baseFreq = 4400 + Math.random() * 900;
+  for (let i = 0; i < clickCount; i++) {
+    const startAt = t0 + i * (0.035 + Math.random() * 0.015);
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = baseFreq + (Math.random() - 0.5) * 200;
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.012 * ag, startAt + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.032);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + 0.035);
+  }
+}
+
+function _scheduleNextAtmosphere() {
+  if (_atmosphereTimer) clearTimeout(_atmosphereTimer);
+  const day = _isDayTime();
+  // Birds: 25–65s between calls. Crickets: 12–28s.
+  const minMs = day ? 25000 : 12000;
+  const rangeMs = day ? 40000 : 16000;
+  const delay = minMs + Math.random() * rangeMs;
+  _atmosphereTimer = setTimeout(() => {
+    _atmosphereTimer = null;
+    if (!_ambientNodes) return;          // ambient stopped — don't chirp
+    if (document.hidden) return;         // tab hidden — don't chirp
+    if (_atmosphereGain() <= 0) return;  // muted — don't chirp
+    if (_isDayTime()) _playBirdChirp(); else _playCricketChirp();
+    _scheduleNextAtmosphere();
+  }, delay);
+}
+
+function _stopAtmosphere() {
+  if (_atmosphereTimer) {
+    clearTimeout(_atmosphereTimer);
+    _atmosphereTimer = null;
+  }
+}
+function stopAmbient() {
+  if (!_ambientNodes) return;
+  _stopAtmosphere();
+  const ctx = audioCtx();
+  const nodes = _ambientNodes;
+  _ambientNodes = null;
+  if (ctx) {
+    nodes.master.gain.cancelScheduledValues(ctx.currentTime);
+    nodes.master.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+  }
+  setTimeout(() => {
+    try { nodes.noise.stop(); nodes.lfo.stop(); } catch (e) { /* ignore */ }
+  }, 450);
+}
+function ensureAmbient() {
+  // Ambient runs if its slider > 0 AND the master sound slider > 0.
+  const soundGain = state ? (state.soundVolume == null ? 100 : state.soundVolume) : 100;
+  const ambGain   = state ? (state.ambientVolume == null ? 100 : state.ambientVolume) : 100;
+  if (soundGain > 0 && ambGain > 0) {
+    // Rebuild from scratch if value changed while playing (cheapest reliable way)
+    if (_ambientNodes) stopAmbient();
+    startAmbient();
+  } else {
+    stopAmbient();
+  }
+}
+// Auto-pause when the tab is hidden — no soundscape humming in a background tab.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopAmbient();
+  else ensureAmbient();
+});
+
+// Browsers block AudioContext until a user gesture. Without this, the
+// ambient drone wouldn't start on page-load even when enabled — it only
+// kicked in once a sound-producing action (tap, harvest) ran through
+// playTone(). One-shot listener on any first interaction lifts the
+// block immediately, so ambient is humming by the player's first tap.
+function _unlockAudioOnFirstGesture() {
+  document.removeEventListener('pointerdown', _unlockAudioOnFirstGesture);
+  document.removeEventListener('keydown', _unlockAudioOnFirstGesture);
+  document.removeEventListener('touchstart', _unlockAudioOnFirstGesture);
+  // Touch the AudioContext (resumes it if suspended) and kick ambient.
+  audioCtx();
+  ensureAmbient();
+}
+document.addEventListener('pointerdown', _unlockAudioOnFirstGesture);
+document.addEventListener('keydown', _unlockAudioOnFirstGesture);
+document.addEventListener('touchstart', _unlockAudioOnFirstGesture);
+
+const RARITY_WEIGHTS = { common: 60, uncommon: 28, rare: 9.5, legendary: 2.2, mythic: 0.3 };
+const PERMA_RARITY_WEIGHTS = { common: 50, uncommon: 30, rare: 15, legendary: 4, mythic: 1 };
+const RARITY_ORDER = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+
+// ============ GARDEN HARMONY — the wellness → wonder dial ============
+// A hidden 0–100 state. Mindful, consistent, present play raises it; neglect
+// lets it drift gently toward a floor (the garden gets quieter, never damaged).
+// Harmony NEVER affects coins or yield. It governs how often the farm produces
+// "moments" — rare harvest events and ambient calm. This is the mechanic that
+// makes "when I slow down, the garden feels different" literally true, and the
+// reason a consistent player's farm feels more alive (→ more reason to return).
+const HARMONY_MAX            = 100;
+const HARMONY_FLOOR          = 20;   // never decays below this — the garden's resting calm
+const HARMONY_GAIN_BREATH    = 12;   // completing a breathing exercise (largest input)
+const HARMONY_GAIN_PRACTICE  = 6;    // completing an active mini-game
+const HARMONY_GAIN_PEAK      = 4;    // harvesting inside a Peak Ripeness / Slow Ferment window
+const HARMONY_GAIN_DIVERSITY = 2;    // harvesting while 3+ different crops are growing
+const HARMONY_GAIN_DAILY     = 5;    // first visit on a new real day (consistency)
+const HARMONY_GAIN_MOMENT    = 2;    // a rare event itself deepens the calm a touch
+const HARMONY_GAIN_NIGHT     = 1;    // interacting during local night hours (presence)
+const HARMONY_DECAY_PER_DAY  = 8;    // drift toward the floor per full day away
+const CALM_STATE_MS          = 30 * 60 * 1000; // 30-min calm window opened by a breath
+
+// --- small condition helpers ---
+function isLocalNight() { const h = new Date().getHours(); return h >= 20 || h < 5; }
+function isWithinFirstDays(n) {
+  if (!state.firstPlayedAt) return false;
+  return (Date.now() - state.firstPlayedAt) < n * 24 * 3600 * 1000;
+}
+function distinctGrowingCrops() {
+  const s = new Set();
+  for (const p of state.plots) if (!p.locked && p.crop) s.add(p.crop);
+  return s.size;
+}
+function countReadyPlots() {
+  return state.plots.filter(p => !p.locked && p.crop && isReady(p)).length;
+}
+function isCardEquippedAnywhere(cardId) {
+  return (state.loadouts || []).some(lo => Array.isArray(lo) && lo.includes(cardId));
+}
+
+// --- harmony state ---
+function getHarmony() { return Math.max(0, Math.min(HARMONY_MAX, state.gardenHarmony || 0)); }
+function harmonyCeiling() {
+  // Lifetime Reverence (when equipped anywhere) raises the ceiling above 100 as
+  // a slow, lifetime reward — a higher ceiling means a permanently higher
+  // baseline rate of moments for deeply engaged players.
+  let cap = HARMONY_MAX;
+  if (isCardEquippedAnywhere('p_reverence')) {
+    const sm = getStarMultiplier(getStarsForBuff('p_reverence'));
+    const ticks = Math.min(30, Math.floor((state.tendSessionsCompleted || 0) / 50));
+    cap += Math.round(ticks * sm); // up to +30 (× star level)
+  }
+  return cap;
+}
+function harmonyGainMult() {
+  // Garden Devotion (equipped anywhere) makes mindful actions fill harmony faster.
+  if (isCardEquippedAnywhere('p_devotion')) {
+    return 1 + 0.5 * getStarMultiplier(getStarsForBuff('p_devotion'));
+  }
+  return 1;
+}
+function addHarmony(amount) {
+  const cap = harmonyCeiling();
+  const scaled = amount > 0 ? amount * harmonyGainMult() : amount;
+  state.gardenHarmony = Math.max(HARMONY_FLOOR, Math.min(cap, (state.gardenHarmony || 0) + scaled));
+  // First time harmony crosses key thresholds, the garden remembers it.
+  const h = state.gardenHarmony;
+  if (h >= 50)  addJournalEntry('🌿 The garden has begun to settle into a quiet rhythm.', 'harmony_50');
+  if (h >= 100) addJournalEntry('🌸 The garden is radiant — alive with quiet possibility.', 'harmony_100');
+}
+function harmonyStage() {
+  const h = getHarmony();
+  if (h < 35)  return { glyph: '🌱', label: 'Your garden is quiet' };
+  if (h < 70)  return { glyph: '🌿', label: 'Your garden is settling' };
+  if (h < 100) return { glyph: '🍃', label: 'Your garden feels alive' };
+  return { glyph: '🌸', label: 'Your garden is radiant' };
+}
+
+// --- the shared "tap to learn" sheet (one modal, swappable contents) ---
+// Reuses the modal scaffold + the global [data-close]/backdrop close handlers.
+// Copy says plainly what each thing DOES (cause → effect), warmly, without
+// min-max numbers. Calm closes on "never spent"; harmony tells the honest
+// truth — it quiets while you're away, always returns, never costs you coins.
+function openGardenSheet({ icon, title, body }) {
+  if (anyModalOpen()) return;
+  const ic = document.getElementById('gardenSheetIcon');
+  const ti = document.getElementById('gardenSheetTitle');
+  const bo = document.getElementById('gardenSheetBody');
+  if (!ic || !ti || !bo) return;
+  ic.textContent = icon || '🌱';
+  ti.textContent = title || '';
+  bo.innerHTML = body || '';
+  document.getElementById('gardenSheetModal').hidden = false;
+}
+function openHarmonySheet() {
+  if (isCalmState()) return openCalmSheet();
+  const st = harmonyStage();
+  const clause = {
+    '🌱': "Right now it's resting — a quiet breath will begin to wake it.",
+    '🌿': "It's finding its rhythm.",
+    '🍃': "It's lively today — special moments come more easily.",
+    '🌸': "It's radiant — wonder is never far.",
+  }[st.glyph] || '';
+  openGardenSheet({
+    icon: st.glyph,
+    title: st.label,
+    body: `
+      <p class="gs-stage">${clause}</p>
+      <p><b>Harmony</b> is how cared-for your garden feels. Tending it — a breath, a quiet mini-game, harvesting right as a crop ripens, even just visiting — raises it.</p>
+      <p>The higher it climbs, the more often your harvests turn into <b>special moments</b>: a Midnight Bloom, a Golden Yield, a rare flower among the rest — each a small bonus and a lovely beat.</p>
+      <p class="gs-reassure">It never changes your coins on its own, and it slowly quiets while you're away — a little care always brings it back. Tending is only ever a gift, never a cost.</p>`,
+  });
+}
+function openCalmSheet() {
+  if (isCalmState()) {
+    openGardenSheet({
+      icon: '✦',
+      title: 'A calm has settled',
+      body: `
+        <p>For about half an hour after you breathe, the garden is softer and <b>special harvest moments are much more likely</b>. A lovely time to wander over and harvest whatever's ready.</p>
+        <p class="gs-reassure">Nothing is used up. Breathing again just refreshes the calm — there's no wrong time to tend.</p>`,
+    });
+  } else {
+    openGardenSheet({
+      icon: '🌬️',
+      title: 'Tend the garden',
+      body: `
+        <p>Tend with a breath whenever you like. Each breath opens a <b>calm</b> — about half an hour where special harvest moments are much more likely, and the garden feels softer.</p>
+        <p class="gs-reassure">It only ever adds calm, never spends it. There's no wrong time to tend.</p>`,
+    });
+  }
+}
+function harmonyStageIndex() {
+  const h = getHarmony();
+  return h < 35 ? 0 : h < 70 ? 1 : h < 100 ? 2 : 3;
+}
+// ============ PLOT PEEK SHEET ============
+// Tap a growing bed → a bottom sheet with everything the old card crammed on
+// its face: name + live countdown, yield + why (buff chips), boons picked,
+// loadout (tap to edit), plot upgrades, Choose Boon. The yard stays visible
+// above. Built fresh on open (safe: ticks never rebuild it — they only poke
+// text via the sheet-sync in updatePlotTick).
+function openPlotPeekSheet(i) {
+  if (anyModalOpen()) return;
+  const plot = state.plots[i];
+  if (!plot || plot.locked || !plot.crop) return;
+  const crop = CROPS[plot.crop];
+  const body = document.getElementById('peekBody');
+  if (!body) return;
+  const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+  const picks = picksAvailable(plot);
+  const remain = plot.totalMs - plot.elapsedMs;
+
+  // buff chips — same markup as the old card face (ferment span keeps its
+  // class + data-plotid so the live tick can find and update it here too)
+  const chips = plot.activeBuffs.map(b => {
+    const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
+    let outcome = '';
+    if (b._outcome) {
+      const isMiss = String(b._outcome).includes('miss') || String(b._outcome).startsWith('−');
+      outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}">${b._outcome}</span>`;
+    }
+    const tip = (b.desc || '').replace(/<[^>]+>/g, '');
+    return `<span class="buff-chip ${b.rarity}" title="${tip}">${b.name}${outcome}${extra}</span>`;
+  }).join('') || '<span class="peek-quiet">no boons yet this run</span>';
+
+  // loadout strip — same look as before, lives here now
+  const loadout = state.loadouts[i] || [];
+  const loadoutHtml = '<div class="loadout-strip" role="button" tabindex="0" aria-label="edit boon loadout" id="peekLoadoutStrip">' +
+    Array.from({ length: MAX_PERMA_SLOTS }, (_, j) => {
+      const id = loadout[j];
+      const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+      if (!buff) return '<div class="loadout-strip-slot"><span class="slot-empty">+</span></div>';
+      const active = isBuffActiveOnPlot(buff, plot);
+      const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
+      const stars = getStarsForBuff(buff.id);
+      const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
+      return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
+    }).join('') + '</div>';
+
+  // plot upgrades — visible at last (they used to hide in the loadout modal)
+  const ups = (state.plotUpgrades && state.plotUpgrades[i]) || {};
+  const upNames = Object.keys(PLOT_UPGRADES).filter(k => ups[k]).map(k => PLOT_UPGRADES[k].name);
+  // Always render the line — a player who owns none should still LEARN the
+  // system exists and where it lives.
+  const upgradesLine = upNames.length
+    ? `<div class="peek-upgrades">⚒ ${upNames.join(' · ')}</div>`
+    : `<div class="peek-upgrades quiet">⚒ no plot upgrades yet — browse them in the card editor above</div>`;
+
+  const nextMs = (!isReady(plot) && picks === 0) ? msUntilNextPick(plot) : null;
+
+  body.innerHTML = `
+    <div class="peek-head">
+      <span class="peek-crop">${crop.emoji} ${crop.name}</span>
+      <span class="peek-time" id="peekTime">${isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(remain) + ' left'}</span>
+    </div>
+    <div class="peek-yield">×${effectiveYield.toFixed(2)} yield at harvest · ${plot.picksTaken}/${plot.totalPicks} boons picked</div>
+    <div class="peek-chips">${chips}</div>
+    ${nextMs != null ? `<div class="plot-next-boon" id="peekNextBoon">next boon in ${fmtTimeRemaining(nextMs)}</div>` : ''}
+    <div class="peek-section">cards &amp; upgrades — tap to edit</div>
+    ${loadoutHtml}
+    ${upgradesLine}
+    <div class="peek-actions" id="peekActions"></div>
+  `;
+  const actions = document.getElementById('peekActions');
+  if (picks > 0) {
+    const pb = document.createElement('button');
+    pb.className = 'btn btn-pick pulse';
+    pb.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+    pb.onclick = () => { closeAllModals(); openBuffModal(i); };
+    actions.appendChild(pb);
+  }
+  if (isReady(plot)) {
+    const hb = document.createElement('button');
+    hb.className = 'btn btn-harvest';
+    hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(crop.baseYield * effectiveYield)})`;
+    // Anchor the celebration to the BED, not this button — the sheet is
+    // hidden before harvest runs, and a zeroed rect fires juice at (0,0).
+    hb.onclick = () => {
+      const bedEl = bedAnchorEl(i);
+      closeAllModals();
+      harvest(i, { target: bedEl });
+    };
+    actions.appendChild(hb);
+  }
+  const strip = document.getElementById('peekLoadoutStrip');
+  if (strip) {
+    const go = () => { closeAllModals(); openLoadoutModal(i); };
+    strip.onclick = go;
+    strip.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  }
+  state._peekPlotId = i;
+  document.getElementById('plotPeekModal').hidden = false;
+}
+
+// One delegated tap handler on the never-rebuilt grid container — the bed's
+// CURRENT state decides the verb (empty→plant, growing→peek, ready→harvest).
+// There is structurally no tap target a rebuild can destroy.
+document.getElementById('plotsGrid').addEventListener('click', (e) => {
+  if (e.target.closest('button')) return;                       // buttons keep their own jobs
+  if (e.target.closest('.crop-visual-wrap.ready-tap')) return;  // the crop's own tap harvests
+  if (e.target.closest('.loadout-strip')) return;
+  const card = e.target.closest('.plot');
+  if (!card || card.classList.contains('locked')) return;
+  const i = parseInt(card.getAttribute('data-plotid'), 10);
+  const plot = state.plots[i];
+  if (!plot || plot.locked) return;
+  if (!plot.crop) { openPlantModal(i); return; }
+  if (isReady(plot)) { harvest(i, e); return; }
+  openPlotPeekSheet(i);
+});
+// Keyboard route for the same three verbs: Enter/Space on a focused bed acts
+// like a tap (the click handler above does the state routing).
+document.getElementById('plotsGrid').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.target.closest('button')) return;
+  const card = e.target.closest('.plot');
+  if (!card) return;
+  e.preventDefault();
+  card.click();
+});
+
+// ============ THE GARDEN LANE ============
+// Four places on the path: stall (market), noticeboard (requests), mailbox
+// (packs), cottage (collection + journal). Bound once; faces refresh in place.
+function refreshGardenLane() {
+  const lane = document.getElementById('gardenLane');
+  if (!lane) return;
+  // First-minute focus: a brand-new player sees only the glowing starter bed;
+  // the lane fades in after their first harvest. Existing saves see it all.
+  lane.hidden = (state.totalHarvests || 0) === 0;
+  if (lane.hidden) return;
+  // Stall face: the WHAT without a tap — featured (and glut) crop + direction
+  const stallFace = document.getElementById('stallFace');
+  if (stallFace) {
+    const f = state.marketFeaturedCrop ? CROPS[state.marketFeaturedCrop] : null;
+    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+    // The WHAT and the HOW MUCH, zero taps — the old strip showed +40%, so the
+    // stall face must too (the sheet keeps the why).
+    stallFace.textContent = f ? `${f.emoji}▲${fPct}${s ? ' ' + s.emoji + '▼' : ''}` : '·';
+  }
+  // Noticeboard face: papers pinned (active) / offers waiting
+  const boardFace = document.getElementById('boardFace');
+  if (boardFace) {
+    const active = (state.activeContracts || []).length;
+    const offers = (state.offeredContracts || []).length;
+    const slotsFree = active < MAX_ACTIVE_CONTRACTS;
+    boardFace.textContent = active > 0 ? `${active} 📜` : (offers > 0 ? `${offers} new` : '·');
+    document.getElementById('laneBoard').classList.toggle('has-alert', offers > 0 && slotsFree);
+  }
+  // Mailbox: the drawn flag swings up + the box glows when a pack waits
+  const mailFace = document.getElementById('mailFace');
+  if (mailFace) {
+    const pending = state.pendingPacks || 0;
+    mailFace.textContent = pending > 0 ? `${pending} 🎴` : `${state.totalHarvests % HARVESTS_PER_PACK}/${HARVESTS_PER_PACK}`;
+    document.getElementById('laneMail').classList.toggle('has-alert', pending > 0);
+  }
+  // Cottage face: collection size, quietly
+  const cottageFace = document.getElementById('cottageFace');
+  if (cottageFace) cottageFace.textContent = state.collection.length > 0 ? `${state.collection.length} 🎴` : '·';
+}
+// One-time lane bindings (static elements — the lane is never rebuilt)
+document.getElementById('laneStall').onclick = () => {
+  const f = state.marketFeaturedCrop ? CROPS[state.marketFeaturedCrop] : null;
+  const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+  const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+  const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+  openGardenSheet({
+    icon: '🧺',
+    title: "Today's market",
+    body: `
+      ${f ? `<p><b>${f.emoji} ${f.name}</b> is fetching a premium today — <b>+${fPct}%</b> on every harvest.</p>` : '<p>The stall is quiet today.</p>'}
+      ${s ? `<p>${s.emoji} ${s.name} is everywhere right now — <b>−${sPct}%</b> until tomorrow.</p>` : ''}
+      <p class="gs-reassure">The stall restocks at midnight. Prices are a gentle nudge, never a must.</p>`,
+  });
+};
+document.getElementById('laneBoard').onclick = () => switchTab('contracts');
+document.getElementById('laneMail').onclick = () => {
+  if ((state.pendingPacks || 0) > 0) openPackModal();
+  else switchTab('cards');
+};
+// The cottage remembers which room you visited last — a daily journal-reader
+// shouldn't pay the Collection toll on every visit.
+document.getElementById('laneCottage').onclick = () => switchTab(state._cottageRoom || 'cards');
+// Inside the cottage, its two rooms cross-link (the tab bar only shows Home
+// + Settings now — these are how you move between Collection and Journal).
+document.getElementById('cottageToJournal').onclick = () => switchTab('journal');
+document.getElementById('cottageToCards').onclick = () => switchTab('cards');
+
+// Generic gentle toast (reuses the tend-toast visual) for first-time notes
+// and "what just happened" moment cards. Non-blocking, auto-dismiss.
+function showGardenToast(icon, label, detail, ms) {
+  // Queue, don't clobber: if another toast is still showing (e.g. the post-breath
+  // "calm settles in"), wait for it to finish instead of replacing it mid-read.
+  const existing = document.querySelector('.tend-toast');
+  if (existing) {
+    const expire = Number(existing.dataset.expire || 0);
+    if (expire > Date.now()) {
+      setTimeout(() => showGardenToast(icon, label, detail, ms), expire - Date.now() + 200);
+      return;
+    }
+    existing.remove();
+  }
+  const dur = ms || 3700;
+  const toast = document.createElement('div');
+  toast.className = 'tend-toast';
+  toast.dataset.expire = Date.now() + dur;
+  toast.innerHTML = `<span class="tend-toast-icon">${icon}</span><span><div class="tend-toast-label">${label}</div><div class="tend-toast-detail">${detail}</div></span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, dur);
+}
+
+// --- calm state (the everyday reward for breathing; replaces the −8% time bump) ---
+function isCalmState() { return (state.calmStateUntil || 0) > Date.now(); }
+function calmStateDurationMs() {
+  let ms = CALM_STATE_MS;
+  if (isCardEquippedAnywhere('p_centered')) {
+    ms += CALM_STATE_MS * getStarMultiplier(getStarsForBuff('p_centered')); // Centered ≈ doubles the window
+  }
+  return ms;
+}
+function startCalmState() { state.calmStateUntil = Date.now() + calmStateDurationMs(); }
+
+// --- rare harvest events (the content that creates anticipation) ---
+// One harmony-gated roll per harvest, replacing the old flat 3% lucky chance.
+// If it fires, the TYPE of moment depends on conditions.
+function rareEventChanceForHarvest(plotId) {
+  const h = getHarmony();
+  // Harmony maps floor→3% up to max→12%.
+  let chance = 0.03 + (h - HARMONY_FLOOR) / (HARMONY_MAX - HARMONY_FLOOR) * 0.09;
+  if (isCalmState()) chance += 0.06;                       // breathing opens a window of possibility
+  if (isWithinFirstDays(3)) chance += 0.05;                // soft tutorial: teach the FEEL early
+  if (isCalmState() && isCardEquippedAnywhere('p_centered')) {
+    chance += 0.05 * getStarMultiplier(getStarsForBuff('p_centered')); // Centered: more moments in calm
+  }
+  return Math.max(0.03, Math.min(0.40, chance));
+}
+function rollHarvestEvent(plotId) {
+  if (Math.random() >= rareEventChanceForHarvest(plotId)) return null;
+  if (countReadyPlots() >= 3) return { kind: 'golden',    mult: 1.6 };
+  if (isLocalNight())         return { kind: 'midnight',  mult: 1.4 };
+  if (Math.random() < 0.35)   return { kind: 'rarebloom', mult: 1.4 };
+  return { kind: 'lucky', mult: 1.5 };
+}
+function rareEventFlavor(kind) {
+  // Named two-part lines so the activity log teaches what happened AND why,
+  // every time — no jargon, no numbers. Appends the cause when calm is active.
+  let s;
+  switch (kind) {
+    case 'golden':    s = 'Golden Yield — the whole row caught the light'; break;
+    case 'midnight':  s = 'Midnight Bloom — drawn out by the quiet night'; break;
+    case 'rarebloom': s = 'Rare Bloom — your settled garden offered something rare'; break;
+    default:          s = 'a lucky harvest — fortune touched this one'; break;
+  }
+  if (isCalmState()) s += ' · while the garden was at peace';
+  return s;
+}
+function onRareHarvestEvent(event, crop) {
+  addHarmony(HARMONY_GAIN_MOMENT);
+  const cropName = CROPS[crop] ? CROPS[crop].name.toLowerCase() : 'bloom';
+  const text = {
+    golden:    '☀️ A Golden Yield — the whole row caught the light at once.',
+    midnight:  '🌙 A Midnight Bloom opened under the dark sky.',
+    rarebloom: `🌸 A rare ${cropName} appeared among the harvest.`,
+  }[event.kind];
+  const key = { golden: 'first_golden', midnight: 'first_midnight', rarebloom: 'first_rarebloom' }[event.kind];
+  if (text && key) addJournalEntry(text, key);
+  // First time each KIND ever fires, a tiny "what just happened" card so the
+  // player learns the moment by name. Distinct flags from the journal dedupe
+  // above (and from the same-named achievement ids) so neither suppresses the other.
+  if (!state.journalSeen) state.journalSeen = {};
+  const cardKey = 'firstcard_' + event.kind;
+  if (!state.journalSeen[cardKey]) {
+    state.journalSeen[cardKey] = true;
+    const card = {
+      golden:    { icon: '☀️', label: 'A Golden Yield', detail: 'Several plots ripe at once caught the light — a small bonus, nothing spent.' },
+      midnight:  { icon: '🌙', label: 'A Midnight Bloom', detail: 'Harvesting at night drew this out — a small bonus, nothing spent. A calm, settled garden brings more.' },
+      rarebloom: { icon: '🌸', label: 'A Rare Bloom', detail: `A rare ${cropName} appeared — a small bonus, nothing spent. A settled garden offers more.` },
+      lucky:     { icon: '✨', label: 'A Lucky Harvest', detail: 'Fortune touched this one — a small bonus, nothing spent.' },
+    }[event.kind];
+    if (card) showGardenToast(card.icon, card.label, card.detail, 5200);
+  }
+}
+
+// --- living journal (memory: why mindfulness accrues meaning) ---
+// Short reflective entries triggered by firsts and milestones. `key` dedupes
+// one-time "first ever" entries so the garden's story doesn't repeat itself.
+function addJournalEntry(text, key) {
+  if (!state.journalEntries) state.journalEntries = [];
+  if (key) {
+    if (!state.journalSeen) state.journalSeen = {};
+    if (state.journalSeen[key]) return;
+    state.journalSeen[key] = true;
+  }
+  state.journalEntries.unshift({ text, t: Date.now() });
+  if (state.journalEntries.length > 30) state.journalEntries.pop();
+}
+
+// --- daily farm moment (the "what's different today" hook) ---
+// Each moment now carries a WEATHER KEY — the day's mood paints the actual
+// scene (mist banks, rain in the air, golden light, a robin on the fence),
+// not just a line of text. Still pure ambiance: nothing to manage.
+const DAILY_MOMENTS = [
+  { key: 'dew',       text: '🌅 A still morning. Dew beads on every leaf.' },
+  { key: 'soft',      text: '🌤️ Soft light today — the garden seems to lean toward it.' },
+  { key: 'breeze',    text: '🍃 A cool breeze moves through the rows.' },
+  { key: 'mist',      text: '🌫️ Light mist hangs low over the soil.' },
+  { key: 'robin',     text: '🐦 A robin visited at dawn and stayed a while.' },
+  { key: 'golden',    text: '☀️ The afternoon turns warm and golden.' },
+  { key: 'rain',      text: '🌧️ Rain is in the air.' },
+  { key: 'butterfly', text: '🦋 A pale butterfly drifts between the plots.' },
+];
+// Option B (honest ambiance): the daily moment is pure scenery — no hidden
+// effect. It lives in its own "Today" strip (see renderDailyMomentStrip), NOT
+// the activity feed, so it never reads as a payout or a mechanic to manage.
+function rollDailyFarmMoment() {
+  const today = getCurrentDayKey();
+  if (state.dailyMomentDayKey === today) return;
+  state.dailyMomentDayKey = today;
+  const m = DAILY_MOMENTS[Math.floor(Math.random() * DAILY_MOMENTS.length)];
+  state.dailyMomentText = m.text;
+  state.dailyMomentKey = m.key;
+}
+const BREATH_CYCLES = 3;                  // # of inhale-hold-exhale cycles
+const BREATH_PHASE_MS = 4000;             // 4s in, 4s hold, 4s out
+const PEAK_RIPENESS_WINDOW_SEC = 30;      // Peak Ripeness boon: real-seconds past ripe still earning the ×1.6 bonus
+
+// Mindfulness exercises — player picks one each tend session. Variety keeps
+// the practice from feeling rote. Every exercise opens the same Calm State
+// and feeds Garden Harmony; the choice is for the player's mood, not the math.
+// Picker blurbs describe INTENT — when you'd reach for this practice —
+// not just the mechanic. Players pick based on mood/need, not just label.
+const EXERCISES = [
+  {
+    id: 'box',
+    name: 'Box breath',
+    blurb: 'Balanced breath for focus and calm',
+    icon: '◯',
+    durationLabel: '~36s',
+    visual: 'circle',
+    phaseDurations: { inhale: 4000, hold: 4000, exhale: 4000 },
+    intro: {
+      title: 'What box breathing does',
+      body: 'A slow, even rhythm of inhale-hold-exhale calms the nervous system. Used by athletes and first responders to drop heart rate and refocus under pressure. Reach for it when you need centering or to refocus.',
+    },
+  },
+  {
+    id: 'four_seven_eight',
+    name: '4-7-8 breath',
+    blurb: 'Long exhale to truly unwind',
+    icon: '🌙',
+    durationLabel: '~57s',
+    visual: 'circle',
+    phaseDurations: { inhale: 4000, hold: 7000, exhale: 8000 },
+    intro: {
+      title: 'What 4-7-8 breathing does',
+      body: 'The prolonged exhale activates the parasympathetic nervous system more strongly than balanced breathing — a quick sedative for an anxious or wired state. Often used before sleep, or to come down from stress. Slower and longer than box breath.',
+    },
+  },
+  {
+    id: 'ground',
+    name: '5-4-3-2-1',
+    blurb: 'Anchor your senses to the present',
+    icon: '👀',
+    durationLabel: '~40s',
+    visual: 'text',
+    intro: {
+      title: 'What sensory grounding does',
+      body: 'Anxiety and racing thoughts pull you out of the present. Naming what you see, touch, hear, smell, and taste anchors you back in the room. Reach for it when your mind is busy or scattered.',
+    },
+    phases: [
+      { label: 'Notice 5 things you can see', icon: '👀', ms: 8000 },
+      { label: '4 things you can touch',      icon: '✋', ms: 8000 },
+      { label: '3 things you can hear',       icon: '👂', ms: 8000 },
+      { label: '2 things you can smell',      icon: '👃', ms: 8000 },
+      { label: '1 thing you can taste',       icon: '👅', ms: 8000 },
+    ],
+  },
+  {
+    id: 'scan',
+    name: 'Body scan',
+    blurb: 'Release tension, part by part',
+    icon: '🧘',
+    durationLabel: '~30s',
+    visual: 'text',
+    intro: {
+      title: 'What a body scan does',
+      body: 'Tension hides in your jaw, shoulders, and hands without you noticing. Bringing attention to each spot and consciously softening it releases what your body was holding. Reach for it when you feel physically tight or after sitting too long.',
+    },
+    phases: [
+      { label: 'Unclench your jaw',          icon: '🧘', ms: 6000 },
+      { label: 'Drop your shoulders',        icon: '🤲', ms: 6000 },
+      { label: 'Soften your hands',          icon: '✋', ms: 6000 },
+      { label: 'Feel your feet on the ground', icon: '🦶', ms: 6000 },
+      { label: 'One slow breath',            icon: '🌿', ms: 6000 },
+    ],
+  },
+  {
+    id: 'loving_kindness',
+    name: 'Loving-kindness',
+    blurb: 'Send quiet warmth to yourself and others',
+    icon: '💗',
+    durationLabel: '~30s',
+    visual: 'text',
+    intro: {
+      title: 'What loving-kindness does',
+      body: 'A few moments of directed warmth — for yourself, then someone you care about, then wider. Even brief loving-kindness reflection lowers stress hormones and increases reported well-being in studies. Reach for it when you feel disconnected or harsh with yourself.',
+    },
+    phases: [
+      { label: 'Soften your shoulders. Notice your breath.',     icon: '🤲', ms: 6000 },
+      { label: 'May you be at peace.',                           icon: '🌿', ms: 6000 },
+      { label: 'Bring to mind someone you love.',                icon: '💗', ms: 6000 },
+      { label: 'May they be well.',                              icon: '✨', ms: 6000 },
+      { label: 'May all who tend a garden, anywhere, be at peace.', icon: '🌍', ms: 6000 },
+    ],
+  },
+];
+
+// Active practices — engagement-only mini-games. No time-skip reward,
+// no fail state, no score. Player picks them when they want to do
+// something with their hands instead of meditate. Completion adds to
+// the "Moments collected" lifetime stat (state.activePracticesCompleted).
+const ACTIVE_GAMES = [
+  {
+    id: 'pollen_drift',
+    name: 'Pollen Drift',
+    blurb: 'Follow a single drifting light',
+    icon: '✨',
+    durationLabel: 'open-ended',
+    openFn: 'openPollenDrift',
+  },
+  {
+    id: 'sand_mandala',
+    name: 'Sand Mandala',
+    blurb: 'Draw patterns that gently fade',
+    icon: '🌀',
+    durationLabel: 'open-ended',
+    openFn: 'openSandMandala',
+  },
+  {
+    id: 'slow_rhythm',
+    name: 'Slow Rhythm',
+    blurb: 'Tap gently with a calm pulse',
+    icon: '🫧',
+    durationLabel: 'open-ended',
+    openFn: 'openSlowRhythm',
+  },
+];
+
+// Atmospheric flavor — pure cozy texture, no mechanical impact. ~30% chance per harvest.
+const HARVEST_FLAVORS = [
+  'a perfect crop.',
+  'the soil is generous today.',
+  'morning dew helped.',
+  'this one was hand-picked.',
+  'patience paid off.',
+  'the bees were busy.',
+  'a small but earnest yield.',
+  'every leaf in place.',
+  'crisp and ready.',
+  'the wind was kind.',
+  'just a pinch sweeter than usual.',
+  'nothing wasted.',
+  'a quiet, working soil.',
+  'firm to the touch.',
+  'almost reluctant to pull.',
+];
+const LUCKY_FLAVORS = [
+  '✨ a lucky harvest!',
+  '✨ the sun shone just right.',
+  '✨ a once-in-a-season find.',
+  '✨ everything aligned.',
+  '✨ the soil rewarded you.',
+];
+
+// Cozy attribution variants — short journal-margin notes that appear under
+// a harvest entry when the run was meaningfully above or below average.
+// Multiple variants per tone so the activity log never feels repeated.
+// Templates use {name}, {rarity}, {crop} which get substituted at render.
+const ATTRIB_VARIANTS = {
+  lucky: [
+    'fortune touched this one',
+    'a rare bright morning',
+    'lucky soil today',
+    'something smiled on the harvest',
+  ],
+  market_bonus: [
+    'fetched a fine price at market',
+    'the market called for this',
+    'sold above the day\'s average',
+    'a welcome day for {crop}',
+  ],
+  market_penalty: [
+    'the market was glutted today',
+    'a quieter price than hoped',
+    '{crop} sold soft today',
+  ],
+  set: [
+    'the {crop} set held its promise',
+    'wisdom of the {crop} family',
+    'every card in the set sang together',
+  ],
+  boon: [
+    '{rarity} {name} carried this one',
+    'guided by {name}',
+    '{name} showed its work',
+    'the field bent toward {name}',
+  ],
+  slow: [
+    'patient growth, modest reward',
+    'the long wait kept it small',
+    'slow soil, gentle yield',
+  ],
+  quiet: [
+    'a quiet harvest',
+    'modest but earnest',
+    'a small thing, well-grown',
+    'gentle yield today',
+  ],
+};
+function pickAttribVariant(tone, ctx) {
+  const arr = ATTRIB_VARIANTS[tone];
+  if (!arr || arr.length === 0) return null;
+  let template = arr[Math.floor(Math.random() * arr.length)];
+  if (ctx) {
+    if (ctx.name) template = template.replace(/\{name\}/g, ctx.name);
+    if (ctx.rarity) template = template.replace(/\{rarity\}/g, ctx.rarity);
+    if (ctx.crop && CROPS[ctx.crop]) template = template.replace(/\{crop\}/g, CROPS[ctx.crop].name.toLowerCase());
+  }
+  return template;
+}
+// Mastery: each crop gains a small permanent yield bonus per harvests-of-that-crop.
+const MASTERY_BONUS_PER_5 = 0.001; // +0.1% per 5 harvests of the same crop
+
+const HARVESTS_PER_PACK = 10;
+const MAX_PERMA_SLOTS = 4;
+
+const BUFF_POOL = [
+  // ============ COMMON ============
+  { id: 'sun',      name: 'Sunny Days',     desc: '+18% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.18, flavor: 'a warm patch of sky.' },
+  { id: 'rain',     name: 'Gentle Rain',    desc: '−22% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.78,  flavor: 'soft drumming on leaves.' },
+  { id: 'rich',     name: 'Rich Soil',      desc: '+22% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.22, flavor: 'dark, crumbling, alive.' },
+  { id: 'compost',  name: 'Compost Tea',    desc: '+12% yield, −10% time',                     rarity: 'common',   archetype: 'stat',     yieldMult: 1.12, timeMult: 0.90, flavor: 'an old farmer\'s trick.' },
+  { id: 'sprout',   name: 'Eager Sprout',   desc: '−25% remaining time',                       rarity: 'common',   archetype: 'stat',     timeMult: 0.75,  flavor: 'this one wants to grow.' },
+  { id: 'sturdy',   name: 'Sturdy Stems',   desc: '+15% yield',                                rarity: 'common',   archetype: 'stat',     yieldMult: 1.15, flavor: 'bend in wind, never break.' },
+  { id: 'patient',  name: 'Slow & Steady',  desc: '+28% yield, +10% time',                     rarity: 'common',   archetype: 'tradeoff', yieldMult: 1.28, timeMult: 1.10, flavor: 'haste makes waste.' },
+  { id: 'common_synergy', name: 'Folk Wisdom', desc: '+5% yield per common buff (incl. this)', rarity: 'common',   archetype: 'synergy',  custom: 'common_synergy', flavor: 'small things, well done.' },
+
+  // ============ UNCOMMON ============
+  { id: 'bee',      name: 'Bee Visitation',  desc: '+22% yield',                               rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.22, flavor: 'they know which flowers to find.' },
+  { id: 'mulch',    name: 'Living Mulch',    desc: '+18% yield, −10% time',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.18, timeMult: 0.90, flavor: 'clover keeping the roots cool.' },
+  { id: 'symbiosis', name: 'Symbiosis',      desc: '+6% yield per OTHER active buff',          rarity: 'uncommon', archetype: 'synergy',  custom: 'symbiosis', flavor: 'each gift makes the next greater.' },
+  { id: 'gamble',   name: 'Coin Flip',       desc: '50% chance: ×1.7 yield. else: nothing.',   rarity: 'uncommon', archetype: 'gamble',   custom: 'coin_flip_17', flavor: 'fortune favors the planted.' },
+  { id: 'tradeoff_a', name: 'Long Patience', desc: '+45% yield, +18% time',                    rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.45, timeMult: 1.18, flavor: 'wait, and the field will pay.' },
+  { id: 'echo',     name: 'Echo',            desc: '+12% yield. your NEXT boon\'s effects apply twice.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.12, custom: 'echo', flavor: 'the field remembers.' },
+  { id: 'twofold',  name: 'Twofold Path',    desc: '+15% yield. then apply a random uncommon-or-lower boon.', rarity: 'uncommon', archetype: 'cascade', yieldMult: 1.15, custom: 'twofold', flavor: 'the soil decides what else.' },
+  { id: 'cross_a',  name: 'Wild Pollen',     desc: '+15% yield to ALL other active plots',     rarity: 'uncommon', archetype: 'cross',    custom: 'cross_yield_15', flavor: 'the wind carries gifts.' },
+  { id: 'lock_time', name: 'Steady Hand',    desc: '+25% yield. no time buffs after this.',    rarity: 'uncommon', archetype: 'commit',   yieldMult: 1.25, custom: 'lock_time', flavor: 'a craftsman\'s tempo.' },
+  { id: 'skill_a',  name: 'Peak Ripeness',   desc: 'harvest within 30s of ripe = ×1.6 yield', rarity: 'uncommon', archetype: 'skill',    custom: 'skill_window_10', flavor: 'timing is taste.' },
+  { id: 'devour',   name: 'Eat the Roots',   desc: '+35% yield, −20% from next planting',     rarity: 'uncommon', archetype: 'tradeoff', yieldMult: 1.35, custom: 'next_penalty_20', flavor: 'today\'s feast, tomorrow\'s hunger.' },
+
+  // ============ RARE ============
+  { id: 'storm',    name: 'After the Storm', desc: '+45% yield',                               rarity: 'rare',     archetype: 'stat',     yieldMult: 1.45, flavor: 'rinsed clean, charged with rain.' },
+  { id: 'oldway',   name: 'The Old Way',     desc: '+20% yield, −25% time',                    rarity: 'rare',     archetype: 'stat',     yieldMult: 1.20, timeMult: 0.75, flavor: 'as grandmother did it.' },
+  { id: 'common_amp', name: 'Rare Earth',    desc: '+20% yield per common buff this run',      rarity: 'rare',     archetype: 'synergy',  custom: 'common_amp', flavor: 'simple things multiplied.' },
+  { id: 'cornucopia', name: 'Cornucopia',    desc: '+20% yield. your NEXT draft shows 5 boons.', rarity: 'rare',   archetype: 'cascade',  yieldMult: 1.20, custom: 'cornucopia', flavor: 'the basket overflows.' },
+  { id: 'commit',   name: 'Devoted Tending', desc: '+60% yield IF you take no more boons.',    rarity: 'rare',     archetype: 'commit',   custom: 'no_more_picks_80', flavor: 'a vow kept.' },
+  { id: 'cross_b',  name: 'Hive Mind',       desc: '+1 boon to every other plot growing now',  rarity: 'rare',     archetype: 'cross',    custom: 'cross_pick_1', flavor: 'gifts shared, freely given.' },
+  { id: 'high_gamble', name: 'Frost Gamble', desc: '70% chance ×2.2 yield. 30% ×0.5.',         rarity: 'rare',     archetype: 'gamble',   custom: 'frost_gamble', flavor: 'a north wind is coming.' },
+  { id: 'ferment',  name: 'Slow Ferment',    desc: 'every 5s past ripeness: +8% yield (max +160% at 100s)', rarity: 'rare', archetype: 'skill', custom: 'ferment_5s_8', flavor: 'patience makes wine.' },
+  { id: 'pickback', name: 'Reroll the Day',  desc: 'redraft your previous boon on this plot',  rarity: 'rare',     archetype: 'meta',     custom: 'reroll_last', flavor: 'the wise one chooses twice.' },
+  { id: 'rare_doubler', name: 'Garden Sage', desc: 'doubles your highest active yield boon',   rarity: 'rare',     archetype: 'meta',     custom: 'double_actives', flavor: 'the elder\'s touch.' },
+
+  // ============ LEGENDARY ============
+  { id: 'plenty',   name: 'Year of Plenty',  desc: '×1.7 yield',                               rarity: 'legendary', archetype: 'stat',     yieldMult: 1.70, flavor: 'the harvest of a lifetime.' },
+  { id: 'long_wait', name: 'The Long Wait',  desc: '×2.2 yield, +40% time',                    rarity: 'legendary', archetype: 'tradeoff', yieldMult: 2.20, timeMult: 1.40, flavor: 'years pass. the field remembers.' },
+  { id: 'cascade_gold', name: 'Cascade of Gold', desc: 'apply 2 random rare boons immediately.', rarity: 'legendary', archetype: 'cascade', custom: 'cascade_gold', flavor: 'the sky opens.' },
+  { id: 'cross_leg', name: 'Garden\'s Blessing', desc: 'all OTHER plots: +50% yield this run', rarity: 'legendary', archetype: 'cross',    custom: 'cross_yield_50', flavor: 'every patch sings.' },
+  { id: 'all_in',   name: 'All In',          desc: '×2.1 yield. lose all other current buffs.', rarity: 'legendary', archetype: 'commit', custom: 'all_in', flavor: 'one true thing, no more.' },
+
+  // ============ MYTHIC ============
+  { id: 'wishflower', name: 'Wishflower',    desc: 'next 2 boons: guaranteed legendary+',      rarity: 'mythic',    archetype: 'meta',     custom: 'wishflower', flavor: 'a single bloom in a thousand fields.' },
+  { id: 'world_tree', name: 'Roots of the World', desc: '×2.9 yield. no more boons this run.', rarity: 'mythic',    archetype: 'commit',   custom: 'world_tree', flavor: 'older than the soil itself.' },
+  { id: 'eternal',  name: 'Eternal Crop',    desc: 'after harvest, plot replants identical with all boons preserved. once.', rarity: 'mythic', archetype: 'meta', custom: 'eternal', flavor: 'the field that keeps giving.' },
+  { id: 'sun_god',  name: 'Solstice',        desc: '×2.0 yield. ALL other plots: ×1.6 yield.', rarity: 'mythic',    archetype: 'cross',    custom: 'solstice', flavor: 'the day the sun stood still.' },
+
+  // ============ CROP-SPECIFIC IN-RUN ============
+  { id: 'crunch',   name: 'Extra Crunch',    desc: '+25% radish yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.25, cropOnly: 'radish', flavor: 'snap heard from the fence.' },
+  { id: 'french',   name: 'French Breakfast', desc: '×2.0 radish yield, −15% time',            rarity: 'legendary', archetype: 'stat',    yieldMult: 2.00, timeMult: 0.85, cropOnly: 'radish', flavor: 'served with butter and salt.' },
+  { id: 'rainbow_carrot', name: 'Rainbow Strain', desc: '+40% carrot yield',                   rarity: 'rare',     archetype: 'stat',     yieldMult: 1.40, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
+  { id: 'sugarsnap', name: 'Sugarsnap',     desc: '×2.1 carrot yield, −10% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.10, timeMult: 0.90, cropOnly: 'carrot', flavor: 'as sweet as candy from the ground.' },
+  { id: 'heirloom', name: 'Heirloom Strain', desc: '+35% tomato yield',                        rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.35, cropOnly: 'tomato', flavor: 'seeds saved for generations.' },
+  { id: 'beefsteak', name: 'Beefsteak Beauty', desc: '×2.2 tomato yield',                      rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, cropOnly: 'tomato', flavor: 'one fruit fills both hands.' },
+  { id: 'golden',   name: 'Golden Field',    desc: '+38% wheat yield',                         rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.38, cropOnly: 'wheat', flavor: 'the field hums in the breeze.' },
+  { id: 'harvest_hymn', name: 'Harvest Hymn', desc: '×2.3 wheat yield, −20% time',             rarity: 'legendary', archetype: 'stat',    yieldMult: 2.30, timeMult: 0.80, cropOnly: 'wheat', flavor: 'sung at the close of summer.' },
+  { id: 'corn_silk', name: 'Silken Husk',    desc: '+40% corn yield',                          rarity: 'rare',     archetype: 'stat',     yieldMult: 1.40, cropOnly: 'corn', flavor: 'long fields, bowed by wind.' },
+  { id: 'sweet_corn', name: 'Sweet Corn',    desc: '×2.2 corn yield, −10% time',               rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, timeMult: 0.90, cropOnly: 'corn', flavor: 'butter melts on contact.' },
+  { id: 'jack_o',   name: 'Jack-o-Bounty',   desc: '+50% pumpkin yield',                       rarity: 'rare',     archetype: 'stat',     yieldMult: 1.50, cropOnly: 'pumpkin', flavor: 'big enough to hollow a kingdom.' },
+  { id: 'field_giant', name: 'Field Giant',  desc: '×2.3 pumpkin yield',                        rarity: 'legendary', archetype: 'stat',    yieldMult: 2.30, cropOnly: 'pumpkin', flavor: 'a county-fair winner.' },
+  { id: 'berry_burst', name: 'Berry Burst',   desc: '+38% strawberry yield',                    rarity: 'uncommon', archetype: 'stat',     yieldMult: 1.38, cropOnly: 'strawberry', flavor: 'red enough to stain a thumb.' },
+  { id: 'wild_jam',  name: 'Wild Jam',         desc: '×2.2 strawberry yield, −15% time',         rarity: 'legendary', archetype: 'stat',    yieldMult: 2.20, timeMult: 0.85, cropOnly: 'strawberry', flavor: 'simmered until the spoon stands up.' },
+  { id: 'sunseed',  name: 'Sunseed',          desc: '+45% sunflower yield',                     rarity: 'rare',     archetype: 'stat',     yieldMult: 1.45, cropOnly: 'sunflower', flavor: 'each shell, a small star.' },
+  { id: 'sunblaze', name: 'Sunblaze',         desc: '×2.4 sunflower yield, −10% time',          rarity: 'legendary', archetype: 'stat',    yieldMult: 2.40, timeMult: 0.90, cropOnly: 'sunflower', flavor: 'turning even with the night.' },
+];
+
+// ============ PERMA-BUFF POOL ============
+const PERMA_POOL = [
+  // === GENERAL — apply to any crop ===
+  // Common
+  { id: 'p_glass', name: 'Greenhouse Glass', desc: '+4% yield', rarity: 'common', yieldMult: 1.04, flavor: 'a roof for tender things.' },
+  { id: 'p_lazy_river', name: 'Lazy River', desc: '−3% grow time', rarity: 'common', timeMult: 0.97, flavor: 'water finds its way.' },
+  { id: 'p_seeds', name: 'Quality Seeds', desc: '+5% yield', rarity: 'common', yieldMult: 1.05, flavor: 'sown with care.' },
+  { id: 'p_humming', name: 'Humming Earth', desc: '+3% yield, −2% time', rarity: 'common', yieldMult: 1.03, timeMult: 0.98, flavor: 'a quiet, working soil.' },
+  // Uncommon
+  { id: 'p_loyal_bee', name: 'Loyal Bee', desc: '+7% yield', rarity: 'uncommon', yieldMult: 1.07, flavor: 'returns each spring.' },
+  { id: 'p_tractor', name: 'Ancient Tractor', desc: '−6% grow time', rarity: 'uncommon', timeMult: 0.94, flavor: 'still runs, still smokes.' },
+  { id: 'p_library', name: 'Heirloom Library', desc: '+1% yield per crop with 5+ harvests', rarity: 'uncommon', custom: 'mastery_synergy', flavor: 'old knowledge, new harvests.' },
+  // Rare
+  { id: 'p_heritage', name: 'Heritage Strain', desc: '+10% yield', rarity: 'rare', yieldMult: 1.10, flavor: 'pure lineage.' },
+  { id: 'p_spring', name: 'Spring Eternal', desc: '−10% grow time', rarity: 'rare', timeMult: 0.90, flavor: 'the season that never ends.' },
+  { id: 'p_balance', name: 'Balanced Plot', desc: '+8% yield, −5% time', rarity: 'rare', yieldMult: 1.08, timeMult: 0.95, flavor: 'every variable in its right place.' },
+  // Legendary
+  { id: 'p_crystal', name: 'Crystal Greenhouse', desc: '+15% yield', rarity: 'legendary', yieldMult: 1.15, flavor: 'sun made gentle.' },
+  { id: 'p_pact_earth', name: 'Pact of the Earth', desc: '+25% yield, +5% time', rarity: 'legendary', yieldMult: 1.25, timeMult: 1.05, flavor: 'the price of plenty.' },
+  { id: 'p_starlight', name: 'Starlight Garden', desc: '+12% yield, −5% time', rarity: 'legendary', yieldMult: 1.12, timeMult: 0.95, flavor: 'tended under a quiet sky.' },
+  // Mythic
+  { id: 'p_eternal_garden', name: 'Eternal Garden', desc: '+28% yield', rarity: 'mythic', yieldMult: 1.28, flavor: 'older than memory.' },
+  { id: 'p_first_seed', name: 'The First Seed', desc: '+18% yield, −12% time', rarity: 'mythic', yieldMult: 1.18, timeMult: 0.88, flavor: 'planted before the world began.' },
+
+  // === GENERAL — conditional & mindfulness-wired ===
+  // Cards that read the wider state (time of day, plot grow-time, your
+  // tend history) instead of just adding a flat %. The mindfulness-wired
+  // ones tie the breathing system to gameplay reward — engaged players
+  // who tend get noticeably more out of these. Baseline kept small so
+  // casual players still benefit; engaged play earns the upside.
+  { id: 'p_devotion',   name: 'Garden Devotion',     desc: 'Tending fills the garden with calm faster — breaths & practice give +50% Harmony',  rarity: 'uncommon',  custom: 'devotion',      flavor: 'a daily kindness, returned.' },
+  { id: 'p_centered',   name: 'Centered',            desc: 'Calm lingers far longer after a breath, and rare moments come more easily within it', rarity: 'rare',      custom: 'centered',      flavor: 'one slow breath, all the difference.' },
+  { id: 'p_moonlight',  name: 'Moonlight Pact',      desc: '+50% yield when harvested between 7pm and 7am',                                  rarity: 'rare',      custom: 'moonlight',     flavor: 'work the cool hours.' },
+  { id: 'p_patience',   name: 'Patience Pays',       desc: '+40% yield if the plot took 6+ hours to grow',                                   rarity: 'uncommon',  custom: 'long_grow',     flavor: 'the slow road, the full basket.' },
+  { id: 'p_reverence',  name: 'Lifetime Reverence',  desc: "A lifetime of tending raises the garden's capacity for calm (higher Harmony ceiling)", rarity: 'legendary', custom: 'lifetime_tend', flavor: 'measured in moments of stillness.' },
+
+  // === RADISH set ===
+  { id: 'p_r_patch', name: 'Radish Patch', desc: '+6% radish yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'radish', flavor: 'a corner all their own.' },
+  { id: 'p_r_cold', name: 'Cold Frame', desc: '+10% radish yield, −3% time', rarity: 'uncommon', yieldMult: 1.10, timeMult: 0.97, cropOnly: 'radish', flavor: 'crisp through every season.' },
+  { id: 'p_r_knife', name: 'Bunching Knife', desc: '−12% radish time', rarity: 'rare', timeMult: 0.88, cropOnly: 'radish', flavor: 'trim, wash, return for more.' },
+  { id: 'p_r_royal', name: 'Radish Royalty', desc: '+28% radish yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'radish', flavor: 'crowned in greens.' },
+
+  // === CARROT set ===
+  { id: 'p_c_loam', name: 'Sandy Loam', desc: '+6% carrot yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'carrot', flavor: 'lets the roots run deep.' },
+  { id: 'p_c_top', name: 'Carrot Top', desc: '+10% carrot yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'carrot', flavor: 'more leaf, more body.' },
+  { id: 'p_c_long', name: 'Long Bed', desc: '−12% carrot time', rarity: 'rare', timeMult: 0.88, cropOnly: 'carrot', flavor: 'stretching toward the sun.' },
+  { id: 'p_c_rainbow', name: 'Rainbow Strain', desc: '+28% carrot yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'carrot', flavor: 'purple, white, gold, deep red.' },
+
+  // === TOMATO set ===
+  { id: 'p_t_cage', name: 'Tomato Cage', desc: '+6% tomato yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'tomato', flavor: 'a steadying hand.' },
+  { id: 'p_t_prune', name: 'Pruning Hand', desc: '+10% tomato yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'tomato', flavor: 'old growth removed, new fed.' },
+  { id: 'p_t_sunny', name: 'Sunny Trellis', desc: '−12% tomato time', rarity: 'rare', timeMult: 0.88, cropOnly: 'tomato', flavor: 'a wall of warmth.' },
+  { id: 'p_t_heir', name: 'Heirloom Vines', desc: '+28% tomato yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'tomato', flavor: 'seeds passed down, summer to summer.' },
+
+  // === WHEAT set ===
+  { id: 'p_w_field', name: 'Wide Field', desc: '+6% wheat yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'wheat', flavor: 'horizon to horizon.' },
+  { id: 'p_w_thresh', name: 'Threshing Floor', desc: '+10% wheat yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'wheat', flavor: 'honest, ancient work.' },
+  { id: 'p_w_combine', name: 'Combine Engine', desc: '−12% wheat time', rarity: 'rare', timeMult: 0.88, cropOnly: 'wheat', flavor: 'the engine never sleeps.' },
+  { id: 'p_w_golden', name: 'Golden Harvest', desc: '+28% wheat yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'wheat', flavor: 'a sea of bread.' },
+
+  // === CORN set ===
+  { id: 'p_co_dust', name: 'Corn Dust', desc: '+6% corn yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'corn', flavor: 'stick to your boots.' },
+  { id: 'p_co_husk', name: 'Husk Cradle', desc: '+10% corn yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'corn', flavor: 'tucked in tight.' },
+  { id: 'p_co_tall', name: 'Tall Stalks', desc: '−12% corn time', rarity: 'rare', timeMult: 0.88, cropOnly: 'corn', flavor: 'high enough to whisper through.' },
+  { id: 'p_co_pact', name: 'Maize Pact', desc: '+28% corn yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'corn', flavor: 'an old promise kept.' },
+
+  // === PUMPKIN set ===
+  // === STRAWBERRY set ===
+  { id: 'p_s_runner', name: 'Runner Beds', desc: '+6% strawberry yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'strawberry', flavor: 'they spread where they please.' },
+  { id: 'p_s_straw', name: 'Mulched Straw', desc: '+10% strawberry yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'strawberry', flavor: 'keeps the berries off the ground.' },
+  { id: 'p_s_morning', name: 'Morning Sun', desc: '−12% strawberry time', rarity: 'rare', timeMult: 0.88, cropOnly: 'strawberry', flavor: 'eastern light, daily.' },
+  { id: 'p_s_jubilee', name: 'Jubilee Patch', desc: '+28% strawberry yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'strawberry', flavor: 'a season fit for celebration.' },
+
+  // === SUNFLOWER set ===
+  { id: 'p_su_face', name: 'Open Face', desc: '+6% sunflower yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'sunflower', flavor: 'turning, always turning.' },
+  { id: 'p_su_stake', name: 'Garden Stake', desc: '+10% sunflower yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'sunflower', flavor: 'tall ones need a hand.' },
+  { id: 'p_su_quick', name: 'Quick Bloom', desc: '−12% sunflower time', rarity: 'rare', timeMult: 0.88, cropOnly: 'sunflower', flavor: 'the early flower steals the bee.' },
+  { id: 'p_su_crown', name: 'Solar Crown', desc: '+28% sunflower yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'sunflower', flavor: 'a halo of seeds.' },
+
+  // === PUMPKIN set ===
+  { id: 'p_pu_vine', name: 'Vine Trellis', desc: '+6% pumpkin yield', rarity: 'common', yieldMult: 1.06, cropOnly: 'pumpkin', flavor: 'for the wandering ones.' },
+  { id: 'p_pu_heavy', name: 'Heavy Soil', desc: '+10% pumpkin yield', rarity: 'uncommon', yieldMult: 1.10, cropOnly: 'pumpkin', flavor: 'rich, slow earth.' },
+  { id: 'p_pu_heart', name: 'Pumpkin Heart', desc: '−12% pumpkin time', rarity: 'rare', timeMult: 0.88, cropOnly: 'pumpkin', flavor: 'ripens in the cold.' },
+  { id: 'p_pu_court', name: 'Autumn Court', desc: '+28% pumpkin yield', rarity: 'legendary', yieldMult: 1.28, cropOnly: 'pumpkin', flavor: 'the crowned harvest.' },
+];
+
+// Plot costs: clean ~×4 exponential. Plot 8 = $1.25M is multi-month aspirational.
+const PLOT_COSTS = [0, 300, 1200, 5000, 20000, 80000, 320000, 1250000];
+
+// ============ CARD SETS ============
+// Sets reward completionist play. Owning every card in a set grants a permanent passive
+// bonus that stacks with star-leveling and equipped buffs. Computed live from state.collection
+// — no save migration needed. Each crop has its own set; one master set rewards owning all 47.
+//
+// Bonuses were +10% / +5% before — the strategy-comparison sim showed that
+// boon picks barely differentiate engaged play (5% gap vs novice). Set
+// completion is the long-term lever for engaged players, so we bumped:
+//   crop set:   +10% → +15%   (50% relative buff, payoff for collecting 4)
+//   master set: +5%  → +10%   (year+ chase reward; doubles its value)
+// Net economy stays modest because most players don't complete every set
+// until late game (sim: median ~5 of 8 sets complete by day 180).
+const CARD_SETS = (() => {
+  const sets = [];
+  const cropList = ['radish', 'carrot', 'tomato', 'strawberry', 'wheat', 'corn', 'pumpkin', 'sunflower'];
+  for (const crop of cropList) {
+    const cropCards = PERMA_POOL.filter(b => b.cropOnly === crop).map(b => b.id);
+    sets.push({
+      id: `set_${crop}`,
+      name: `${CROPS[crop].name} Set`,
+      icon: CROPS[crop].emoji,
+      cardIds: cropCards,
+      bonus: { type: 'crop_yield', crop, mult: 1.15 },
+      bonusLabel: '+15% yield to ' + CROPS[crop].name.toLowerCase(),
+    });
+  }
+  sets.push({
+    id: 'set_master',
+    name: 'Master Collection',
+    icon: '👑',
+    cardIds: PERMA_POOL.map(b => b.id),
+    bonus: { type: 'global_yield', mult: 1.10 },
+    bonusLabel: '+10% yield on every harvest',
+  });
+  return sets;
+})();
+
+function getSetCompletion(set) {
+  const owned = set.cardIds.filter(id => state.collection.some(c => c.id === id)).length;
+  return { owned, total: set.cardIds.length, complete: owned === set.cardIds.length };
+}
+function isSetComplete(setId) {
+  const set = CARD_SETS.find(s => s.id === setId);
+  return set ? getSetCompletion(set).complete : false;
+}
+// Returns yield mult contribution from completed sets, given a crop being harvested.
+function getCardSetBonus(crop) {
+  let mult = 1.0;
+  for (const set of CARD_SETS) {
+    if (!getSetCompletion(set).complete) continue;
+    if (set.bonus.type === 'crop_yield' && set.bonus.crop === crop) mult *= set.bonus.mult;
+    if (set.bonus.type === 'global_yield') mult *= set.bonus.mult;
+  }
+  return mult;
+}
+
+// ============ ACHIEVEMENTS ============
+// Curated list of milestones that drip dopamine outside the gameplay loop.
+// Each defines a `test(state)` predicate, with optional `progress(state)` for
+// trackers ("47/100 harvests"). Unlocked achievements are stored in
+// state.achievements as { id: timestamp }.
+// Reward tiers:
+//   { type: 'pack' }                       → +1 generic pack
+//   { type: 'card', floor: 'uncommon' }    → instant +1 uncommon-or-better card
+//   { type: 'card', floor: 'rare' }        → instant +1 rare-or-better card
+//   { type: 'card', floor: 'legendary' }   → instant +1 legendary-floor card
+//   { type: 'card', floor: 'mythic' }      → instant +1 mythic-floor card (rare)
+// Quality > quantity. By the time a player hits 100+ packs opened, +1 more pack
+// is forgettable; a guaranteed silver card actually feels like a reward.
+const ACHIEVEMENTS = [
+  // First-time moments — small celebratory packs
+  { id: 'first_harvest',    name: 'First Sprout',       icon: '🌱', desc: 'Harvest your first crop',         test: s => s.totalHarvests >= 1 },
+  { id: 'first_pack',       name: 'First Cards',        icon: '🎴', desc: 'Open your first pack',           test: s => s.packsOpened >= 1 },
+  { id: 'first_boon',       name: 'Drafted',            icon: '🌟', desc: 'Pick your first in-run boon',    test: s => (s.totalPicksTaken || 0) >= 1 },
+  { id: 'first_contract',   name: 'Promising Start',    icon: '🤝', desc: 'Complete your first contract',   test: s => (s.contractsCompleted || 0) >= 1, reward: { type: 'pack' } },
+  { id: 'first_starup',     name: 'Rising Star',        icon: '⭐', desc: 'Star up a card to ★2',           test: s => s.collection.some(c => (c.stars || 1) >= 2) },
+  { id: 'first_legendary',  name: 'Legendary Find',     icon: '✨', desc: 'Own your first legendary card',  test: s => s.collection.some(c => c.rarity === 'legendary') },
+  { id: 'first_mythic',     name: 'Mythic Touch',       icon: '🌙', desc: 'Own your first mythic card',     test: s => s.collection.some(c => c.rarity === 'mythic') },
+  { id: 'first_lucky',      name: 'Lucky Day',          icon: '🍀', desc: 'Get a lucky harvest',            test: s => (s.luckyHarvests || 0) >= 1 },
+  { id: 'first_set',        name: 'First Set',          icon: '📦', desc: 'Complete a crop set',            test: s => CARD_SETS.some(set => set.id !== 'set_master' && set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'rare' } },
+  // Volume milestones — packs
+  { id: 'harvests_100',     name: 'Patient Gardener',   icon: '🌿', desc: '100 total harvests',             test: s => s.totalHarvests >= 100,            progress: s => `${Math.min(s.totalHarvests, 100)}/100`,          reward: { type: 'pack' } },
+  { id: 'harvests_500',     name: 'Devoted Farmer',     icon: '🌳', desc: '500 total harvests',             test: s => s.totalHarvests >= 500,            progress: s => `${Math.min(s.totalHarvests, 500)}/500`,          reward: { type: 'card', floor: 'rare' } },
+  { id: 'packs_50',         name: 'Pack Hoarder',       icon: '🎁', desc: 'Open 50 packs',                  test: s => s.packsOpened >= 50,               progress: s => `${Math.min(s.packsOpened, 50)}/50`,              reward: { type: 'pack' } },
+  { id: 'contracts_10',     name: 'Reliable Partner',   icon: '📜', desc: 'Complete 10 contracts',          test: s => (s.contractsCompleted || 0) >= 10, progress: s => `${Math.min(s.contractsCompleted || 0, 10)}/10`,  reward: { type: 'pack' } },
+  { id: 'cards_25',         name: 'Bookworm',           icon: '📚', desc: 'Own 25 unique cards',            test: s => s.collection.length >= 25,         progress: s => `${Math.min(s.collection.length, 25)}/25`,        reward: { type: 'card', floor: 'uncommon' } },
+  // Late-game goals — quality cards
+  { id: 'plots_all',        name: 'Land Baron',         icon: '🏡', desc: 'Unlock all 8 plots',             test: s => s.plots.filter(p => !p.locked).length >= 8, progress: s => `${s.plots.filter(p => !p.locked).length}/8`, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'star_max',         name: 'Constellation',      icon: '💫', desc: 'Star up a card to ★5',           test: s => s.collection.some(c => (c.stars || 1) >= 5), reward: { type: 'card', floor: 'legendary' } },
+  { id: 'master_crop',      name: 'Master of Earth',    icon: '🎨', desc: 'Master a crop (100h grow-time)', test: s => Object.values(s.mastery || {}).some(h => h >= 100), progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 100)}h/100h`; }, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'collection_full',  name: 'Master Collection',  icon: '👑', desc: 'Own all cards in the game',      test: s => s.collection.length >= PERMA_POOL.length, progress: s => `${s.collection.length}/${PERMA_POOL.length}`, reward: { type: 'card', floor: 'mythic' } },
+  // Money thresholds — small but visible
+  { id: 'money_10k',        name: 'Penny Saved',        icon: '💰', desc: 'Hold $10,000 at once',           test: s => s.money >= 10000 },
+  { id: 'money_100k',       name: 'Tycoon',             icon: '💎', desc: 'Hold $100,000 at once',          test: s => s.money >= 100000, reward: { type: 'pack' } },
+  { id: 'money_1m',         name: 'Estate Holder',      icon: '🏰', desc: 'Hold $1,000,000 at once',        test: s => s.money >= 1000000, reward: { type: 'card', floor: 'legendary' } },
+  // Higher-end volume goals — months of cozy play
+  { id: 'harvests_1k',      name: 'Old Hand',           icon: '🌾', desc: '1,000 total harvests',           test: s => s.totalHarvests >= 1000,  progress: s => `${Math.min(s.totalHarvests, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'rare' } },
+  { id: 'harvests_5k',      name: 'Land Whisperer',     icon: '🌲', desc: '5,000 total harvests',           test: s => s.totalHarvests >= 5000,  progress: s => `${Math.min(s.totalHarvests, 5000).toLocaleString()}/5,000`, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'packs_200',        name: 'Pack Rat',           icon: '📦', desc: 'Open 200 packs',                 test: s => s.packsOpened >= 200,     progress: s => `${Math.min(s.packsOpened, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'contracts_50',     name: 'Local Legend',       icon: '🎖️', desc: 'Complete 50 contracts',          test: s => (s.contractsCompleted || 0) >= 50,  progress: s => `${Math.min(s.contractsCompleted || 0, 50)}/50`,  reward: { type: 'card', floor: 'rare' } },
+  { id: 'contracts_200',    name: 'Pillar of the Town', icon: '🏆', desc: 'Complete 200 contracts',         test: s => (s.contractsCompleted || 0) >= 200, progress: s => `${Math.min(s.contractsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
+  // Deep mastery / collection — top-tier rewards
+  { id: 'star5_three',      name: 'Triple Constellation', icon: '🌠', desc: '3 cards at ★5',                test: s => s.collection.filter(c => (c.stars || 1) >= 5).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 5).length}/3`, reward: { type: 'card', floor: 'mythic' } },
+  // Prestige star ladder — ★6 through ★10, long-tail card chase
+  { id: 'star6_first',      name: 'Beyond the Bar',     icon: '✦', desc: 'Star up a card to ★6',           test: s => s.collection.some(c => (c.stars || 1) >= 6), reward: { type: 'card', floor: 'rare' } },
+  { id: 'star10_first',     name: 'Perfect Star',       icon: '🌟', desc: 'Star up a card to ★10',          test: s => s.collection.some(c => (c.stars || 1) >= 10), reward: { type: 'card', floor: 'mythic' } },
+  { id: 'star10_three',     name: 'Triple Perfection',  icon: '✨', desc: '3 cards at ★10',                 test: s => s.collection.filter(c => (c.stars || 1) >= 10).length >= 3, progress: s => `${s.collection.filter(c => (c.stars || 1) >= 10).length}/3`, reward: { type: 'card', floor: 'mythic' } },
+  // Garden achievements — gameplay-pattern milestones, not count thresholds
+  { id: 'diverse_garden',   name: 'Diverse Garden',     icon: '🌈', desc: '5 different crops growing at once',          test: s => new Set(s.plots.filter(p => !p.locked && p.crop).map(p => p.crop)).size >= 5, reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'triple_fermenter', name: 'Triple Fermenter',   icon: '🫙', desc: '3 plots ripe and waiting at the same time', test: s => s.plots.filter(p => !p.locked && p.crop && p.elapsedMs >= p.totalMs).length >= 3, reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'set_builder',      name: 'Set Builder',        icon: '🎴', desc: 'Equip a full 4-card crop set on a single plot', test: s => { for (const set of CARD_SETS) { if (set.id === 'set_master') continue; for (let i = 0; i < (s.loadouts || []).length; i++) { const loadout = s.loadouts[i] || []; if (set.cardIds.every(id => loadout.includes(id))) return true; } } return false; }, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'boon_marathon',    name: 'Boon Marathon',      icon: '🌟', desc: '1,000 boon picks taken',                     test: s => (s.totalPicksTaken || 0) >= 1000, progress: s => `${Math.min(s.totalPicksTaken || 0, 1000).toLocaleString()}/1,000`, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'greenhouse',       name: 'Greenhouse',         icon: '🏡', desc: 'Buy every upgrade on a single plot',         test: s => { const ks = Object.keys(PLOT_UPGRADES); for (let i = 0; i < (s.plotUpgrades || []).length; i++) { const ups = s.plotUpgrades[i] || {}; if (ks.every(k => ups[k])) return true; } return false; }, reward: { type: 'card', floor: 'legendary' } },
+  { id: 'quiet_year',       name: 'Quiet Year',         icon: '🌅', desc: '365 days in the garden',                      test: s => (s.daysVisited || 0) >= 365, progress: s => `${Math.min(s.daysVisited || 0, 365)}/365`, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'fully_refined',    name: 'Fully Refined',      icon: '⚜️', desc: 'Every plot has every upgrade',               test: s => { const ks = Object.keys(PLOT_UPGRADES); const unlocked = s.plots.filter(p => !p.locked); if (unlocked.length < 8) return false; for (const p of unlocked) { const ups = (s.plotUpgrades || [])[p.id] || {}; if (!ks.every(k => ups[k])) return false; } return true; }, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'all_crop_sets',    name: 'Garden Curator',     icon: '🌸', desc: 'Complete every crop set',        test: s => CARD_SETS.filter(set => set.id !== 'set_master').every(set => set.cardIds.every(id => s.collection.some(c => c.id === id))), reward: { type: 'card', floor: 'mythic' } },
+  { id: 'master_all_crops', name: 'Soil Sage',          icon: '🪴', desc: 'Master every crop (100h each)',  test: s => Object.keys(CROPS).every(c => (s.mastery[c] || 0) >= 100), progress: s => `${Object.keys(CROPS).filter(c => (s.mastery[c] || 0) >= 100).length}/${Object.keys(CROPS).length}`, reward: { type: 'card', floor: 'mythic' } },
+  // Long-tail mastery — named tier chase, year-1+ horizon
+  { id: 'mastery_adept',    name: 'Adept Cultivator',   icon: '🌾', desc: 'Reach Adept tier on any crop (500h)',           test: s => Object.values(s.mastery || {}).some(h => h >= 500),    progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 500).toLocaleString()}h/500h`; },     reward: { type: 'card', floor: 'rare' } },
+  { id: 'mastery_expert',   name: 'Expert Cultivator',  icon: '🌻', desc: 'Reach Expert tier on any crop (2,000h)',        test: s => Object.values(s.mastery || {}).some(h => h >= 2000),   progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 2000).toLocaleString()}h/2,000h`; },   reward: { type: 'card', floor: 'legendary' } },
+  { id: 'mastery_master',   name: 'Master of the Soil', icon: '🏆', desc: 'Reach Master tier on any crop (10,000h)',       test: s => Object.values(s.mastery || {}).some(h => h >= 10000),  progress: s => { const top = Math.floor(Math.max(0, ...Object.values(s.mastery || {}))); return `${Math.min(top, 10000).toLocaleString()}h/10,000h`; }, reward: { type: 'card', floor: 'mythic' } },
+  { id: 'lucky_50',         name: 'Charmed Garden',     icon: '🍀', desc: '50 lucky harvests',              test: s => (s.luckyHarvests || 0) >= 50,     progress: s => `${Math.min(s.luckyHarvests || 0, 50)}/50`, reward: { type: 'card', floor: 'legendary' } },
+  // Streak-aspirational
+  { id: 'streak_30',        name: 'A Month of Care',    icon: '🌿', desc: '30 days in the garden',          test: s => (s.daysVisited || 0) >= 30,  progress: s => `${Math.min(s.daysVisited || 0, 30)}/30`,  reward: { type: 'card', floor: 'rare' } },
+  { id: 'streak_100',       name: 'A Hundred Mornings', icon: '🌅', desc: '100 days in the garden',         test: s => (s.daysVisited || 0) >= 100, progress: s => `${Math.min(s.daysVisited || 0, 100)}/100`, reward: { type: 'card', floor: 'mythic' } },
+  // Tend / mindfulness — total + per-exercise + variety
+  { id: 'tend_50',          name: 'Calm Hands',         icon: '🌿', desc: 'Complete 50 breathing exercises', test: s => (s.tendSessionsCompleted || 0) >= 50, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 50)}/50`, reward: { type: 'pack' } },
+  { id: 'tend_variety',     name: 'Three Practices',    icon: '🪷', desc: 'Try every kind of tending at least once', test: s => { const l = s.tendExerciseLog || {}; return (l.box || 0) >= 1 && (l.ground || 0) >= 1 && (l.scan || 0) >= 1; }, progress: s => { const l = s.tendExerciseLog || {}; const have = ['box','ground','scan'].filter(k => (l[k] || 0) >= 1).length; return `${have}/3`; }, reward: { type: 'pack' } },
+  { id: 'tend_box_25',      name: 'Steady Breath',      icon: '🌬️', desc: 'Box breath × 25',                test: s => ((s.tendExerciseLog || {}).box || 0) >= 25,    progress: s => `${Math.min((s.tendExerciseLog || {}).box || 0, 25)}/25`,    reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'tend_ground_25',   name: 'Anchored',           icon: '⚓', desc: '5-4-3-2-1 grounding × 25',       test: s => ((s.tendExerciseLog || {}).ground || 0) >= 25, progress: s => `${Math.min((s.tendExerciseLog || {}).ground || 0, 25)}/25`, reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'tend_scan_25',     name: 'Soft Body',          icon: '🧘', desc: 'Body scan × 25',                  test: s => ((s.tendExerciseLog || {}).scan || 0) >= 25,   progress: s => `${Math.min((s.tendExerciseLog || {}).scan || 0, 25)}/25`,   reward: { type: 'card', floor: 'uncommon' } },
+  { id: 'tend_200',         name: 'Daily Devotion',     icon: '🕯️', desc: '200 breathing exercises',         test: s => (s.tendSessionsCompleted || 0) >= 200, progress: s => `${Math.min(s.tendSessionsCompleted || 0, 200)}/200`, reward: { type: 'card', floor: 'legendary' } },
+];
+
+function unlockAchievement(id, opts = {}) {
+  if (!state.achievements) state.achievements = {};
+  if (state.achievements[id]) return false; // already unlocked
+  state.achievements[id] = Date.now();
+  // Silent path: used at init to retroactively credit existing saves without
+  // spamming toasts/sounds — but we DO still apply rewards on init credit
+  // so a player who has 100 harvests in their old save gets the rewards.
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  let rewardLabel = null;
+  if (a && a.reward) {
+    rewardLabel = applyAchievementReward(a.reward);
+  }
+  if (opts.silent) return true;
+  if (a) {
+    const rewardSuffix = rewardLabel ? ` · ${rewardLabel}` : '';
+    state.harvestLog.unshift({ type: 'achievement', name: a.name, icon: a.icon, rewardLabel, t: Date.now() });
+    if (state.harvestLog.length > 6) state.harvestLog.pop();
+    if (typeof sndLevelUp === 'function') sndLevelUp();
+    showAchievementToast(a, rewardLabel);
+  }
+  return true;
+}
+
+// Applies the reward to state and returns a player-facing label like
+// "+1 pack" or "+1 uncommon card". Returns null if no reward.
+function applyAchievementReward(reward) {
+  if (!reward) return null;
+  if (reward.type === 'pack') {
+    state.pendingPacks = (state.pendingPacks || 0) + 1;
+    return '+1 pack';
+  }
+  if (reward.type === 'card') {
+    // Instant-grant: one card at the rarity floor, added directly to collection.
+    // Bypasses the pack-modal flow so the player feels the reward immediately.
+    try {
+      const cards = draftPermaPack(1, reward.floor || null, 0);
+      if (cards && cards.length > 0) {
+        cards.forEach(c => addToCollection(c));
+        return `+1 ${reward.floor || 'random'} card`;
+      }
+    } catch (e) { /* fall through */ }
+    // Fallback to pack if draft fails
+    state.pendingPacks = (state.pendingPacks || 0) + 1;
+    return '+1 pack';
+  }
+  return null;
+}
+
+function showAchievementToast(a, rewardLabel) {
+  // Coalesce: if a toast is already up, replace it (multiple unlocks in one event)
+  const existing = document.querySelector('.ach-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'ach-toast';
+  const rewardHtml = rewardLabel
+    ? `<div class="ach-toast-reward">${rewardLabel}</div>`
+    : '';
+  toast.innerHTML = `
+    <span class="ach-toast-icon">${a.icon}</span>
+    <span>
+      <div class="ach-toast-label">Achievement</div>
+      <div class="ach-toast-name">${a.name}</div>
+      ${rewardHtml}
+    </span>
+  `;
+  document.body.appendChild(toast);
+  // Animation duration: 0.3s in + 3.0s display + 0.3s out = 3.6s total
+  setTimeout(() => toast.remove(), 3700);
+}
+
+// Cozy "contract complete" toast — fires the moment a harvest fills a contract,
+// so the player sees WHY their coin count just jumped. Visually distinct from
+// the gold achievement toast so the two don't blur together.
+function showContractCompleteToast(c) {
+  const existing = document.querySelector('.contract-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  // Keep tier class internally for the toast's color trim, but don't show
+  // the tier name to the player — they only see quality (modest/fair/...).
+  toast.className = `contract-toast tier-${c.tier}`;
+  const packBit = c.packs > 0 ? ` · +${c.packs} pack` : '';
+  toast.innerHTML = `
+    <span class="contract-toast-icon">📜</span>
+    <span>
+      <div class="contract-toast-label">Contract complete</div>
+      <div class="contract-toast-detail"><span class="coin-icon">◉</span> +${c.coins}${packBit}</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3700);
+}
+
+// Walks all achievements and unlocks any that newly meet their condition.
+// Cheap: ACHIEVEMENTS is small and predicates are tiny. Safe to call on every event.
+function checkAchievements(opts = {}) {
+  if (!state.achievements) state.achievements = {};
+  for (const a of ACHIEVEMENTS) {
+    if (state.achievements[a.id]) continue;
+    try { if (a.test(state)) unlockAchievement(a.id, opts); } catch (e) { /* ignore */ }
+  }
+}
+
+// ============ STATE ============
+const state = {
+  money: 25,
+  speed: 1,
+  lastTick: performance.now(),
+  plots: [],
+  mastery: { radish: 0, carrot: 0, tomato: 0, strawberry: 0, wheat: 0, corn: 0, pumpkin: 0, sunflower: 0 },
+  harvestLog: [],
+  totalHarvests: 0,
+  pendingPacks: 0,
+  collection: [], // [{...buff, count, stars}]
+  loadouts: [[], [], [], [], [], []], // 6 plots × up to 4 buff ids
+  adPlaying: false,
+  adUsedForCurrentPack: false,
+  currentPackCards: [],
+  loadoutModalPlotId: 0,
+  packsOpened: 0,
+  migrationsApplied: [],
+  // Contract system (Phase C — multi-active, tier-based pack rewards)
+  activeContracts: [],         // up to 3 simultaneously accepted contracts
+  offeredContracts: [],        // up to 3 offered contracts; player picks any/all
+  contractsCompleted: 0,
+  contractsOfferedDayKey: null,      // 'YYYY-M-D' of when the current offer pool was generated
+  contractsGeneratedToday: 0,        // how many slots have been generated today (caps daily generation)
+  contractRerollsUsedToday: 0,       // how many ad-rerolls used today (max 2)
+  // Plot upgrades — per-plot 3-tier QoL/buff system. Indexed by plot id.
+  // Each entry: { autoReplant: bool, masterGardener: bool, practicedSoil: bool }
+  plotUpgrades: [],
+  // Today's stats — reset at local midnight
+  todayDayKey: null,
+  todayHarvests: 0,
+  todayCoins: 0,
+  // Today's Market — featured crop gets +40% sell value, rotates at midnight
+  marketDayKey: null,
+  marketFeaturedCrop: null,
+  marketSaturatedCrop: null,   // crop with a glut penalty for the day; nullable
+  marketHistory: [],           // last few featured crops, used to avoid back-to-back repeats
+  // Audio (0–100 volume sliders; 0 = muted)
+  soundVolume: 100,
+  ambientVolume: 100,
+  // Legacy toggles kept for save back-compat; map to volume==0 when loaded
+  soundEnabled: true,
+  ambientEnabled: true,
+  // UI
+  activeTab: 'farm',
+  themeMode: 'time',    // 'light' | 'dark' | 'time' | 'system' — resolved by applyTheme()
+  // Achievements + counters
+  achievements: {},          // { id: unlockedAtTimestamp }
+  luckyHarvests: 0,          // counter for "first lucky" achievement
+  totalPicksTaken: 0,        // counter for "first boon picked" achievement
+  // Lifetime stats counters
+  totalTaps: 0,              // legacy field (no longer incremented; kept for save back-compat)
+  tendSessionsCompleted: 0,  // lifetime count of completed breathing exercises
+  tendDayKey: null,          // 'YYYY-M-D' of the day the per-day counter belongs to
+  tendSessionsToday: 0,      // count of sessions completed today (resets on day rollover)
+  tendExerciseLog: {},       // lifetime per-exercise counts, keyed by exercise id ({box, ground, scan})
+  tendIntrosSeen: {},        // { box: true, ground: true, scan: true } — once seen, picker skips the intro
+  lastTendCompletedAt: 0,    // ms timestamp of last completed breathing exercise (used by Centered card)
+  activePracticesCompleted: 0,  // lifetime count of completed active-game sessions ("moments collected")
+  lifetimeCoins: 0,          // every yield + contract reward adds (≠ current money)
+  firstPlayedAt: null,       // timestamp set on first save, used for "days played"
+  // Daily streak — cozy-genre engagement loop
+  lastPlayedDayKey: null,    // 'YYYY-M-D' of the last day counted
+  daysVisited: 0,            // cumulative distinct days visited — no streak, no reset, no penalty
+  lastVisitedMilestone: 0,   // highest day-milestone already awarded (guards against double-firing)
+  // --- Living Farm redesign: wellness → wonder ---
+  gardenHarmony: HARMONY_FLOOR, // hidden 0–100 calm dial (see GARDEN HARMONY section)
+  calmStateUntil: 0,         // ms timestamp the post-breath Calm State expires
+  journalEntries: [],        // narrative "The Garden Remembers" entries [{text, t}]
+  journalSeen: {},           // dedupe flags for one-time "first ever" journal entries
+  dailyMomentDayKey: null,   // day key the current Daily Farm Moment belongs to
+  dailyMomentText: null,     // today's "what's different" flavor line
+};
+
+function makePlot(id) {
+  return {
+    id,
+    crop: null,
+    elapsedMs: 0,
+    totalMs: 0,
+    totalPicks: 0,
+    picksTaken: 0,
+    yieldMult: 1.0,
+    activeBuffs: [],
+    tapsUsed: 0,                  // legacy field, retained for save back-compat (unused)
+    lastTapTime: 0,               // legacy field, retained for save back-compat (unused)
+    tendSessionsThisCycle: 0,     // legacy per-plot tend counter — replaced by state.tendSessionsToday (global)
+    flags: {
+      lockTime: false,
+      noMorePicks: false,
+      skillWindow10: false,
+      skillFerment: false,
+      eternalActive: false,
+      eternalUsed: false,
+      committedNoMore: false,
+      picksAtCommit: undefined,
+      nextPenaltyMult: 1.0,
+      wishflowerLeft: 0,
+      wideDraftLeft: 0,
+      echoLeft: 0,
+    },
+  };
+}
+
+state.plots.push(makePlot(0));
+for (let i = 1; i < 6; i++) state.plots.push({ id: i, locked: true });
+
+// ============ UTILITY ============
+function fmtMoney(n) { return Math.floor(n).toLocaleString(); }
+function fmtTimeRemaining(ms) {
+  ms = Math.max(0, ms);
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m ${s % 60}s`;
+}
+
+// First pick is available immediately at plant; remaining picks unlock evenly
+// across the grow time. Last pick lands at ~(N-1)/N of progress, leaving a
+// small window before harvest so the player can still use it.
+function picksUnlockedAt(plot) {
+  const progress = plot.totalMs > 0 ? plot.elapsedMs / plot.totalMs : 0;
+  return Math.min(plot.totalPicks, 1 + Math.floor(progress * plot.totalPicks));
+}
+function picksAvailable(plot) {
+  if (!plot.crop) return 0;
+  if (plot.flags.noMorePicks) return 0;
+  return Math.max(0, picksUnlockedAt(plot) - plot.picksTaken);
+}
+// True if the given crop appears in any active (accepted) contract's demands.
+// 📜 indicator helper. Returns true only when growing MORE of this crop
+// would still benefit an active contract — i.e. (delivered + currently
+// growing) < target. Once the player has enough committed to fulfill,
+// the badge disappears so they're not nudged to over-plant.
+function isCropWantedByContract(crop) {
+  if (!state.activeContracts) return false;
+  // Count plots actively committed to this crop (growing OR ready-to-harvest).
+  const growingCount = state.plots.filter(p => !p.locked && p.crop === crop).length;
+  for (const c of state.activeContracts) {
+    if (c.template === 'deliver_n_of_x' && c.params.crop === crop) {
+      const remaining = c.params.count - (c.progress || 0) - growingCount;
+      if (remaining > 0) return true;
+    } else if (c.template === 'deliver_mixed' && c.params.crops && c.params.crops[crop] !== undefined) {
+      const target = c.params.crops[crop];
+      const delivered = (c.progress && c.progress[crop]) || 0;
+      const remaining = target - delivered - growingCount;
+      if (remaining > 0) return true;
+    }
+  }
+  return false;
+}
+// Returns ms until the next boon pick unlocks (or null if all unlocked / no picks)
+function msUntilNextPick(plot) {
+  if (!plot || !plot.crop) return null;
+  if (plot.flags.noMorePicks) return null;
+  const totalPicks = plot.totalPicks || 0;
+  if (totalPicks === 0) return null;
+  const unlocked = picksUnlockedAt(plot);
+  if (unlocked >= totalPicks) return null;
+  // picksUnlockedAt = min(totalPicks, 1 + floor(progress * totalPicks))
+  // So the next pick unlocks when floor advances by 1:
+  //   progress > unlocked / totalPicks
+  const progressForNext = unlocked / totalPicks;
+  const msForNext = progressForNext * plot.totalMs;
+  return Math.max(0, msForNext - plot.elapsedMs);
+}
+function isReady(plot) { return plot.crop && plot.elapsedMs >= plot.totalMs; }
+function progressOf(plot) { if (!plot.crop || plot.totalMs === 0) return 0; return Math.min(1, plot.elapsedMs / plot.totalMs); }
+function totalAvailablePicks() { return state.plots.reduce((a, p) => a + (p.locked ? 0 : picksAvailable(p)), 0); }
+function activeCropsGrowing() { return new Set(state.plots.filter(p => !p.locked && p.crop).map(p => p.crop)); }
+function firstPlotWithPicks() { return state.plots.find(p => !p.locked && p.crop && picksAvailable(p) > 0); }
+
+function addFloat(text, x, y) {
+  const el = document.createElement('div');
+  el.className = 'float-money';
+  el.textContent = text;
+  el.style.left = (x - 40) + 'px';
+  el.style.top = (y - 20) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1300);
+}
+
+// ============ HARVEST JUICE ============
+// The harvest is the best moment in the genre — make it a MOMENT, not a fading
+// number. Crops fling out and arc; coins fly to the wallet; the counter bounces;
+// a chunky pluck sound + a haptic tick. Bigger on great/lucky harvests.
+function spawnHarvestBurst(x, y, emoji, count) {
+  for (let k = 0; k < count; k++) {
+    const p = document.createElement('div');
+    p.className = 'harvest-particle';
+    p.textContent = emoji;
+    p.style.left = x + 'px';
+    p.style.top = y + 'px';
+    document.body.appendChild(p);
+    const angle = (-Math.PI / 2) + (Math.random() - 0.5) * 1.7; // mostly up, spread
+    const dist = 38 + Math.random() * 72;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist; // negative = up
+    const rot = (Math.random() - 0.5) * 200;
+    const dur = 620 + Math.random() * 360;
+    p.animate([
+      { transform: 'translate(-50%,-50%) scale(0.4) rotate(0deg)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${dx * 0.6}px), calc(-50% + ${dy}px)) scale(1.15) rotate(${rot * 0.6}deg)`, opacity: 1, offset: 0.4 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy + 70}px)) scale(0.65) rotate(${rot}deg)`, opacity: 0 },
+    ], { duration: dur, easing: 'cubic-bezier(0.2,0.7,0.3,1)' });
+    setTimeout(() => p.remove(), dur + 60);
+  }
+}
+function bounceMoney() {
+  const money = document.getElementById('moneyValue');
+  if (!money) return;
+  money.classList.remove('coin-bounce');
+  void money.offsetWidth; // restart the animation
+  money.classList.add('coin-bounce');
+}
+function flyCoinsToWallet(x, y, count) {
+  const money = document.getElementById('moneyValue');
+  if (!money) { return; }
+  const mr = money.getBoundingClientRect();
+  const tx = mr.left + mr.width / 2, ty = mr.top + mr.height / 2;
+  for (let k = 0; k < count; k++) {
+    const c = document.createElement('div');
+    c.className = 'fly-coin';
+    c.textContent = '◉';
+    c.style.left = x + 'px';
+    c.style.top = y + 'px';
+    document.body.appendChild(c);
+    const delay = k * 65;
+    const dur = 520;
+    const midX = x + (tx - x) * 0.4 + (Math.random() - 0.5) * 50;
+    const midY = Math.min(y, ty) - 55 - Math.random() * 30;
+    c.animate([
+      { transform: 'translate(-50%,-50%) scale(0.5)', opacity: 0.2 },
+      { transform: `translate(calc(-50% + ${midX - x}px), calc(-50% + ${midY - y}px)) scale(1.15)`, opacity: 1, offset: 0.5 },
+      { transform: `translate(calc(-50% + ${tx - x}px), calc(-50% + ${ty - y}px)) scale(0.5)`, opacity: 0.3 },
+    ], { duration: dur, delay, easing: 'cubic-bezier(0.4,0,0.2,1)' });
+    setTimeout(() => { c.remove(); bounceMoney(); }, delay + dur);
+  }
+}
+function harvestJuice(x, y, crop, big) {
+  const emoji = (CROPS[crop] && CROPS[crop].emoji) || '🌿';
+  spawnHarvestBurst(x, y, emoji, big ? 9 : 5);
+  flyCoinsToWallet(x, y, big ? 4 : 2);
+  sndPluck(big);
+  if (navigator.vibrate) { try { navigator.vibrate(big ? 22 : 12); } catch (e) {} }
+}
+
+// ============ PERMA-BUFF EFFECTS (per plot) ============
+function isBuffActiveOnPlot(buff, plot) {
+  if (!buff.cropOnly) return true;
+  return plot && plot.crop === buff.cropOnly;
+}
+
+// ============ CARD STAR-LEVELING ============
+// Each card has 1-10 stars. Dupes contribute toward the next tier.
+// Cumulative dupes needed (idx 0 = ★1):
+//   ★1=0,  ★2=1,    ★3=3,    ★4=7,    ★5=14
+//   ★6=30, ★7=60,   ★8=110,  ★9=180,  ★10=280
+// Multiplier per star has diminishing returns past ★5 so the prestige
+// tiers don't run away with reward inflation. ★5 stays the old "max"
+// at 1.8×; ★10 is 2.4× — a meaningful but earned bump.
+const STAR_THRESHOLDS  = [0,   1,   3,   7,   14,  30,   60,   110,  180,  280];
+const STAR_MULTIPLIERS = [1.0, 1.2, 1.4, 1.6, 1.8, 1.95, 2.10, 2.20, 2.30, 2.40];
+const MAX_STARS = STAR_THRESHOLDS.length;
+
+function starsFromCount(count) {
+  const dupes = Math.max(0, count - 1);
+  for (let s = STAR_THRESHOLDS.length; s >= 1; s--) {
+    if (dupes >= STAR_THRESHOLDS[s - 1]) return s;
+  }
+  return 1;
+}
+
+function getStarMultiplier(stars) {
+  const idx = Math.max(0, Math.min(STAR_MULTIPLIERS.length - 1, stars - 1));
+  return STAR_MULTIPLIERS[idx];
+}
+
+function getStarsForBuff(buffId) {
+  const c = state.collection.find(x => x.id === buffId);
+  return c?.stars || 1;
+}
+
+// Returns { current, needed, isMax } for showing "1/4 to ★4" style progress
+function dupesTowardNextStar(count, stars) {
+  if (stars >= MAX_STARS) return { isMax: true };
+  const dupes = Math.max(0, count - 1);
+  const prev = STAR_THRESHOLDS[stars - 1];
+  const next = STAR_THRESHOLDS[stars];
+  return { current: dupes - prev, needed: next - prev, isMax: false };
+}
+
+// ★1-5 render as literal stars (the familiar bar). ★6-10 add a "+N"
+// prestige chip after the bar so the player sees both the base tier and
+// the prestige push. Avoids cramming 10 ★ glyphs into a tight space.
+function renderStarGlyphs(stars) {
+  const filled = Math.min(5, stars);
+  const empty = Math.max(0, 5 - filled);
+  let html = '★'.repeat(filled);
+  if (empty > 0) html += `<span class="empty">${'☆'.repeat(empty)}</span>`;
+  if (stars > 5) html += ` <span class="prestige">+${stars - 5}</span>`;
+  return html;
+}
+
+// Compute the effective yield/time multipliers a card produces at its current star level
+function effectiveYieldMult(buff, stars) {
+  if (!buff.yieldMult) return 1.0;
+  const sm = getStarMultiplier(stars);
+  return 1 + (buff.yieldMult - 1) * sm;
+}
+function effectiveTimeMult(buff, stars) {
+  if (!buff.timeMult) return 1.0;
+  const sm = getStarMultiplier(stars);
+  return 1 - (1 - buff.timeMult) * sm;
+}
+
+// Human-readable description of a card's effect at a given star tier
+function effectiveDesc(buff, stars) {
+  const sm = getStarMultiplier(stars);
+  const parts = [];
+  if (buff.yieldMult) {
+    const eff = (buff.yieldMult - 1) * sm;
+    if (buff.yieldMult >= 1.9) parts.push(`×${(buff.yieldMult * sm).toFixed(2)} yield`); // mythic-style ×N
+    else parts.push(`+${(eff * 100).toFixed(1)}% yield`);
+  }
+  if (buff.timeMult) {
+    const eff = (1 - buff.timeMult) * sm;
+    if (eff > 0) parts.push(`−${(eff * 100).toFixed(1)}% time`);
+    else parts.push(`+${(-eff * 100).toFixed(1)}% time`);
+  }
+  return parts.join(', ');
+}
+
+// One-time migration: walk the collection on first load and assign stars from existing counts.
+function applyStarMigration() {
+  if (state.migrationsApplied.includes('stars_v1')) return;
+  for (const c of state.collection) {
+    c.stars = starsFromCount(c.count || 1);
+  }
+  state.migrationsApplied.push('stars_v1');
+}
+
+// One-time migration: enforce one-card-per-plot on existing saves.
+// Strategy: keep a card on the LOWEST plot index it appears on; remove from the rest.
+function applyOneCardPerPlotMigration() {
+  if (state.migrationsApplied.includes('one_card_per_plot_v1')) return;
+  const seen = new Set();
+  let removed = 0;
+  for (let plotId = 0; plotId < state.loadouts.length; plotId++) {
+    const loadout = state.loadouts[plotId];
+    if (!loadout) continue;
+    state.loadouts[plotId] = loadout.filter(buffId => {
+      if (seen.has(buffId)) { removed++; return false; }
+      seen.add(buffId);
+      return true;
+    });
+  }
+  if (removed > 0) {
+    state.harvestLog.unshift({
+      type: 'info',
+      text: `🌾 One-card-per-plot rule: ${removed} duplicate card${removed === 1 ? '' : 's'} consolidated`,
+      t: Date.now(),
+    });
+    if (state.harvestLog.length > 6) state.harvestLog.pop();
+  }
+  state.migrationsApplied.push('one_card_per_plot_v1');
+}
+
+// Mastery v3: tiered curve so early hours give visible feedback, late hours slow down.
+// Tier 1 (0-50h):    +0.1% per  5 hours invested  (fast onboarding feedback)
+// Tier 2 (50-200h):  +0.1% per 10 hours
+// Tier 3 (200h+):    +0.1% per 20 hours            (long-term grind)
+const MASTERY_TIERS = [
+  { upTo: 50,       hoursPerTick: 5  },
+  { upTo: 200,      hoursPerTick: 10 },
+  { upTo: Infinity, hoursPerTick: 20 },
+];
+
+// Named breakpoints — purely cosmetic/progression-signal. The bonus curve
+// (MASTERY_TIERS) is unchanged; this just gives the player a tier name
+// and a visible "next stop" so the long-tail grow-hour accumulation has
+// a destination. 10,000h is genuinely a year+ chase even for engaged
+// players — fits the "long-chase" framing.
+const MASTERY_BREAKPOINTS = [
+  { hours: 0,     name: 'Seedling'   },
+  { hours: 50,    name: 'Apprentice' },
+  { hours: 200,   name: 'Practiced'  },
+  { hours: 500,   name: 'Adept'      },
+  { hours: 2000,  name: 'Expert'     },
+  { hours: 10000, name: 'Master'     },
+];
+function masteryTierForHours(hours) {
+  let tier = MASTERY_BREAKPOINTS[0];
+  for (const bp of MASTERY_BREAKPOINTS) {
+    if (hours >= bp.hours) tier = bp;
+    else break;
+  }
+  return tier;
+}
+function nextMasteryBreakpoint(hours) {
+  for (const bp of MASTERY_BREAKPOINTS) {
+    if (hours < bp.hours) return bp;
+  }
+  return null; // already at top tier
+}
+function masteryTicksAtHours(hours) {
+  let ticks = 0;
+  let tierStart = 0;
+  for (const tier of MASTERY_TIERS) {
+    const tierEnd = Math.min(tier.upTo, hours);
+    if (tierEnd > tierStart) ticks += Math.floor((tierEnd - tierStart) / tier.hoursPerTick);
+    if (hours <= tier.upTo) break;
+    tierStart = tier.upTo;
+  }
+  return ticks;
+}
+function masteryBonusForHours(hours) {
+  return 1 + masteryTicksAtHours(hours) * MASTERY_BONUS_PER_5;
+}
+function hoursToNextMasteryTick(hours) {
+  let tierStart = 0;
+  for (const tier of MASTERY_TIERS) {
+    if (hours < tier.upTo) {
+      const intoTier = hours - tierStart;
+      const ticksInTier = Math.floor(intoTier / tier.hoursPerTick);
+      return tierStart + (ticksInTier + 1) * tier.hoursPerTick - hours;
+    }
+    tierStart = tier.upTo;
+  }
+  // last tier (Infinity upTo)
+  const last = MASTERY_TIERS[MASTERY_TIERS.length - 1];
+  const intoTier = hours - tierStart;
+  return last.hoursPerTick - (intoTier % last.hoursPerTick);
+}
+
+// One-time: reset state.speed to 1× for saves that still hold the old
+// debug-default of 600. Previously the initial state had speed: 600 which
+// made fresh saves run at 600× real-time; default is now 1, but existing
+// saves keep their stored value. This migration clears stale debug speeds
+// — if a tester wants debug speed back, they can re-set it via debug panel.
+function applySpeedDefaultMigration() {
+  if (state.migrationsApplied.includes('speed_default_v1')) return;
+  if (state.speed > 1) state.speed = 1;
+  state.migrationsApplied.push('speed_default_v1');
+}
+
+function applyMasteryHoursMigration() {
+  if (state.migrationsApplied.includes('mastery_hours_v1')) return;
+  for (const crop of Object.keys(state.mastery)) {
+    const c = CROPS[crop];
+    if (!c) continue;
+    state.mastery[crop] = (state.mastery[crop] || 0) * (c.growthMs / 3600000);
+  }
+  state.migrationsApplied.push('mastery_hours_v1');
+}
+
+// ============ SAVE / LOAD ============
+const SAVE_KEY = 'hh_save_v1';
+const SAVE_VERSION = 2;
+let isResetting = false; // gate saveGame() so beforeunload doesn't undo a Reset Save
+
+function saveGame() {
+  if (isResetting) return;
+  try {
+    const snapshot = {
+      version: SAVE_VERSION,
+      money: state.money,
+      speed: state.speed,
+      plots: state.plots.map(p => p.locked
+        ? { id: p.id, locked: true }
+        : {
+            id: p.id, locked: false, crop: p.crop,
+            elapsedMs: p.elapsedMs, totalMs: p.totalMs,
+            totalPicks: p.totalPicks, picksTaken: p.picksTaken,
+            yieldMult: p.yieldMult,
+            activeBuffs: p.activeBuffs.map(b => ({ ...b, _snapshot: undefined })),
+            tapsUsed: p.tapsUsed,
+            tendSessionsThisCycle: p.tendSessionsThisCycle || 0,
+            flags: { ...p.flags },
+          }),
+      mastery: { ...state.mastery },
+      harvestLog: [...state.harvestLog],
+      totalHarvests: state.totalHarvests,
+      pendingPacks: state.pendingPacks,
+      collection: state.collection.map(c => ({ ...c })),
+      loadouts: state.loadouts.map(l => [...l]),
+      packsOpened: state.packsOpened,
+      migrationsApplied: [...state.migrationsApplied],
+      plotUpgrades: JSON.parse(JSON.stringify(state.plotUpgrades || [])),
+      todayDayKey: state.todayDayKey || null,
+      todayHarvests: state.todayHarvests || 0,
+      todayCoins: state.todayCoins || 0,
+      activeContracts: JSON.parse(JSON.stringify(state.activeContracts || [])),
+      offeredContracts: JSON.parse(JSON.stringify(state.offeredContracts || [])),
+      contractsCompleted: state.contractsCompleted || 0,
+      contractsOfferedDayKey: state.contractsOfferedDayKey || null,
+      contractsGeneratedToday: state.contractsGeneratedToday || 0,
+      contractRerollsUsedToday: state.contractRerollsUsedToday || 0,
+      marketDayKey: state.marketDayKey || null,
+      marketFeaturedCrop: state.marketFeaturedCrop || null,
+      marketSaturatedCrop: state.marketSaturatedCrop || null,
+      marketHistory: state.marketHistory || [],
+      soundEnabled: state.soundEnabled !== false,
+      ambientEnabled: state.ambientEnabled !== false,
+      soundVolume: state.soundVolume == null ? 100 : state.soundVolume,
+      ambientVolume: state.ambientVolume == null ? 100 : state.ambientVolume,
+      activeTab: state.activeTab || 'farm',
+      themeMode: state.themeMode || 'time',
+      achievements: { ...(state.achievements || {}) },
+      luckyHarvests: state.luckyHarvests || 0,
+      totalPicksTaken: state.totalPicksTaken || 0,
+      totalTaps: state.totalTaps || 0,
+      tendSessionsCompleted: state.tendSessionsCompleted || 0,
+      tendDayKey: state.tendDayKey || null,
+      tendSessionsToday: state.tendSessionsToday || 0,
+      tendExerciseLog: state.tendExerciseLog || {},
+      tendIntrosSeen: state.tendIntrosSeen || {},
+      lastTendCompletedAt: state.lastTendCompletedAt || 0,
+      activePracticesCompleted: state.activePracticesCompleted || 0,
+      lifetimeCoins: state.lifetimeCoins || 0,
+      firstPlayedAt: state.firstPlayedAt || Date.now(),
+      lastPlayedDayKey: state.lastPlayedDayKey || null,
+      daysVisited: state.daysVisited || 0,
+      lastVisitedMilestone: state.lastVisitedMilestone || 0,
+      gardenHarmony: state.gardenHarmony == null ? HARMONY_FLOOR : state.gardenHarmony,
+      calmStateUntil: state.calmStateUntil || 0,
+      journalEntries: state.journalEntries || [],
+      journalSeen: state.journalSeen || {},
+      dailyMomentDayKey: state.dailyMomentDayKey || null,
+      dailyMomentText: state.dailyMomentText || null,
+      dailyMomentKey: state.dailyMomentKey || null,
+      savedAtMs: Date.now(),
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
+  } catch (e) {
+    console.warn('Save failed:', e);
+  }
+}
+
+function loadGame() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const loaded = JSON.parse(raw);
+    if (!loaded || loaded.version > SAVE_VERSION) return false;
+
+    state.money = loaded.money;
+    state.speed = loaded.speed || 1;
+    state.lastTick = performance.now();
+    state.mastery = loaded.mastery || state.mastery;
+    state.harvestLog = loaded.harvestLog || [];
+    state.totalHarvests = loaded.totalHarvests || 0;
+    state.pendingPacks = loaded.pendingPacks || 0;
+    state.collection = loaded.collection || [];
+    state.loadouts = loaded.loadouts || [[]];
+    state.packsOpened = loaded.packsOpened || 0;
+    state.migrationsApplied = loaded.migrationsApplied || [];
+    state.plotUpgrades = loaded.plotUpgrades || [];
+    state.adPlaying = false;
+    state.adUsedForCurrentPack = false;
+    state.currentPackCards = [];
+    // Migrate legacy single-active save format → multi-active array
+    if (loaded.activeContracts) {
+      state.activeContracts = loaded.activeContracts;
+    } else if (loaded.activeContract) {
+      state.activeContracts = [loaded.activeContract];
+    } else {
+      state.activeContracts = [];
+    }
+    state.offeredContracts = loaded.offeredContracts || [];
+    state.contractsCompleted = loaded.contractsCompleted || 0;
+    state.contractsOfferedDayKey = loaded.contractsOfferedDayKey || null;
+    state.contractsGeneratedToday = loaded.contractsGeneratedToday || 0;
+    state.contractRerollsUsedToday = loaded.contractRerollsUsedToday || 0;
+    state.todayDayKey = loaded.todayDayKey || null;
+    state.todayHarvests = loaded.todayHarvests || 0;
+    state.todayCoins = loaded.todayCoins || 0;
+    state.marketDayKey = loaded.marketDayKey || null;
+    state.marketFeaturedCrop = loaded.marketFeaturedCrop || null;
+    state.marketSaturatedCrop = loaded.marketSaturatedCrop || null;
+    state.marketHistory = loaded.marketHistory || [];
+    state.soundEnabled = loaded.soundEnabled !== false;
+    state.ambientEnabled = loaded.ambientEnabled !== false;
+    // Volume sliders (0–100). Backfill from legacy toggles: if a player had
+    // sound/ambient turned OFF before sliders existed, default that slider
+    // to 0 so the off state survives the upgrade.
+    state.soundVolume = loaded.soundVolume == null
+      ? (loaded.soundEnabled === false ? 0 : 100)
+      : loaded.soundVolume;
+    state.ambientVolume = loaded.ambientVolume == null
+      ? (loaded.ambientEnabled === false ? 0 : 100)
+      : loaded.ambientVolume;
+    state.achievements = loaded.achievements || {};
+    state.luckyHarvests = loaded.luckyHarvests || 0;
+    state.totalPicksTaken = loaded.totalPicksTaken || 0;
+    state.totalTaps = loaded.totalTaps || 0;
+    state.tendSessionsCompleted = loaded.tendSessionsCompleted || 0;
+    state.tendDayKey = loaded.tendDayKey || null;
+    state.tendSessionsToday = loaded.tendSessionsToday || 0;
+    state.tendExerciseLog = loaded.tendExerciseLog || {};
+    state.tendIntrosSeen = loaded.tendIntrosSeen || {};
+    state.lastTendCompletedAt = loaded.lastTendCompletedAt || 0;
+    state.activePracticesCompleted = loaded.activePracticesCompleted || 0;
+    state.lifetimeCoins = loaded.lifetimeCoins || 0;
+    state.firstPlayedAt = loaded.firstPlayedAt || null;
+    state.lastPlayedDayKey = loaded.lastPlayedDayKey || null;
+    // Migrate the old breakable streak into the cumulative day count: an
+    // existing tester keeps their best number, now as permanent "days visited".
+    state.daysVisited = loaded.daysVisited != null
+      ? loaded.daysVisited
+      : Math.max(loaded.streakDays || 0, loaded.bestStreak || 0);
+    state.lastVisitedMilestone = loaded.lastVisitedMilestone != null
+      ? loaded.lastVisitedMilestone
+      : (loaded.lastStreakMilestoneDay || 0);
+    state.gardenHarmony = loaded.gardenHarmony == null ? HARMONY_FLOOR : loaded.gardenHarmony;
+    state.calmStateUntil = loaded.calmStateUntil || 0;
+    state.journalEntries = loaded.journalEntries || [];
+    state.journalSeen = loaded.journalSeen || {};
+    state.dailyMomentDayKey = loaded.dailyMomentDayKey || null;
+    state.dailyMomentText = loaded.dailyMomentText || null;
+    state.dailyMomentKey = loaded.dailyMomentKey || null;
+    // Pre-weather saves have a moment TEXT but no KEY — showing "Rain is in
+    // the air" over a clear scene contradicts itself on update day. Clear it
+    // so today re-rolls fresh (with a key) at boot.
+    if (state.dailyMomentText && !state.dailyMomentKey) {
+      state.dailyMomentDayKey = null;
+      state.dailyMomentText = null;
+    }
+    state.activeTab = loaded.activeTab || 'farm';
+    state.themeMode = loaded.themeMode || 'time';
+
+    state.plots = loaded.plots.map(p => p.locked
+      ? { id: p.id, locked: true }
+      : {
+          id: p.id, locked: false, crop: p.crop,
+          elapsedMs: p.elapsedMs, totalMs: p.totalMs,
+          totalPicks: p.totalPicks, picksTaken: p.picksTaken,
+          yieldMult: p.yieldMult,
+          activeBuffs: p.activeBuffs || [],
+          tapsUsed: p.tapsUsed || 0,
+          lastTapTime: 0,
+          tendSessionsThisCycle: p.tendSessionsThisCycle || 0,
+          flags: p.flags || {},
+        });
+
+    // Offline progression: advance growing plots by real-world time at 1× speed
+    // (regardless of what speed setting was when player closed the tab)
+    if (loaded.savedAtMs) {
+      const offlineMs = Math.max(0, Date.now() - loaded.savedAtMs);
+      if (offlineMs > 0) {
+        let plotsReadyDuringOffline = 0;
+        let totalAdvancedMs = 0;
+        for (const p of state.plots) {
+          if (p.locked || !p.crop) continue;
+          const wasReady = p.elapsedMs >= p.totalMs;
+          // Same time-sensitive-boon rule as the live tick: let elapsedMs
+          // run past totalMs so Slow Ferment accrues and Peak Ripeness's
+          // 10-second window can actually expire while the player's away.
+          if (p.flags.skillFerment || p.flags.skillWindow10) p.elapsedMs += offlineMs;
+          else p.elapsedMs = Math.min(p.totalMs, p.elapsedMs + offlineMs);
+          const isReady = p.elapsedMs >= p.totalMs;
+          if (!wasReady && isReady) plotsReadyDuringOffline += 1;
+          totalAdvancedMs += offlineMs;
+        }
+        // Harmony drifts toward its floor while away — the garden gets quieter,
+        // not damaged. Recovers within a session or two of mindful play.
+        const daysAway = offlineMs / (24 * 3600 * 1000);
+        if (daysAway > 0.5 && (state.gardenHarmony || 0) > HARMONY_FLOOR) {
+          state.gardenHarmony = Math.max(HARMONY_FLOOR, (state.gardenHarmony || 0) - HARMONY_DECAY_PER_DAY * daysAway);
+        }
+        // Stash a transient summary so init() can render a welcome-back banner.
+        // Only worth showing for absences > 5 minutes; below that it's just a tab refresh.
+        if (offlineMs > 5 * 60 * 1000) {
+          state._offlineSummary = {
+            offlineMs,
+            plotsReadyDuringOffline,
+            anyGrowing: totalAdvancedMs > 0,
+          };
+          // While-you-were-away reveal: a well-tended garden may have produced a
+          // quiet moment in your absence. A gift on return, not a numbers report.
+          if (offlineMs > 6 * 3600 * 1000 && (state.gardenHarmony || 0) > 40 && Math.random() < 0.5) {
+            const away = isLocalNight()
+              ? '🌙 A Midnight Bloom opened while you were away.'
+              : '🌸 A rare bloom opened quietly while you were away.';
+            state._offlineSummary.awayMoment = away;
+            addJournalEntry(away, null);
+          }
+        }
+      }
+    }
+    return true;
+  } catch (e) {
+    console.warn('Load failed:', e);
+    return false;
+  }
+}
+
+function resetSave() {
+  if (confirm('Wipe save and reset the game? This cannot be undone.')) {
+    // Gate saveGame() so the beforeunload handler doesn't re-write
+    // the in-memory state during reload and undo the wipe.
+    isResetting = true;
+    localStorage.removeItem(SAVE_KEY);
+    location.reload();
+  }
+}
+
+function refreshSpeedButtons() {
+  document.querySelectorAll('.speed-btn').forEach(x => {
+    x.classList.toggle('active', parseInt(x.dataset.speed) === state.speed);
+  });
+}
+
+function getActivePerma(plotId) {
+  const plot = state.plots[plotId];
+  const loadout = state.loadouts[plotId] || [];
+  return loadout
+    .map(id => PERMA_POOL.find(b => b.id === id))
+    .filter(b => b && isBuffActiveOnPlot(b, plot));
+}
+
+function getPermaYieldMultForPlot(plotId) {
+  let m = 1.0;
+  for (const b of getActivePerma(plotId)) {
+    const stars = getStarsForBuff(b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.yieldMult) m *= 1 + (b.yieldMult - 1) * sm;
+    if (b.custom === 'mastery_synergy') {
+      // "+1% yield per crop with 5+ harvests"
+      const totalMastered = Object.keys(CROPS).filter(c => harvestsOf(c) >= 5).length;
+      m *= (1 + 0.01 * sm * totalMastered);
+    }
+    // Pilgrim Soil wellness cards (devotion / centered / lifetime_tend) no
+    // longer grant yield. They now shape the Garden Harmony + Calm State +
+    // rare-event systems (handled in harmonyGainMult / calmStateDurationMs /
+    // harmonyCeiling / rareEventChanceForHarvest), so they're intentionally
+    // skipped here — wellness changes texture & possibility, never throughput.
+    if (b.custom === 'moonlight') {
+      // "+50% yield when harvested between 7pm and 7am"
+      const h = new Date().getHours();
+      if (h >= 19 || h < 7) m *= 1 + 0.50 * sm;
+    }
+    if (b.custom === 'long_grow') {
+      // "+40% yield if the plot took 6+ hours to grow"
+      const plot = state.plots[plotId];
+      if (plot && plot.totalMs >= 6 * 3600 * 1000) m *= 1 + 0.40 * sm;
+    }
+    // (lifetime_tend handled by harmonyCeiling, not here — see note above.)
+  }
+  return m;
+}
+function getPermaTimeMultForPlot(plotId) {
+  let m = 1.0;
+  for (const b of getActivePerma(plotId)) {
+    const stars = getStarsForBuff(b.id);
+    const sm = getStarMultiplier(stars);
+    if (b.timeMult) m *= 1 - (1 - b.timeMult) * sm;
+  }
+  return m;
+}
+// ============ DRAFTING ============
+// Returns true if a buff would have a meaningful effect given the current plot state.
+// Filters out cross-plot boons when no other plots are active, forward-looking boons
+// on the last pick, synergy boons with no prior actives, etc.
+function isBuffApplicable(buff, plot) {
+  // Legendary+ are unique per run — can't pick the same one twice
+  const lockedRarities = ['legendary', 'mythic'];
+  if (lockedRarities.includes(buff.rarity)) {
+    if (plot.activeBuffs.some(b => b.id === buff.id)) return false;
+  }
+  const hasOtherActivePlots = state.plots.some((p, i) =>
+    i !== plot.id && !p.locked && p.crop
+  );
+  const isLastPick = (plot.totalPicks - plot.picksTaken) <= 1;
+  const hasYieldActives = plot.activeBuffs.some(b => b.yieldMult);
+  const commonsActive = plot.activeBuffs.filter(b => b.rarity === 'common').length;
+
+  // Cross-plot boons need at least one other growing plot
+  if (['cross_yield_15', 'cross_pick_1', 'cross_yield_50'].includes(buff.custom)) {
+    if (!hasOtherActivePlots) return false;
+  }
+  // Forward-looking boons need a future pick to affect
+  if (['echo', 'cornucopia', 'wishflower'].includes(buff.custom)) {
+    if (isLastPick) return false;
+  }
+  // Symbiosis (+8% per OTHER active) does nothing with no actives
+  if (buff.custom === 'symbiosis' && plot.activeBuffs.length === 0) return false;
+  // Common Amp needs commons in play
+  if (buff.custom === 'common_amp' && commonsActive === 0) return false;
+  // Reroll needs at least one prior buff to undo
+  if (buff.custom === 'reroll_last' && plot.activeBuffs.length === 0) return false;
+  // Garden Sage needs at least one yield-bearing active to amplify
+  if (buff.custom === 'double_actives' && !hasYieldActives) return false;
+  // All In replaces existing buffs — fine even with 0 actives, but filter if last pick
+  // and no actives (it'd just be a free legendary stat). Leave it — design choice.
+  return true;
+}
+
+function getAvailableBuffs(cropType, plot = null) {
+  return BUFF_POOL.filter(b => {
+    if (b.cropOnly && b.cropOnly !== cropType) return false;
+    if (plot && !isBuffApplicable(b, plot)) return false;
+    return true;
+  });
+}
+
+// Mastery: tiered curve, see MASTERY_TIERS above
+function getMasteryBonusForCrop(crop) {
+  return masteryBonusForHours(state.mastery[crop] || 0);
+}
+
+function draftN(cropType, n, rarityFloor = null, plot = null) {
+  const pool = getAvailableBuffs(cropType, plot);
+  const filtered = rarityFloor
+    ? pool.filter(b => RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor))
+    : pool;
+  const usePool = filtered.length >= n ? filtered : pool;
+  const weighted = usePool.map(b => ({ b, w: RARITY_WEIGHTS[b.rarity] }));
+  const picks = [];
+  const used = new Set();
+  for (let i = 0; i < n && picks.length < usePool.length; i++) {
+    const remaining = weighted.filter(x => !used.has(x.b.id));
+    const total = remaining.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of remaining) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
+    }
+  }
+  return picks;
+}
+
+function pickRandomFromPool(filterFn) {
+  const pool = BUFF_POOL.filter(filterFn);
+  return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
+
+function draftPermaPack(n, rarityFloor = null, guaranteedGeneral = 0) {
+  const filterByFloor = (b) =>
+    rarityFloor ? RARITY_ORDER.indexOf(b.rarity) >= RARITY_ORDER.indexOf(rarityFloor) : true;
+  const generalPool = PERMA_POOL.filter(b => !b.cropOnly && filterByFloor(b));
+  const fullPool = PERMA_POOL.filter(filterByFloor);
+
+  const picks = [];
+  const used = new Set();
+  // First, fulfill the guaranteed-general slots
+  for (let i = 0; i < guaranteedGeneral && i < n; i++) {
+    const pool = generalPool.filter(b => !used.has(b.id));
+    if (pool.length === 0) break;
+    const weighted = pool.map(b => ({ b, w: PERMA_RARITY_WEIGHTS[b.rarity] }));
+    const total = weighted.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of weighted) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
+    }
+  }
+  // Then fill the rest from the full pool (random — could be general or crop-specific).
+  // Cards for crops the player hasn't unlocked yet are heavily down-weighted so an
+  // early pack is something you can USE today — still possible (a little aspirational
+  // sparkle), just no longer common. Late game every crop is unlocked → no effect.
+  while (picks.length < n) {
+    const pool = fullPool.filter(b => !used.has(b.id));
+    if (pool.length === 0) break;
+    const weighted = pool.map(b => ({
+      b,
+      w: PERMA_RARITY_WEIGHTS[b.rarity] * (b.cropOnly && !isCropUnlocked(b.cropOnly) ? 0.12 : 1),
+    }));
+    const total = weighted.reduce((s, x) => s + x.w, 0);
+    let r = Math.random() * total;
+    for (const x of weighted) {
+      r -= x.w;
+      if (r <= 0) { picks.push(x.b); used.add(x.b.id); break; }
+    }
+  }
+  return picks;
+}
+
+// ============ ACTIONS ============
+function plant(plotId, cropType) {
+  const plot = state.plots[plotId];
+  const crop = CROPS[cropType];
+  if (!plot || plot.locked || plot.crop) return;
+  if (state.money < crop.plantCost) return;
+  if (activeCropsGrowing().has(cropType)) return;
+
+  state.money -= crop.plantCost;
+  const carryover = plot.flags.nextPenaltyMult || 1.0;
+  Object.assign(plot, makePlot(plotId));
+  plot.crop = cropType;
+  // Plot upgrade "Practiced Soil" knocks 10% off grow time on this plot
+  const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
+  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
+  plot.totalPicks = crop.pickCount + (plotHasUpgrade(plotId, 'bonusPick') ? 1 : 0);
+  plot.yieldMult *= carryover;
+  closeAllModals();
+  render();
+}
+
+// Auto-Replant: try to plant the same crop on the plot we just harvested.
+// Skips silently if the player can't afford it or the unique-crop rule is violated.
+function tryAutoReplant(plotId, cropType) {
+  if (!plotHasUpgrade(plotId, 'autoReplant')) return;
+  const crop = CROPS[cropType];
+  if (!crop) return;
+  if (state.money < crop.plantCost) return;            // can't afford → skip
+  if (activeCropsGrowing().has(cropType)) return;       // unique-crop rule → skip
+  const plot = state.plots[plotId];
+  if (!plot || plot.locked || plot.crop) return;        // sanity
+  // Inline plant (without modals/render so caller can render once at end)
+  state.money -= crop.plantCost;
+  const carryover = plot.flags?.nextPenaltyMult || 1.0;
+  Object.assign(plot, makePlot(plotId));
+  plot.crop = cropType;
+  const practicedSoilMult = plotHasUpgrade(plotId, 'practicedSoil') ? 0.9 : 1.0;
+  plot.totalMs = crop.growthMs * getPermaTimeMultForPlot(plotId) * practicedSoilMult;
+  plot.totalPicks = crop.pickCount + (plotHasUpgrade(plotId, 'bonusPick') ? 1 : 0);
+  plot.yieldMult *= carryover;
+}
+
+// (helper removed — tend reduction is now a continuous integral over hold time)
+
+function anyModalOpen() {
+  return ['plantModal', 'buffModal', 'packModal', 'loadoutModal', 'debugModal', 'breatheModal', 'exercisePickerModal', 'exerciseIntroModal', 'gardenSheetModal', 'plotPeekModal', 'slotPickerModal', 'swapPickerModal', 'pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal']
+    .some(id => !document.getElementById(id).hidden);
+}
+
+// Mindful breathing — every completed exercise opens a Calm State and feeds
+// Garden Harmony. Practice is unlimited; real mindfulness doesn't gate itself.
+let _breath = null; // { cycle, phase, timeoutId }
+// Rolls over the daily tend counter at local midnight (kept for stats).
+function rotateTendDayIfNeeded() {
+  const today = getCurrentDayKey();
+  if (state.tendDayKey === today) return;
+  state.tendDayKey = today;
+  state.tendSessionsToday = 0;
+}
+// Step 1 of the tend flow: open the exercise picker.
+function openBreathingExercise() {
+  if (anyModalOpen()) return;
+  // Picker opens at any state. Per-exercise meta column shows the actual
+  // reward ("−8% farm time") or "no reward" — no separate banner needed.
+  document.getElementById('exercisePickerSub').textContent = 'Choose a moment of quiet';
+  const options = document.getElementById('exerciseOptions');
+  options.innerHTML = '';
+  // Every breath now opens a Calm State (atmosphere + elevated rare-event
+  // chance), so there's no per-day reward cap to surface anymore.
+  for (const ex of EXERCISES) {
+    const btn = document.createElement('button');
+    btn.className = 'exercise-option';
+    btn.innerHTML = `
+      <span class="exercise-option-icon">${ex.icon}</span>
+      <span class="exercise-option-body">
+        <div class="exercise-option-name">${ex.name}</div>
+        <div class="exercise-option-blurb">${ex.blurb}</div>
+        <div class="exercise-option-metaline">
+          <span>${ex.durationLabel}</span>
+          <span class="dot">·</span>
+          <span class="exercise-option-reward">opens a calm</span>
+        </div>
+      </span>
+    `;
+    btn.onclick = () => {
+      document.getElementById('exercisePickerModal').hidden = true;
+      // First time picking this exercise → show the educational intro card.
+      // After they confirm, it runs and tendIntrosSeen[ex.id] is set so
+      // future picks of the same practice go straight to the exercise.
+      if (!state.tendIntrosSeen || !state.tendIntrosSeen[ex.id]) {
+        openExerciseIntro(ex.id);
+      } else {
+        startExercise(ex.id);
+      }
+    };
+    options.appendChild(btn);
+  }
+
+  // Active practices section — touch-based mini-games. They steady the garden
+  // (feed harmony), and lingering a minute or more opens a shorter calm.
+  const activeOptions = document.getElementById('activeGameOptions');
+  if (activeOptions) {
+    activeOptions.innerHTML = '';
+    for (const game of ACTIVE_GAMES) {
+      const btn = document.createElement('button');
+      btn.className = 'exercise-option';
+      btn.innerHTML = `
+        <span class="exercise-option-icon">${game.icon}</span>
+        <span class="exercise-option-body">
+          <div class="exercise-option-name">${game.name}</div>
+          <div class="exercise-option-blurb">${game.blurb}</div>
+          <div class="exercise-option-metaline">
+            <span>${game.durationLabel}</span>
+            <span class="dot">·</span>
+            <span class="exercise-option-reward">steadies the garden</span>
+          </div>
+        </span>
+      `;
+      btn.onclick = () => {
+        document.getElementById('exercisePickerModal').hidden = true;
+        const fn = window[game.openFn];
+        if (typeof fn === 'function') fn();
+      };
+      activeOptions.appendChild(btn);
+    }
+  }
+
+  document.getElementById('exercisePickerModal').hidden = false;
+}
+
+function openExerciseIntro(exerciseId) {
+  const ex = EXERCISES.find(e => e.id === exerciseId);
+  if (!ex || !ex.intro) { startExercise(exerciseId); return; }
+  document.getElementById('exerciseIntroIcon').textContent = ex.icon;
+  document.getElementById('exerciseIntroTitle').textContent = ex.intro.title;
+  document.getElementById('exerciseIntroBody').textContent = ex.intro.body;
+  document.getElementById('exerciseIntroStartBtn').onclick = () => {
+    document.getElementById('exerciseIntroModal').hidden = true;
+    if (!state.tendIntrosSeen) state.tendIntrosSeen = {};
+    state.tendIntrosSeen[exerciseId] = Date.now();
+    saveGame();
+    startExercise(exerciseId);
+  };
+  document.getElementById('exerciseIntroBackBtn').onclick = () => {
+    document.getElementById('exerciseIntroModal').hidden = true;
+    openBreathingExercise();  // re-open the picker
+  };
+  document.getElementById('exerciseIntroModal').hidden = false;
+}
+
+// Step 2: run the chosen exercise. Routes to circle-visual (box) or
+// text-visual (ground / scan) based on the exercise config.
+function startExercise(exerciseId) {
+  const ex = EXERCISES.find(e => e.id === exerciseId);
+  if (!ex) return;
+  // Re-entrancy guard — if a prior exercise's timer is still in flight (e.g.,
+  // picker double-tap), clear it before stamping a new _breath, or the orphan
+  // timeout will fire mid-new-exercise.
+  if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
+  document.getElementById('breatheModal').hidden = false;
+  document.getElementById('breatheTitle').textContent = ex.name;
+  document.getElementById('breatheSub').textContent = ex.blurb;
+  const stage = document.getElementById('breatheStage');
+  const circle = document.getElementById('breatheCircle');
+  const textIcon = document.getElementById('breatheTextIcon');
+  if (ex.visual === 'circle') {
+    stage.classList.remove('mode-text');
+    circle.hidden = false;
+    textIcon.hidden = true;
+    // Per-phase durations (defaults to 4-4-4 box pattern if exercise doesn't
+    // specify). 4-7-8 breath uses 4000 / 7000 / 8000 — the long exhale is
+    // the whole point of the practice, so the visual must match.
+    const phaseDurations = ex.phaseDurations || { inhale: 4000, hold: 4000, exhale: 4000 };
+    _breath = { exerciseId, mode: 'circle', cycle: 0, phase: 'ready', timeoutId: null, phaseDurations };
+    setBreathPhase('ready', 'Get ready…');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('inhale'), 1500);
+  } else {
+    stage.classList.add('mode-text');
+    circle.hidden = true;
+    textIcon.hidden = false;
+    _breath = { exerciseId, mode: 'text', phases: ex.phases, step: -1, timeoutId: null };
+    setTextStage('Get ready…', '✨');
+    _breath.timeoutId = setTimeout(() => runTextStep(0), 1500);
+  }
+}
+
+function setBreathPhase(phase, label) {
+  const circle = document.getElementById('breatheCircle');
+  const inst = document.getElementById('breatheInstruction');
+  const prog = document.getElementById('breatheProgress');
+  if (!circle || !inst) return;
+  // Apply per-phase transition duration so the circle's scale animation
+  // matches the actual phase length. Critical for 4-7-8 where exhale is
+  // 8 seconds — a 4s CSS transition would finish 4s before the phase ends.
+  if (_breath && _breath.phaseDurations) {
+    const durs = _breath.phaseDurations;
+    const ease = 'cubic-bezier(0.4, 0, 0.2, 1)';
+    if (phase === 'inhale')      circle.style.transition = `transform ${durs.inhale}ms ${ease}, background 0.6s ease`;
+    else if (phase === 'hold')   circle.style.transition = `transform 0ms, background 0.6s ease`;
+    else if (phase === 'exhale') circle.style.transition = `transform ${durs.exhale}ms ${ease}, background 0.6s ease`;
+    else                         circle.style.transition = `transform 600ms ${ease}, background 0.6s ease`;
+  }
+  circle.className = 'breathe-circle phase-' + phase;
+  inst.textContent = label;
+  if (_breath) {
+    prog.textContent = phase === 'ready' || phase === 'done'
+      ? ''
+      : `Cycle ${Math.min(_breath.cycle + 1, BREATH_CYCLES)} of ${BREATH_CYCLES}`;
+  }
+}
+function runBreathPhase(phase) {
+  if (!_breath) return;
+  const durs = _breath.phaseDurations || { inhale: BREATH_PHASE_MS, hold: BREATH_PHASE_MS, exhale: BREATH_PHASE_MS };
+  if (phase === 'inhale') {
+    setBreathPhase('inhale', 'Breathe in…');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('hold'), durs.inhale);
+  } else if (phase === 'hold') {
+    setBreathPhase('hold', 'Hold');
+    _breath.timeoutId = setTimeout(() => runBreathPhase('exhale'), durs.hold);
+  } else if (phase === 'exhale') {
+    setBreathPhase('exhale', 'Breathe out…');
+    _breath.timeoutId = setTimeout(() => {
+      _breath.cycle += 1;
+      if (_breath.cycle >= BREATH_CYCLES) {
+        completeBreathingExercise();
+      } else {
+        runBreathPhase('inhale');
+      }
+    }, durs.exhale);
+  }
+}
+
+// Text-mode runner — for 5-4-3-2-1 and Body Scan. Walks through phases,
+// fading the icon between prompts so the visual settles each step.
+function setTextStage(label, icon) {
+  const inst = document.getElementById('breatheInstruction');
+  const iconEl = document.getElementById('breatheTextIcon');
+  if (inst) inst.textContent = label;
+  if (iconEl) {
+    iconEl.classList.remove('fade-in');
+    iconEl.textContent = icon || '';
+    // double-RAF to retrigger the fade-in transition
+    requestAnimationFrame(() => requestAnimationFrame(() => iconEl.classList.add('fade-in')));
+  }
+}
+function runTextStep(stepIdx) {
+  if (!_breath || _breath.mode !== 'text') return;
+  const phases = _breath.phases || [];
+  if (stepIdx >= phases.length) {
+    completeBreathingExercise();
+    return;
+  }
+  const step = phases[stepIdx];
+  _breath.step = stepIdx;
+  setTextStage(step.label, step.icon);
+  const prog = document.getElementById('breatheProgress');
+  if (prog) prog.textContent = `Step ${stepIdx + 1} of ${phases.length}`;
+  _breath.timeoutId = setTimeout(() => runTextStep(stepIdx + 1), step.ms);
+}
+
+function completeBreathingExercise() {
+  if (!_breath) return;
+  const exerciseId = _breath.exerciseId || 'box';
+  cancelBreathingExercise();
+  rotateTendDayIfNeeded();
+  // Reward redesign: breathing no longer cuts farm time. Instead it opens a
+  // Calm State — a ~30-min window where the world softens and rare "moments"
+  // (Midnight Bloom, Rare Bloom, Golden Yield) come more easily — and it feeds
+  // Garden Harmony, the dial that makes a consistently-tended farm feel alive.
+  // The reward is possibility & atmosphere, not throughput (the whole point).
+  startCalmState();
+  addHarmony(HARMONY_GAIN_BREATH);
+  state.tendSessionsToday = (state.tendSessionsToday || 0) + 1;
+  state.tendSessionsCompleted = (state.tendSessionsCompleted || 0) + 1;
+  state.lastTendCompletedAt = Date.now();
+  if (!state.tendExerciseLog) state.tendExerciseLog = {};
+  state.tendExerciseLog[exerciseId] = (state.tendExerciseLog[exerciseId] || 0) + 1;
+  if (typeof sndLevelUp === 'function') sndLevelUp();
+  // The garden remembers its first calm and your lifetime of tending.
+  addJournalEntry('🌬️ Your first calm settled over the garden.', 'first_calm');
+  const lt = state.tendSessionsCompleted;
+  if (lt >= 50)  addJournalEntry('🤍 Fifty quiet moments tended. The garden has begun to know you.', 'tend_50');
+  if (lt >= 100) addJournalEntry('🤍 A hundred tendings. The garden settles whenever you arrive.', 'tend_100');
+  if (lt >= 250) addJournalEntry('🤍 Two hundred and fifty moments of care. This place is yours.', 'tend_250');
+  if (lt >= 500) addJournalEntry('🤍 Five hundred tendings. The garden keeps your rhythm now.', 'tend_500');
+  state.harvestLog.unshift({
+    type: 'info',
+    text: `🌬️ A calm settles over the garden`,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+  showTendToast({ calm: true });
+  checkAchievements();
+  render();
+}
+function showTendToast(info) {
+  // Direct action feedback — shows immediately (and stamps its expiry so any
+  // queued garden toasts politely wait for it via showGardenToast).
+  const existing = document.querySelector('.tend-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'tend-toast';
+  toast.dataset.expire = Date.now() + 3700;
+  const label = 'A calm settles in';
+  const detail = 'a lovely time to wander over and harvest';
+  toast.innerHTML = `
+    <span class="tend-toast-icon">🌬️</span>
+    <span>
+      <div class="tend-toast-label">${label}</div>
+      <div class="tend-toast-detail">${detail}</div>
+    </span>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3700);
+}
+function cancelBreathingExercise() {
+  if (_breath && _breath.timeoutId) clearTimeout(_breath.timeoutId);
+  _breath = null;
+  document.getElementById('breatheModal').hidden = true;
+  document.getElementById('exercisePickerModal').hidden = true;
+  document.getElementById('exerciseIntroModal').hidden = true;
+  // Reset stage classes so the next session opens cleanly
+  const stage = document.getElementById('breatheStage');
+  if (stage) stage.classList.remove('mode-text');
+  const textIcon = document.getElementById('breatheTextIcon');
+  if (textIcon) textIcon.classList.remove('fade-in');
+}
+
+// ============ ACTIVE PRACTICES (mini-games) ============
+// Engagement-only. No time-skip reward, no fail state, no score. Each
+// runs open-ended until the player taps "step away". A soft prompt
+// fades in around 30 seconds in to remind them they can leave anytime.
+// Completing any game (≥10 seconds of play) increments
+// state.activePracticesCompleted — the "Moments collected" tracker.
+
+let _activeGame = null;        // { id, startedAt, raf, timer, cleanup }
+const ACTIVE_GAME_PROMPT_MS = 30000;
+const ACTIVE_GAME_MIN_COUNT_MS = 10000; // play ≥10s to count toward Moments
+
+function _endActiveGame() {
+  if (!_activeGame) return;
+  const g = _activeGame;
+  _activeGame = null;
+  if (g.raf) cancelAnimationFrame(g.raf);
+  if (g.timer) clearTimeout(g.timer);
+  if (g.promptTimer) clearTimeout(g.promptTimer);
+  if (typeof g.cleanup === 'function') g.cleanup();
+  // Count the moment if the player stayed at least the minimum
+  const played = performance.now() - g.startedAt;
+  if (played >= ACTIVE_GAME_MIN_COUNT_MS) {
+    state.activePracticesCompleted = (state.activePracticesCompleted || 0) + 1;
+    // Presence, not performance: lingering longer steadies the garden more
+    // (no score, no fail — just time spent in the quiet thing).
+    const presenceGain = played >= 120000 ? HARMONY_GAIN_PRACTICE * 2
+                       : played >= 60000  ? Math.round(HARMONY_GAIN_PRACTICE * 1.5)
+                       : HARMONY_GAIN_PRACTICE;
+    addHarmony(presenceGain);
+    // A real session (a minute or more) opens a shorter calm — breathing stays
+    // the fuller ritual (30 min), but staying with a quiet game counts too.
+    // Never shortens a calm that's already open.
+    if (played >= 60000) {
+      state.calmStateUntil = Math.max(state.calmStateUntil || 0, Date.now() + 15 * 60 * 1000);
+      showTendToast({ calm: true });
+    }
+    saveGame();
+  }
+  // Hide all active-game modals (one of them is open)
+  ['pollenDriftModal', 'sandMandalaModal', 'slowRhythmModal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  });
+}
+
+function _spawnAgSoftPrompt(stage) {
+  if (!stage) return;
+  if (stage.querySelector('.ag-soft-prompt')) return;
+  const p = document.createElement('div');
+  p.className = 'ag-soft-prompt';
+  p.textContent = 'You can step away whenever you like';
+  stage.appendChild(p);
+}
+
+// --- Pollen Drift ---
+// Soft glowing dot drifts on a slow curved path. Player follows it with
+// finger/cursor. Proximity triggers a sparkle. No fail.
+function openPollenDrift() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('pollenDriftModal');
+  const stage = document.getElementById('pollenDriftStage');
+  if (!modal || !stage) return;
+  // Clean previous run if any
+  stage.innerHTML = '';
+  // Proximity halo — large pulsing ring that shows the tracking zone.
+  // Visible at all times so the player has a clear target area even
+  // when their finger covers the pollen itself.
+  const halo = document.createElement('div');
+  halo.className = 'pollen-halo';
+  stage.appendChild(halo);
+  // Pollen particle — larger now so the player can see it past their finger
+  const particle = document.createElement('div');
+  particle.className = 'pollen-particle';
+  stage.appendChild(particle);
+  // Modal must be shown BEFORE measuring so getBoundingClientRect returns
+  // real dimensions (same bug that broke Sand Mandala).
+  modal.hidden = false;
+
+  let stageRect = stage.getBoundingClientRect();
+  const updateRect = () => { stageRect = stage.getBoundingClientRect(); };
+  window.addEventListener('resize', updateRect);
+  // Re-measure on next frame in case modal layout is still resolving
+  requestAnimationFrame(updateRect);
+
+  // Particle drifts on a low-frequency Lissajous-ish curve, slow speed.
+  // Per-session randomized phases + jittered frequencies so the visible
+  // path doesn't repeat — each opening feels like a different drift.
+  // Frequencies are kept slow (sub-Hz) for calm motion.
+  const startedAt = performance.now();
+  const seed = {
+    phaseX1: Math.random() * Math.PI * 2,
+    phaseY1: Math.random() * Math.PI * 2,
+    phaseX2: Math.random() * Math.PI * 2,
+    phaseY2: Math.random() * Math.PI * 2,
+    fX1: 0.28 + Math.random() * 0.14,  // 0.28–0.42 Hz
+    fY1: 0.22 + Math.random() * 0.12,  // 0.22–0.34
+    fX2: 0.09 + Math.random() * 0.08,  // 0.09–0.17 (non-commensurate with fX1)
+    fY2: 0.07 + Math.random() * 0.07,
+  };
+  let cursorX = -9999, cursorY = -9999;
+  let lastTrailAt = 0;
+
+  const onMove = (e) => {
+    const r = stage.getBoundingClientRect();
+    cursorX = e.clientX - r.left;
+    cursorY = e.clientY - r.top;
+  };
+  stage.addEventListener('pointermove', onMove);
+  stage.addEventListener('pointerdown', onMove);
+
+  const onLeave = () => { cursorX = -9999; cursorY = -9999; };
+  stage.addEventListener('pointerleave', onLeave);
+
+  const PROX_RADIUS = 90;   // generous tracking zone
+
+  const tick = (now) => {
+    if (!_activeGame || _activeGame.id !== 'pollen_drift') return;
+    const w = stageRect.width || stage.offsetWidth;
+    const h = stageRect.height || stage.offsetHeight;
+    const t = (now - startedAt) / 1000;
+    // Slow drift: two summed sines per axis, randomized per session
+    const px = w * (0.5 + 0.35 * Math.sin(t * seed.fX1 + seed.phaseX1) + 0.05 * Math.sin(t * seed.fX2 + seed.phaseX2));
+    const py = h * (0.5 + 0.30 * Math.cos(t * seed.fY1 + seed.phaseY1) + 0.05 * Math.cos(t * seed.fY2 + seed.phaseY2));
+    particle.style.left = px + 'px';
+    particle.style.top = py + 'px';
+    halo.style.left = px + 'px';
+    halo.style.top = py + 'px';
+
+    // Drop a fading trail dot every ~120ms so the player sees the path
+    // even when their finger covers the live pollen
+    if (now - lastTrailAt > 120) {
+      lastTrailAt = now;
+      const trail = document.createElement('div');
+      trail.className = 'pollen-trail';
+      trail.style.left = px + 'px';
+      trail.style.top = py + 'px';
+      stage.appendChild(trail);
+      setTimeout(() => trail.remove(), 1400);
+    }
+
+    // Proximity feedback
+    const dx = cursorX - px, dy = cursorY - py;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < PROX_RADIUS) {
+      particle.classList.add('glow');
+      halo.classList.add('glow');
+      // More sparkles when tracking — clear "you're with it" feedback
+      if (Math.random() < 0.18) {
+        const s = document.createElement('div');
+        s.className = 'pollen-sparkle';
+        s.style.left = (px + (Math.random() - 0.5) * 50) + 'px';
+        s.style.top = (py + (Math.random() - 0.5) * 50) + 'px';
+        stage.appendChild(s);
+        setTimeout(() => s.remove(), 650);
+      }
+    } else {
+      particle.classList.remove('glow');
+      halo.classList.remove('glow');
+    }
+    _activeGame.raf = requestAnimationFrame(tick);
+  };
+
+  _activeGame = {
+    id: 'pollen_drift',
+    startedAt: performance.now(),
+    raf: null,
+    cleanup: () => {
+      stage.removeEventListener('pointermove', onMove);
+      stage.removeEventListener('pointerdown', onMove);
+      stage.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener('resize', updateRect);
+      stage.innerHTML = '';
+    },
+  };
+  _activeGame.raf = requestAnimationFrame(tick);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
+}
+
+// --- Sand Mandala ---
+// Canvas drawing. Player drags finger to leave a sand-trail. Trail fades
+// over time. Pure expression, no goal.
+function openSandMandala() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('sandMandalaModal');
+  const canvas = document.getElementById('sandMandalaCanvas');
+  if (!modal || !canvas) return;
+  // Show the modal FIRST so the canvas has real layout dimensions.
+  // Calling fit() while modal.hidden = true gave us a 0×0 canvas — that's
+  // why it looked like a blank white screen.
+  modal.hidden = false;
+  const fit = () => {
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.floor(r.width));
+    canvas.height = Math.max(1, Math.floor(r.height));
+  };
+  // Defer one frame so the modal's layout fully resolves before measuring.
+  requestAnimationFrame(fit);
+  window.addEventListener('resize', fit);
+  const ctx = canvas.getContext('2d');
+  let drawing = false;
+  // Each stroke is ONE continuous polyline (pointerdown → pointerup), stored as
+  // a list of points with a single timestamp. We redraw each stroke as a single
+  // path every frame, so it stays smooth — no per-segment round caps showing up
+  // as "circles within the line," especially as it fades.
+  const strokes = [];           // each: { points: [{x, y}, ...], t0 }
+  let currentStroke = null;
+  const STROKE_LIFE_MS = 5000;     // total time a stroke stays on canvas
+  const STROKE_HOLD_FRAC = 0.55;   // first 55% of life: full opacity
+
+  // Audio: filtered pink noise plays while drawing — "drawing in sand" feel.
+  // Pink noise through bandpass (3 kHz) + highpass keeps it grainy/scratchy
+  // without low-end rumble. Fades in/out so taps aren't jarring.
+  let scratchNoise = null, scratchGain = null;
+  const startScratchSound = () => {
+    if (scratchNoise) return;
+    const ac = (typeof audioCtx === 'function') ? audioCtx() : null;
+    if (!ac) return;
+    const soundGain = (state.soundVolume == null ? 100 : state.soundVolume) / 100;
+    if (soundGain <= 0) return;
+    try {
+      scratchNoise = _makePinkNoiseSource(ac);
+      // Softer, warmer character: lower bandpass centre (2000 Hz, was
+      // 2800), gentler Q (0.9, was 1.5). Less hissy, more "fine grain".
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 0.9;
+      const hp = ac.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 1100;
+      // Gain dropped ~60%: 0.06 → 0.022. Background presence, never
+      // dominant. Slower fade-in too for an even gentler entrance.
+      scratchGain = ac.createGain();
+      scratchGain.gain.setValueAtTime(0.0001, ac.currentTime);
+      scratchGain.gain.linearRampToValueAtTime(0.022 * soundGain, ac.currentTime + 0.12);
+      scratchNoise.connect(bp); bp.connect(hp); hp.connect(scratchGain);
+      scratchGain.connect(ac.destination);
+      scratchNoise.start();
+    } catch (e) { scratchNoise = null; scratchGain = null; }
+  };
+  const stopScratchSound = () => {
+    if (!scratchNoise) return;
+    const ac = (typeof audioCtx === 'function') ? audioCtx() : null;
+    if (ac && scratchGain) {
+      try {
+        scratchGain.gain.cancelScheduledValues(ac.currentTime);
+        scratchGain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.10);
+      } catch (e) { /* ignore */ }
+    }
+    const node = scratchNoise;
+    scratchNoise = null; scratchGain = null;
+    setTimeout(() => { try { node.stop(); } catch (e) {} }, 120);
+  };
+
+  const start = (e) => {
+    drawing = true;
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    // Begin a new continuous stroke. One timestamp for the whole line so it
+    // holds, then fades, as a single clean shape.
+    currentStroke = { points: [{ x, y }], t0: performance.now() };
+    strokes.push(currentStroke);
+    startScratchSound();
+  };
+  const move = (e) => {
+    if (!drawing || !currentStroke) return;
+    const r = canvas.getBoundingClientRect();
+    currentStroke.points.push({ x: e.clientX - r.left, y: e.clientY - r.top });
+  };
+  const end = () => { drawing = false; currentStroke = null; stopScratchSound(); };
+  canvas.addEventListener('pointerdown', start);
+  canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointerleave', end);
+  canvas.addEventListener('pointercancel', end);
+
+  // Each frame: drop expired strokes, clear the canvas, redraw the rest
+  // at age-based opacity. Strokes hold full opacity for STROKE_HOLD_FRAC
+  // of their lifetime, then smoothly fade to transparent over the
+  // remaining fraction, then disappear cleanly. No alpha-decay residue,
+  // no destination-out math, no "faint trace forever."
+  const renderLoop = () => {
+    if (!_activeGame || _activeGame.id !== 'sand_mandala') return;
+    const now = performance.now();
+    // Drop expired strokes (chronological order — strokes pushed in time)
+    while (strokes.length > 0 && now - strokes[0].t0 > STROKE_LIFE_MS) {
+      strokes.shift();
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7;
+    for (let i = 0; i < strokes.length; i++) {
+      const s = strokes[i];
+      const pts = s.points;
+      if (!pts || pts.length === 0) continue;
+      const t = (now - s.t0) / STROKE_LIFE_MS;
+      // Hold full opacity for first HOLD_FRAC, then linear fade to 0
+      let alpha;
+      if (t < STROKE_HOLD_FRAC) alpha = 0.85;
+      else alpha = 0.85 * (1 - (t - STROKE_HOLD_FRAC) / (1 - STROKE_HOLD_FRAC));
+      if (alpha <= 0) continue;
+      ctx.strokeStyle = `rgba(244, 193, 71, ${alpha})`;
+      // Draw the whole stroke as ONE path — smooth, with round caps only at the
+      // two ends (round joins between points), so no internal circles appear.
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+      if (pts.length === 1) ctx.lineTo(pts[0].x, pts[0].y); // a lone tap → a dot
+      ctx.stroke();
+    }
+    _activeGame.raf = requestAnimationFrame(renderLoop);
+  };
+
+  _activeGame = {
+    id: 'sand_mandala',
+    startedAt: performance.now(),
+    raf: null,
+    cleanup: () => {
+      stopScratchSound();
+      canvas.removeEventListener('pointerdown', start);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', end);
+      canvas.removeEventListener('pointerleave', end);
+      canvas.removeEventListener('pointercancel', end);
+      window.removeEventListener('resize', fit);
+      strokes.length = 0;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    },
+  };
+  _activeGame.raf = requestAnimationFrame(renderLoop);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(canvas.parentElement), ACTIVE_GAME_PROMPT_MS);
+}
+
+// --- Slow Rhythm ---
+// A central circle pulses at 50 BPM (1200ms interval — see BEAT_INTERVAL
+// below for tempo rationale). Player taps anywhere to drop a soft
+// ripple. No hit/miss — every tap welcome.
+function openSlowRhythm() {
+  if (anyModalOpen()) return;
+  const modal = document.getElementById('slowRhythmModal');
+  const stage = document.getElementById('slowRhythmStage');
+  const pulse = document.getElementById('slowRhythmPulse');
+  if (!modal || !stage || !pulse) return;
+  modal.hidden = false;
+
+  // Each beat: a visible "tick" ring bursts from the pulse center, giving
+  // a clear "now" moment. The pulse itself also briefly flashes via the
+  // .beat-flash class, providing a second redundant cue. Player taps a
+  // ripple anywhere — taps within 250 ms of the tick get a gold "on-beat"
+  // treatment as confirmation. Every tap is welcome regardless.
+  //
+  // Tempo: 50 BPM (1200ms interval). Below resting heart rate so the
+  // body reads it as "calm down" rather than "match my baseline." 60 BPM
+  // (the prior tempo) felt close to heart rate; this is intentionally
+  // slower for a more meditative feel.
+  const BEAT_INTERVAL = 1200;
+  const ON_BEAT_WINDOW = 280;
+  let lastBeatAt = 0;
+
+  const beat = () => {
+    if (!_activeGame || _activeGame.id !== 'slow_rhythm') return;
+    lastBeatAt = performance.now();
+    // Pulse "thump" — restart animation by removing + re-adding the class
+    // (force a reflow between, otherwise the browser collapses the toggle
+    // and never sees the change).
+    pulse.classList.remove('beat-flash');
+    void pulse.offsetWidth;
+    pulse.classList.add('beat-flash');
+    // Expanding ring bursts outward from a small starting size, much more
+    // dramatic than the previous "start at pulse-size and grow" version.
+    const tick = document.createElement('div');
+    tick.className = 'slow-rhythm-tick';
+    stage.appendChild(tick);
+    setTimeout(() => tick.remove(), 800);
+    // Optional soft audio chirp on the beat — gives a second sensory
+    // channel for the rhythm cue. Plays only if sound is enabled.
+    if (typeof audioCtx === 'function') {
+      try {
+        const ctx = audioCtx();
+        const soundGain = (state.soundVolume == null ? 100 : state.soundVolume) / 100;
+        if (ctx && soundGain > 0) {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = 420;
+          const t0 = ctx.currentTime;
+          g.gain.setValueAtTime(0.0001, t0);
+          g.gain.exponentialRampToValueAtTime(0.05 * soundGain, t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+          osc.connect(g); g.connect(ctx.destination);
+          osc.start(t0); osc.stop(t0 + 0.20);
+        }
+      } catch (e) { /* ignore audio errors */ }
+    }
+    _activeGame.timer = setTimeout(beat, BEAT_INTERVAL);
+  };
+
+  // Tap anywhere on stage → water-drop style ripples. Three concentric
+  // rings spawn from the same point with staggered start times, expanding
+  // outward like ripples in still water. Color depends on timing — gold
+  // tint when tap was close to a beat.
+  const onTap = (e) => {
+    if (e.target.closest('button')) return;
+    const r = stage.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const sinceBeat = performance.now() - lastBeatAt;
+    const onBeat = sinceBeat <= ON_BEAT_WINDOW || sinceBeat >= (BEAT_INTERVAL - ON_BEAT_WINDOW);
+    // Stagger 0 / 180 / 360 ms so the rings cascade outward visibly
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        const rip = document.createElement('div');
+        rip.className = 'slow-rhythm-ripple' + (onBeat ? ' on-beat' : '');
+        rip.style.left = x + 'px';
+        rip.style.top = y + 'px';
+        stage.appendChild(rip);
+        setTimeout(() => rip.remove(), 1200);
+      }, i * 180);
+    }
+  };
+  stage.addEventListener('pointerdown', onTap);
+
+  _activeGame = {
+    id: 'slow_rhythm',
+    startedAt: performance.now(),
+    timer: null,
+    cleanup: () => {
+      stage.removeEventListener('pointerdown', onTap);
+      pulse.classList.remove('beat-flash');
+      stage.querySelectorAll('.slow-rhythm-ripple, .slow-rhythm-tick, .ag-soft-prompt').forEach(el => el.remove());
+    },
+  };
+  _activeGame.timer = setTimeout(beat, 100);
+  _activeGame.promptTimer = setTimeout(() => _spawnAgSoftPrompt(stage), ACTIVE_GAME_PROMPT_MS);
+}
+
+function harvest(plotId, ev) {
+  const plot = state.plots[plotId];
+  if (!plot.crop || !isReady(plot)) return;
+  const crop = CROPS[plot.crop];
+  let mult = plot.yieldMult;
+
+  if (plot.flags.skillWindow10) {
+    const overripeMs = plot.elapsedMs - plot.totalMs;
+    const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+    if (overripeRealSec <= PEAK_RIPENESS_WINDOW_SEC) mult *= 1.6;
+  }
+  if (plot.flags.skillFerment) {
+    const overripeMs = plot.elapsedMs - plot.totalMs;
+    const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+    const ticks = Math.min(20, Math.max(0, Math.floor(overripeRealSec / 5))); // cap at +160%
+    mult *= (1 + 0.08 * ticks);
+  }
+  if (plot.flags.committedNoMore && plot.flags.picksAtCommit !== undefined && plot.picksTaken === plot.flags.picksAtCommit) {
+    mult *= 1.60;
+  }
+
+  mult *= getPermaYieldMultForPlot(plotId);
+  mult *= getMasteryBonusForCrop(plot.crop);
+  mult *= getCardSetBonus(plot.crop);
+  // Today's Market: featured crop gets +40% on sell
+  rotateMarketIfNewDay();
+  const marketMult = getMarketYieldMultiplier(plot.crop);
+  mult *= marketMult;
+  // Harmony-gated rare event (replaces the old flat 3% lucky roll). Whether a
+  // moment fires scales with Garden Harmony and Calm State; the TYPE depends on
+  // conditions — a row of ready plots → Golden Yield, local night → Midnight
+  // Bloom, otherwise a Rare Bloom or the classic Lucky harvest.
+  const rareEvent = rollHarvestEvent(plotId);
+  const isLucky = !!rareEvent;
+  if (rareEvent) {
+    mult *= rareEvent.mult;
+    state.luckyHarvests = (state.luckyHarvests || 0) + 1;
+    onRareHarvestEvent(rareEvent, plot.crop);
+  }
+  // Attentive timing, diversity, and night presence feed the garden's calm.
+  if (plot.flags.skillWindow10 || plot.flags.skillFerment) addHarmony(HARMONY_GAIN_PEAK);
+  if (distinctGrowingCrops() >= 3) addHarmony(HARMONY_GAIN_DIVERSITY);
+  if (isLocalNight()) addHarmony(HARMONY_GAIN_NIGHT);
+
+  const yieldAmount = Math.floor(crop.baseYield * mult);
+  state.money += yieldAmount;
+  state.lifetimeCoins = (state.lifetimeCoins || 0) + yieldAmount;
+  if (isLucky) sndLucky(); else sndHarvest(plot.crop);
+  // Today's stats — for the dashboard
+  rotateTodayIfNewDay();
+  state.todayHarvests = (state.todayHarvests || 0) + 1;
+  state.todayCoins = (state.todayCoins || 0) + yieldAmount;
+  // Mastery now tracks grow-hours invested, not harvest count — fair across crop sizes.
+  // Plot upgrade "Master Gardener" adds +25% mastery hours per harvest on this plot.
+  const masteryBoost = plotHasUpgrade(plotId, 'masterGardener') ? 1.25 : 1.0;
+  state.mastery[plot.crop] = (state.mastery[plot.crop] || 0) + (CROPS[plot.crop].growthMs / 3600000) * masteryBoost;
+
+  // Contract progress: walk all active contracts (multi-active model).
+  // A single harvest can advance multiple contracts that ask for this crop.
+  // Only player-driven harvests count (offline progression doesn't auto-complete).
+  const finishedIds = [];
+  for (const ac of state.activeContracts) {
+    if (ac.template === 'deliver_n_of_x' && ac.params.crop === plot.crop) {
+      ac.progress += 1;
+      if (ac.progress >= ac.params.count) finishedIds.push(ac.id);
+    } else if (ac.template === 'deliver_mixed' && ac.params.crops[plot.crop] !== undefined) {
+      ac.progress[plot.crop] = (ac.progress[plot.crop] || 0) + 1;
+      const allDone = Object.entries(ac.params.crops).every(
+        ([crop, target]) => (ac.progress[crop] || 0) >= target
+      );
+      if (allDone) finishedIds.push(ac.id);
+    }
+  }
+  for (const id of finishedIds) completeContractById(id);
+  // Pick a flavor message: lucky harvests always show a celebration; otherwise
+  // ~30% chance of a small atmospheric note. Quietly adds personality.
+  let flavor = null;
+  if (rareEvent) flavor = rareEventFlavor(rareEvent.kind);
+  else if (Math.random() < 0.30) flavor = HARVEST_FLAVORS[Math.floor(Math.random() * HARVEST_FLAVORS.length)];
+  // Cozy story bit: attribute the harvest to whatever genuinely drove the
+  // result. Priority order picks the *real* standout, not just "highest rarity":
+  //   lucky > strong market bonus > completed set > top-rarity boon
+  // Below-average runs get a gentle "why" too — never punishing, just observed.
+  // Threshold tuned higher than initial: ≥3× = above-average attribution,
+  // ≤1.5× = below-average. Between = no attribution (most harvests).
+  const setBonusMult = getCardSetBonus(plot.crop);
+  let attribution = null;
+  if (mult >= 3.0) {
+    if (isLucky) {
+      attribution = { tone: 'lucky' };
+    } else if (marketMult > 1.05) {
+      attribution = { tone: 'market_bonus', crop: plot.crop };
+    } else if (setBonusMult > 1.0) {
+      attribution = { tone: 'set', crop: plot.crop };
+    } else if (plot.activeBuffs && plot.activeBuffs.length > 0) {
+      const rarityOrder = ['common', 'uncommon', 'rare', 'legendary', 'mythic'];
+      const top = plot.activeBuffs.reduce((best, b) => {
+        const br = rarityOrder.indexOf(b.rarity);
+        const bestR = best ? rarityOrder.indexOf(best.rarity) : -1;
+        return br > bestR ? b : best;
+      }, null);
+      if (top) attribution = { tone: 'boon', name: top.name, rarity: top.rarity };
+    }
+  } else if (mult <= 1.5) {
+    if (marketMult < 0.95) {
+      attribution = { tone: 'market_penalty' };
+    } else if (plot.activeBuffs && plot.activeBuffs.some(b => b.timeMult && b.timeMult > 1.05)) {
+      attribution = { tone: 'slow' };
+    } else {
+      attribution = { tone: 'quiet' };
+    }
+  }
+  state.harvestLog.unshift({
+    crop: plot.crop,
+    amount: yieldAmount,
+    marketBonus: marketMult > 1,
+    marketPenalty: marketMult < 1,
+    lucky: isLucky,
+    event: rareEvent ? rareEvent.kind : null,
+    flavor,
+    attribution,
+    yieldMult: mult,
+    t: Date.now(),
+  });
+  if (state.harvestLog.length > 6) state.harvestLog.pop();
+
+  state.totalHarvests += 1;
+  if (state.totalHarvests % HARVESTS_PER_PACK === 0) {
+    state.pendingPacks += 1;
+    // Say it out loud the moment it's earned — a pack silently filed behind a
+    // tab badge is a reward the player never feels.
+    showGardenToast('🎴', 'A new pack is ready!', 'waiting in your mailbox 📬', 4200);
+    if (typeof sndPackOpen === 'function') sndPackOpen();
+  }
+  checkAchievements();
+
+  if (ev && ev.target) {
+    const r = ev.target.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    addFloat('+' + yieldAmount, cx, r.top);
+    // Juice: a great/lucky harvest gets a bigger burst, more coins, a brighter sound.
+    harvestJuice(cx, cy, plot.crop, isLucky || mult >= 3.0);
+  }
+
+  if (plot.flags.eternalActive && !plot.flags.eternalUsed) {
+    const savedBuffs = plot.activeBuffs.filter(b => b.id !== 'eternal');
+    const savedYieldMult = plot.yieldMult;
+    const savedTotalPicks = plot.totalPicks;
+    // preserve passive run modifiers, but clear one-shot triggers so they don't re-fire
+    const savedFlags = {
+      ...plot.flags,
+      eternalUsed: true,
+      eternalActive: false,
+      committedNoMore: false,
+      picksAtCommit: undefined,
+    };
+    const cropType = plot.crop;
+    Object.assign(plot, makePlot(plotId));
+    plot.crop = cropType;
+    plot.totalMs = CROPS[cropType].growthMs * getPermaTimeMultForPlot(plotId);
+    plot.totalPicks = savedTotalPicks;
+    plot.picksTaken = savedTotalPicks;
+    plot.yieldMult = savedYieldMult;
+    plot.activeBuffs = savedBuffs;
+    plot.flags = { ...plot.flags, ...savedFlags };
+  } else {
+    const carry = plot.flags.nextPenaltyMult || 1.0;
+    const cropJustHarvested = plot.crop;
+    Object.assign(plot, makePlot(plotId));
+    plot.flags.nextPenaltyMult = carry < 1 ? carry : 1.0;
+    // Auto-Replant: if upgrade is active, attempt to replant the same crop
+    tryAutoReplant(plotId, cropJustHarvested);
+  }
+  render();
+}
+
+function applyBuff(plotId, buff) {
+  const plot = state.plots[plotId];
+  if (!plot.crop) return;
+  if (picksAvailable(plot) < 1) return;
+
+  // snapshot pre-buff state so Reroll can fully restore it
+  const snapshot = {
+    yieldMult: plot.yieldMult,
+    totalMs: plot.totalMs,
+    totalPicks: plot.totalPicks,
+    flags: { ...plot.flags },
+    activeBuffsLen: plot.activeBuffs.length,
+  };
+
+  // commit deferred draft modifiers (only when buff is actually picked)
+  if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) plot.flags.wishflowerLeft -= 1;
+  if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) plot.flags.wideDraftLeft -= 1;
+
+  const echoActive = plot.flags.echoLeft > 0 && buff.id !== 'echo';
+  if (echoActive) plot.flags.echoLeft -= 1;
+
+  if (buff.yieldMult) {
+    plot.yieldMult *= buff.yieldMult;
+    if (echoActive) plot.yieldMult *= buff.yieldMult;
+  }
+  if (buff.timeMult && !plot.flags.lockTime && !isReady(plot)) {
+    plot.totalMs *= buff.timeMult;
+    if (echoActive) plot.totalMs *= buff.timeMult;
+  }
+  let outcome = null;
+  if (buff.custom) outcome = handleCustom(plotId, buff, echoActive);
+
+  plot.activeBuffs.push({ ...buff, _snapshot: snapshot, _outcome: outcome, _appliedAt: Date.now() });
+  plot.picksTaken += 1;
+  state.totalPicksTaken = (state.totalPicksTaken || 0) + 1;
+  // A rolled outcome ("+70%!" / "miss" / "−50%") must be SEEN the moment it
+  // lands — the face chips are hidden now, so float it over the bed itself.
+  if (outcome) {
+    const bedEl = bedAnchorEl(plotId);
+    if (bedEl) {
+      const r = bedEl.getBoundingClientRect();
+      addFloat(String(outcome), r.left + r.width / 2, r.top + r.height * 0.35);
+    }
+  }
+  sndPick();
+  checkAchievements();
+  // Auto-advance: if there are still picks pending anywhere, refresh the modal
+  // for the next plot so the player can blast through batch decisions in one
+  // continuous flow. Tap-outside-modal still closes (manual stop).
+  const nextPlot = firstPlotWithPicks();
+  if (nextPlot) {
+    render();
+    openBuffModal(nextPlot.id);
+  } else {
+    closeAllModals();
+    render();
+  }
+}
+
+function handleCustom(plotId, buff, echo) {
+  const plot = state.plots[plotId];
+  const e = echo ? 2 : 1;
+  switch (buff.custom) {
+    case 'common_synergy': {
+      const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length + 1;
+      plot.yieldMult *= Math.pow(1 + 0.05 * commons, e);
+      break;
+    }
+    case 'symbiosis': {
+      const others = plot.activeBuffs.length;
+      plot.yieldMult *= Math.pow(1 + 0.06 * others, e);
+      break;
+    }
+    case 'coin_flip_17': {
+      let multGain = 1.0;
+      for (let i = 0; i < e; i++) if (Math.random() < 0.5) multGain *= 1.7;
+      plot.yieldMult *= multGain;
+      return multGain > 1 ? `+${Math.round((multGain - 1) * 100)}%!` : 'miss';
+    }
+    case 'frost_gamble': {
+      let multGain = 1.0;
+      for (let i = 0; i < e; i++) multGain *= (Math.random() < 0.7) ? 2.2 : 0.5;
+      plot.yieldMult *= multGain;
+      return multGain >= 1
+        ? `+${Math.round((multGain - 1) * 100)}%`
+        : `−${Math.round((1 - multGain) * 100)}%`;
+    }
+    case 'echo':
+      plot.flags.echoLeft = (plot.flags.echoLeft || 0) + 1;
+      break;
+    case 'twofold': {
+      const random = pickRandomFromPool(b =>
+        ['common', 'uncommon'].includes(b.rarity) &&
+        b.id !== 'twofold' &&
+        (!b.cropOnly || b.cropOnly === plot.crop) &&
+        !b.custom &&
+        !plot.activeBuffs.some(ab => ab.id === b.id)
+      );
+      if (random) {
+        if (random.yieldMult) plot.yieldMult *= random.yieldMult;
+        if (random.timeMult && !plot.flags.lockTime && !isReady(plot)) plot.totalMs *= random.timeMult;
+        plot.activeBuffs.push(random);
+      }
+      break;
+    }
+    case 'cornucopia':
+      plot.flags.wideDraftLeft = (plot.flags.wideDraftLeft || 0) + 1;
+      break;
+    case 'cascade_gold': {
+      const pool = BUFF_POOL.filter(b =>
+        b.rarity === 'rare' &&
+        b.id !== 'cascade_gold' &&
+        (!b.cropOnly || b.cropOnly === plot.crop) &&
+        !b.custom &&
+        !plot.activeBuffs.some(ab => ab.id === b.id)
+      );
+      const used = new Set();
+      for (let i = 0; i < 2 && pool.length > 0; i++) {
+        const remaining = pool.filter(x => !used.has(x.id));
+        if (remaining.length === 0) break;
+        const random = remaining[Math.floor(Math.random() * remaining.length)];
+        used.add(random.id);
+        if (random.yieldMult) plot.yieldMult *= random.yieldMult;
+        if (random.timeMult && !plot.flags.lockTime && !isReady(plot)) plot.totalMs *= random.timeMult;
+        plot.activeBuffs.push(random);
+      }
+      break;
+    }
+    case 'cross_yield_15':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.15, e); });
+      break;
+    case 'cross_yield_50':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.50, e); });
+      break;
+    case 'cross_pick_1':
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.totalPicks += e; });
+      break;
+    case 'lock_time': plot.flags.lockTime = true; break;
+    case 'next_penalty_20': plot.flags.nextPenaltyMult = 0.80; break;
+    case 'skill_window_10': plot.flags.skillWindow10 = true; break;
+    case 'ferment_5s_8': plot.flags.skillFerment = true; break;
+    case 'reroll_last': {
+      if (plot.activeBuffs.length > 0) {
+        const last = plot.activeBuffs[plot.activeBuffs.length - 1];
+        // restore from snapshot (handles yield, time, flags, and any cascade-pushed buffs)
+        if (last._snapshot) {
+          plot.yieldMult = last._snapshot.yieldMult;
+          plot.totalMs = last._snapshot.totalMs;
+          plot.totalPicks = last._snapshot.totalPicks;
+          plot.flags = { ...last._snapshot.flags };
+          plot.activeBuffs.length = last._snapshot.activeBuffsLen;
+        } else {
+          // fallback for buffs without snapshot (shouldn't happen post-fix)
+          if (last.yieldMult) plot.yieldMult /= last.yieldMult;
+          plot.activeBuffs.pop();
+        }
+        plot.picksTaken -= 1;
+        plot.totalPicks += 1;
+      }
+      break;
+    }
+    case 'double_actives': {
+      // Doubles your single highest active yield boon (was: doubles all)
+      const yieldBuffs = plot.activeBuffs.filter(b => b.yieldMult);
+      if (yieldBuffs.length === 0) break;
+      const best = yieldBuffs.reduce((max, b) => b.yieldMult > max.yieldMult ? b : max);
+      plot.yieldMult *= Math.pow(best.yieldMult, e);
+      break;
+    }
+    case 'no_more_picks_80':
+      plot.flags.noMorePicks = true;
+      plot.flags.committedNoMore = true;
+      plot.flags.picksAtCommit = plot.picksTaken + 1;
+      break;
+    case 'all_in': {
+      // hard reset yieldMult to baseline (penalty carryover preserved), then apply ×2.1 per description
+      const carryover = plot.flags.nextPenaltyMult || 1.0;
+      plot.yieldMult = carryover;
+      plot.activeBuffs = [];
+      plot.yieldMult *= Math.pow(2.1, e);
+      break;
+    }
+    case 'wishflower':
+      plot.flags.wishflowerLeft = (plot.flags.wishflowerLeft || 0) + 2;
+      plot.totalPicks += 2;
+      break;
+    case 'world_tree':
+      plot.yieldMult *= Math.pow(2.9, e);
+      plot.flags.noMorePicks = true;
+      break;
+    case 'eternal':
+      plot.flags.eternalActive = true;
+      break;
+    case 'solstice':
+      plot.yieldMult *= Math.pow(2.0, e);
+      state.plots.forEach((p, i) => { if (i !== plotId && !p.locked && p.crop) p.yieldMult *= Math.pow(1.6, e); });
+      break;
+    case 'common_amp': {
+      const commons = plot.activeBuffs.filter(b => b.rarity === 'common').length;
+      plot.yieldMult *= Math.pow(1 + 0.20 * commons, e);
+      break;
+    }
+  }
+}
+
+function buyPlot(plotId) {
+  const cost = PLOT_COSTS[plotId];
+  if (state.money < cost) return;
+  state.money -= cost;
+  state.plots[plotId] = makePlot(plotId);
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  const nextId = state.plots.length;
+  if (nextId < PLOT_COSTS.length) {
+    state.plots.push({ id: nextId, locked: true });
+    state.loadouts.push([]);
+  }
+  // Plot count just changed → offered-contract count is plot-dependent
+  // (1/2/3). Generate any newly-available offers BEFORE render() so the
+  // Contracts tab badge picks them up on the same paint.
+  ensureContractOffered();
+  checkAchievements();
+  render();
+}
+
+// ============ COLLECTION & LOADOUT ============
+function addToCollection(buff) {
+  const existing = state.collection.find(c => c.id === buff.id);
+  if (existing) {
+    const beforeStars = existing.stars || starsFromCount(existing.count);
+    existing.count += 1;
+    existing.stars = starsFromCount(existing.count);
+    if (existing.stars > beforeStars) {
+      // Surface in the harvest log (most recent first)
+      state.harvestLog.unshift({ type: 'levelup', name: buff.name, stars: existing.stars, rarity: buff.rarity, t: Date.now() });
+      if (state.harvestLog.length > 6) state.harvestLog.pop();
+      sndLevelUp();
+    }
+  } else {
+    state.collection.push({ ...buff, count: 1, stars: 1 });
+  }
+}
+
+function isEquippedOnPlot(buffId, plotId) {
+  return (state.loadouts[plotId] || []).includes(buffId);
+}
+
+// One-card-per-plot rule: a card can only be equipped on a single plot.
+// Equipping it on a new plot automatically removes it from any other plot.
+function findCurrentPlotForBuff(buffId) {
+  for (let i = 0; i < state.loadouts.length; i++) {
+    if (state.loadouts[i] && state.loadouts[i].includes(buffId)) return i;
+  }
+  return -1;
+}
+
+function unequipFromAllPlots(buffId) {
+  for (const loadout of state.loadouts) {
+    if (!loadout) continue;
+    const idx = loadout.indexOf(buffId);
+    if (idx >= 0) loadout.splice(idx, 1);
+  }
+}
+
+function equipToPlot(plotId, buffId) {
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  const loadout = state.loadouts[plotId];
+  if (loadout.includes(buffId)) return; // already equipped here
+  // One-card-per-plot: remove from any other plot first
+  unequipFromAllPlots(buffId);
+  if (loadout.length >= MAX_PERMA_SLOTS) {
+    loadout.shift(); // bump oldest
+  }
+  loadout.push(buffId);
+}
+function unequipFromPlot(plotId, buffId) {
+  if (!state.loadouts[plotId]) return;
+  const idx = state.loadouts[plotId].indexOf(buffId);
+  if (idx >= 0) state.loadouts[plotId].splice(idx, 1);
+}
+
+// ============ MODALS ============
+function openPlantModal(plotId) {
+  const opts = document.getElementById('plantOptions');
+  opts.innerHTML = '';
+  const busyTypes = activeCropsGrowing();
+  for (const [key, c] of Object.entries(CROPS)) {
+    const btn = document.createElement('button');
+    btn.className = 'plant-option';
+    const busy = busyTypes.has(key);
+    const tooExpensive = state.money < c.plantCost;
+    const locked = !isCropUnlocked(key);
+    btn.disabled = busy || tooExpensive || locked;
+    if (locked) btn.classList.add('locked');
+    const adjustedTime = c.growthMs * getPermaTimeMultForPlot(plotId);
+    let reasonHtml = '';
+    if (locked) {
+      const u = c.unlocksAt;
+      const have = harvestsOf(u.crop);
+      const need = Math.max(0, u.harvests - have);
+      const noun = `${CROPS[u.crop].name}${need === 1 ? '' : 's'}`;
+      reasonHtml = `<span class="po-reason locked">🔒 harvest ${need} more ${noun} to unlock</span>`;
+    } else if (busy) reasonHtml = '<span class="po-reason busy">growing elsewhere</span>';
+    else if (tooExpensive) reasonHtml = `<span class="po-reason broke">need <span class="coin-icon">◉</span> ${c.plantCost - state.money}</span>`;
+    const wanted = isCropWantedByContract(key);
+    const wantedBadge = wanted
+      ? `<span class="po-contract" title="An active contract wants this crop">📜 needed for contract</span>`
+      : '';
+    btn.innerHTML = `
+      ${reasonHtml}
+      ${wantedBadge}
+      <div class="po-emoji">${c.emoji}</div>
+      <div class="po-name">${c.name}</div>
+      <div class="po-stats">
+        <span>cost: <span class="coin-icon">◉</span> ${c.plantCost}</span>
+        <span>yield: <span class="coin-icon">◉</span> ${c.baseYield}</span>
+        <span>grows: ${fmtTimeRemaining(adjustedTime)}</span>
+        <span>picks: ${c.pickCount}</span>
+      </div>
+    `;
+    if (wanted) btn.classList.add('contract-wanted');
+    btn.onclick = () => !locked && plant(plotId, key);
+    opts.appendChild(btn);
+  }
+  // Equip-before-plant: the empty bed's only tap opens this modal, so this is
+  // the doorway to the plot's cards & upgrades while nothing is growing.
+  const loadoutLink = document.createElement('button');
+  loadoutLink.className = 'btn btn-ghost plant-loadout-link';
+  loadoutLink.textContent = `🎴 cards & upgrades for plot ${plotId + 1}`;
+  loadoutLink.onclick = () => { closeAllModals(); openLoadoutModal(plotId); };
+  opts.appendChild(loadoutLink);
+  document.getElementById('plantModal').hidden = false;
+}
+
+function openBuffModal(plotId) {
+  const plot = state.plots[plotId];
+  if (!plot.crop || picksAvailable(plot) < 1) return;
+  const crop = CROPS[plot.crop];
+
+  document.getElementById('bmEmoji').textContent = crop.emoji;
+  document.getElementById('bmTitle').textContent = crop.name;
+  document.getElementById('bmMeta').textContent = `Plot ${plot.id + 1} · ${picksAvailable(plot)} pick${picksAvailable(plot) > 1 ? 's' : ''} remaining`;
+
+  let floor = null;
+  // peek at flags but don't decrement yet — only commit if user actually picks
+  if (plot.flags.wishflowerLeft && plot.flags.wishflowerLeft > 0) {
+    floor = 'legendary';
+  }
+  // Default offer is 2 cards (binary decision). Cornucopia bumps to 5.
+  let draftCount = 2;
+  if (plot.flags.wideDraftLeft && plot.flags.wideDraftLeft > 0) {
+    draftCount = 5;
+  }
+
+  const drafted = draftN(plot.crop, draftCount, floor, plot);
+  const opts = document.getElementById('buffOptions');
+  opts.className = 'buff-options' + (draftCount > 2 ? ' wide' : '');
+  opts.innerHTML = '';
+
+  drafted.forEach(buff => {
+    const card = document.createElement('button');
+    card.className = `buff-card ${buff.rarity}`;
+    card.innerHTML = `
+      <div class="buff-rarity"><span>${buff.rarity}</span></div>
+      <div class="buff-name">${buff.name}</div>
+      <div class="buff-desc">${buff.desc}</div>
+      <div class="buff-flavor">${buff.flavor}</div>
+    `;
+    card.onclick = () => applyBuff(plotId, buff);
+    opts.appendChild(card);
+  });
+  document.getElementById('buffModal').hidden = false;
+}
+
+function openPackModal(rarityFloor = null, customTitle = null) {
+  if (!rarityFloor && state.pendingPacks < 1) return;
+  if (!rarityFloor) state.pendingPacks -= 1;
+
+  // Every pack guarantees at least 1 general card so the player always pulls
+  // something they can use on any crop. The other 2 cards are random.
+  const cards = draftPermaPack(3, rarityFloor, 1);
+  // Reveal order: worst → best, so the suspense builds and the best card is
+  // the one you're waiting on. (Display order only — collection unaffected.)
+  cards.sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
+  state.currentPackCards = cards;
+  state.adUsedForCurrentPack = false;
+
+  const titleEl = document.getElementById('packTitle');
+  titleEl.textContent = customTitle || (rarityFloor ? 'Premium Pack' : 'A New Pack');
+
+  renderPackCards();
+  // Actions appear once the last card has turned — until then, the reveal is the show.
+  document.getElementById('packActions').innerHTML = '';
+  document.getElementById('packModal').hidden = false;
+  sndPackOpen();
+}
+
+// One flip sound per rarity — the sound escalates with the pull, so a big
+// card FEELS big before you've even read it.
+function sndCardFlip(rarity) {
+  switch (rarity) {
+    case 'mythic':
+      sndLucky();
+      playTone(1319, 0.45, 0.07, 'sine', 260); // held high bell on top
+      break;
+    case 'legendary':
+      sndLucky();
+      break;
+    case 'rare':
+      playTone(523, 0.07, 0.05); playTone(659, 0.09, 0.06, 'sine', 70); playTone(880, 0.16, 0.06, 'sine', 150);
+      break;
+    case 'uncommon':
+      playTone(494, 0.06, 0.045); playTone(622, 0.10, 0.05, 'sine', 70);
+      break;
+    default:
+      playTone(440, 0.07, 0.04);
+  }
+}
+
+// Preview the effect of adding this pack card to the player's collection,
+// so the pack-card UI can communicate "NEW" / "★ level-up!" / progress.
+function previewPackCardStarChange(buff) {
+  const existing = state.collection.find(c => c.id === buff.id);
+  if (!existing) return { type: 'new', label: '✨ NEW' };
+  const newCount = existing.count + 1;
+  const newStars = starsFromCount(newCount);
+  if (newStars > existing.stars) {
+    return { type: 'levelup', label: `★${existing.stars} → ★${newStars}!` };
+  }
+  const prog = dupesTowardNextStar(newCount, existing.stars);
+  if (prog.isMax) return { type: 'max', label: `★5 · MAX` };
+  return { type: 'progress', label: `★${existing.stars} · ${prog.current}/${prog.needed} → ★${existing.stars + 1}` };
+}
+
+function renderPackCards() {
+  const grid = document.getElementById('packCards');
+  grid.innerHTML = '';
+  grid.className = 'pack-cards';
+  const modal = document.getElementById('packModal');
+  state.currentPackCards.forEach((buff, idx) => {
+    const card = document.createElement('div');
+    // Face-down first: rarity color, name — everything — hidden behind the
+    // cover until this card's turn. The reveal is the moment; don't spoil it.
+    card.className = `pack-card ${buff.rarity} face-down`;
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${CROPS[buff.cropOnly].name} only` : 'general';
+    const starState = previewPackCardStarChange(buff);
+    card.innerHTML = `
+      <div class="pc-top-row">
+        <span class="pc-rarity">${buff.rarity}</span>
+        <span class="pc-star-state ${starState.type}">${starState.label}</span>
+      </div>
+      <div class="pc-name">${buff.name}</div>
+      <div class="pc-desc">${buff.desc}</div>
+      <div class="pc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}</div>
+      <div class="pc-flavor">${buff.flavor}</div>
+      <div class="pc-cover">🌿</div>
+    `;
+    grid.appendChild(card);
+    // Staggered turn: one card at a time, worst → best, sound rising with rarity.
+    setTimeout(() => {
+      if (modal.hidden || !card.parentNode) return; // closed early → cards were auto-claimed
+      card.classList.remove('face-down');
+      card.classList.add('revealed');
+      sndCardFlip(buff.rarity);
+    }, 650 + idx * 900);
+  });
+  // The "Add all" button arrives just after the last card turns.
+  const lastFlip = 650 + (state.currentPackCards.length - 1) * 900;
+  setTimeout(() => {
+    if (modal.hidden) return;
+    renderPackActions();
+  }, lastFlip + 450);
+}
+
+function renderPackActions() {
+  const actions = document.getElementById('packActions');
+  actions.innerHTML = '';
+
+  const keepBtn = document.createElement('button');
+  keepBtn.className = 'btn btn-primary';
+  keepBtn.style.padding = '14px 24px';
+  keepBtn.style.fontSize = '14px';
+  keepBtn.textContent = 'Add all to Collection';
+  keepBtn.onclick = () => {
+    state.currentPackCards.forEach(b => addToCollection(b));
+    state.currentPackCards = [];
+    state.adUsedForCurrentPack = false;
+    state.packsOpened += 1;
+    checkAchievements();
+    closeAllModals();
+    render();
+  };
+  actions.appendChild(keepBtn);
+}
+
+// (The "Watch Ad for Bonus Card" fake-ad beat was removed — a cozy game
+// doesn't put a pretend commercial inside its best reward moment.)
+
+// Renders the Sets panel — one row per set, with progress bar + bonus label.
+function renderCardSets() {
+  const el = document.getElementById('cardSetsList');
+  if (!el) return;
+  const rows = CARD_SETS.map(set => {
+    const { owned, total, complete } = getSetCompletion(set);
+    const pct = (owned / total) * 100;
+    return `
+      <div class="card-set-row ${complete ? 'complete' : ''}">
+        <div class="cs-icon">${set.icon}</div>
+        <div class="cs-body">
+          <div class="cs-row1">
+            <span class="cs-name">${set.name}</span>
+            <span class="cs-count">${owned}/${total}</span>
+          </div>
+          <div class="cs-bar"><div class="cs-bar-fill" style="width: ${pct}%"></div></div>
+          <div class="cs-bonus">${complete ? '✓ ' + set.bonusLabel : 'reward: ' + set.bonusLabel}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  el.innerHTML = rows;
+}
+
+// Cards-tab filter state — session-scoped so each visit is fresh
+let _cardsFilters = { rarity: 'all', scope: 'all' };
+
+function passesCardsFilters(buff) {
+  const f = _cardsFilters;
+  if (f.rarity !== 'all' && buff.rarity !== f.rarity) return false;
+  if (f.scope === 'general' && buff.cropOnly) return false;
+  if (f.scope === 'crop' && !buff.cropOnly) return false;
+  if (f.scope === 'equipped' && findCurrentPlotForBuff(buff.id) < 0) return false;
+  if (f.scope === 'unequipped' && findCurrentPlotForBuff(buff.id) >= 0) return false;
+  return true;
+}
+
+function renderCardsFilters() {
+  const rarityRow = document.getElementById('cardsFilterRarity');
+  const scopeRow  = document.getElementById('cardsFilterScope');
+  if (!rarityRow || !scopeRow) return;
+  const rarityOptions = [
+    { id: 'all',       label: 'All rarities' },
+    { id: 'uncommon',  label: 'Uncommon' },
+    { id: 'rare',      label: 'Rare' },
+    { id: 'legendary', label: 'Legendary' },
+    { id: 'mythic',    label: 'Mythic' },
+  ];
+  const scopeOptions = [
+    { id: 'all',        label: 'All' },
+    { id: 'general',    label: 'General' },
+    { id: 'crop',       label: 'Crop-specific' },
+    { id: 'equipped',   label: 'Equipped' },
+    { id: 'unequipped', label: 'Unequipped' },
+  ];
+  const countWith = (axisKey, optId) => {
+    const overrides = { ..._cardsFilters, [axisKey]: optId };
+    const prev = _cardsFilters;
+    _cardsFilters = overrides;
+    const n = state.collection.filter(passesCardsFilters).length;
+    _cardsFilters = prev;
+    return n;
+  };
+  const build = (opts, axisKey, row) => {
+    row.innerHTML = '';
+    opts.forEach(opt => {
+      const chip = document.createElement('button');
+      const active = _cardsFilters[axisKey] === opt.id;
+      chip.className = 'lm-filter-chip' + (active ? ' active' : '');
+      chip.innerHTML = `${opt.label} <span class="chip-count">${countWith(axisKey, opt.id)}</span>`;
+      chip.onclick = () => { _cardsFilters[axisKey] = opt.id; renderCardsCollection(); };
+      row.appendChild(chip);
+    });
+  };
+  build(rarityOptions, 'rarity', rarityRow);
+  build(scopeOptions, 'scope', scopeRow);
+}
+
+// Renders the full owned-cards collection into the Cards tab grid.
+function renderCardsCollection() {
+  const grid = document.getElementById('cardsCollectionGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const meta = document.getElementById('cardsCollectionMeta');
+  if (meta) meta.textContent = `${state.collection.length} of ${PERMA_POOL.length} owned`;
+
+  renderCardsFilters();
+
+  if (state.collection.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons yet — earn packs by harvesting</div>';
+    return;
+  }
+
+  const filtered = state.collection.filter(passesCardsFilters);
+  if (filtered.length === 0) {
+    grid.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
+    return;
+  }
+
+  // sort: rarity desc, then name
+  const sorted = filtered.sort((a, b) => {
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return br - ar;
+    return a.name.localeCompare(b.name);
+  });
+
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    // One-card-per-plot: each card is on at most one plot
+    const equippedPlot = findCurrentPlotForBuff(buff.id);
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    card.className = `lm-card ${buff.rarity}`;
+    const stars = buff.stars || 1;
+    const prog = dupesTowardNextStar(buff.count, stars);
+    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
+    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
+    const equippedTag = equippedPlot >= 0 ? ` · on Plot ${equippedPlot + 1}` : '';
+    card.innerHTML = `
+      <div class="lc-rarity">${buff.rarity}</div>
+      <div class="lc-name">${buff.name}</div>
+      <div class="lc-stars">
+        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
+        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
+      </div>
+      <div class="lc-desc">${dynamicDesc}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${equippedTag}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ============ LOADOUT MODAL ============
+// UI filter state — modal-scoped, resets on close so each open is a clean slate.
+let _lmFilters = { state: 'all', rarity: 'all' };
+
+function openLoadoutModal(plotId) {
+  state.loadoutModalPlotId = plotId;
+  _lmFilters = { state: 'all', rarity: 'all' };  // reset on each open
+  const plot = state.plots[plotId];
+  const titleEl = document.getElementById('lmTitle');
+  const subEl = document.getElementById('lmSub');
+  titleEl.textContent = `Plot ${plotId + 1} Loadout`;
+  const filledCount = (state.loadouts[plotId] || []).length;
+  if (plot.crop) {
+    subEl.textContent = `${CROPS[plot.crop].emoji} ${CROPS[plot.crop].name} · ${filledCount}/${MAX_PERMA_SLOTS} slots filled`;
+  } else {
+    subEl.textContent = `(empty plot) · ${filledCount}/${MAX_PERMA_SLOTS} slots filled`;
+  }
+  renderLoadoutModal();
+  document.getElementById('loadoutModal').hidden = false;
+}
+
+// "Clear all" — strip every equipped boon off this plot in one tap.
+// Confirmed by render+save; no modal prompt (small undo-able action).
+function clearAllSlotsOnPlot(plotId) {
+  if (!state.loadouts[plotId] || state.loadouts[plotId].length === 0) return;
+  state.loadouts[plotId] = [];
+  saveGame();
+  renderLoadoutModal();
+  render();
+}
+
+// Build filter chip rows. Counts are live — they reflect how many boons
+// pass each option *given current selections in the OTHER axis*.
+// Build filter chip rows into the given DOM containers, calling rerenderFn
+// when any chip is clicked (so the consumer can refresh its grid). Used by
+// the slot picker now that the main loadout no longer has its own grid.
+function renderLoadoutFilters(plotId, plot, stateRowId, rarityRowId, rerenderFn) {
+  const currentCrop = plot.crop;
+  const stateRow = document.getElementById(stateRowId);
+  const rarityRow = document.getElementById(rarityRowId);
+  if (!stateRow || !rarityRow) return;
+
+  const stateOptions = [
+    { id: 'all',        label: 'All' },
+    { id: 'active',     label: 'Active here' },
+    { id: 'equipped',   label: 'Equipped' },
+    { id: 'unequipped', label: 'Unequipped' },
+  ];
+  const rarityOptions = [
+    { id: 'all',       label: 'All rarities' },
+    { id: 'uncommon',  label: 'Uncommon' },
+    { id: 'rare',      label: 'Rare' },
+    { id: 'legendary', label: 'Legendary' },
+    { id: 'mythic',    label: 'Mythic' },
+  ];
+
+  const countStateChip = (opt) => state.collection.filter(b =>
+    passesLoadoutFilters(b, plotId, currentCrop, { state: opt.id, rarity: _lmFilters.rarity })
+  ).length;
+  const countRarityChip = (opt) => state.collection.filter(b =>
+    passesLoadoutFilters(b, plotId, currentCrop, { state: _lmFilters.state, rarity: opt.id })
+  ).length;
+
+  const buildChip = (opt, axisKey, count) => {
+    const chip = document.createElement('button');
+    const active = _lmFilters[axisKey] === opt.id;
+    chip.className = 'lm-filter-chip' + (active ? ' active' : '');
+    chip.innerHTML = `${opt.label} <span class="chip-count">${count}</span>`;
+    chip.onclick = () => {
+      _lmFilters[axisKey] = opt.id;
+      if (typeof rerenderFn === 'function') rerenderFn();
+    };
+    return chip;
+  };
+
+  stateRow.innerHTML = '';
+  stateOptions.forEach(opt => stateRow.appendChild(buildChip(opt, 'state', countStateChip(opt))));
+  rarityRow.innerHTML = '';
+  rarityOptions.forEach(opt => rarityRow.appendChild(buildChip(opt, 'rarity', countRarityChip(opt))));
+}
+
+// Filter test — uses an override filters object so chip-count previews can
+// ask "what if THIS were the only constraint on this axis?"
+function passesLoadoutFilters(buff, plotId, currentCrop, filtersOverride) {
+  const f = filtersOverride || _lmFilters;
+  // state axis
+  if (f.state === 'active') {
+    if (buff.cropOnly && buff.cropOnly !== currentCrop) return false;
+  } else if (f.state === 'equipped') {
+    if (!isEquippedOnPlot(buff.id, plotId)) return false;
+  } else if (f.state === 'unequipped') {
+    if (findCurrentPlotForBuff(buff.id) >= 0) return false;
+  }
+  // rarity axis
+  if (f.rarity !== 'all' && buff.rarity !== f.rarity) return false;
+  return true;
+}
+
+// Build a compact slot element — fits in the sticky top row.
+// Filled: rarity-tinted card with icon + name + ★ count. Tap → swap picker.
+// Empty: dashed outline with "+ tap to fill" hint. Tap → slot picker.
+function _buildLoadoutSlot(plotId, plot, slotIdx, loadout) {
+  const id = loadout[slotIdx];
+  const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+  const slot = document.createElement('div');
+  if (buff) {
+    const active = isBuffActiveOnPlot(buff, plot);
+    slot.className = `lm-slot filled ${buff.rarity} ${active ? '' : 'inactive'}`;
+    const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
+    const stars = getStarsForBuff(buff.id);
+    slot.innerHTML = `
+      <div class="ls-icon">${icon}</div>
+      <div class="ls-name">${buff.name}</div>
+      <div class="ls-stars">${renderStarGlyphs(stars)}</div>
+    `;
+    slot.title = `${buff.name} · ${buff.rarity}${active ? '' : ' (inactive)'} — tap to change`;
+    slot.onclick = () => openSlotPicker(plotId, slotIdx);
+  } else {
+    slot.className = 'lm-slot';
+    slot.innerHTML = `<div class="ls-plus">+</div><div class="ls-label-hint">slot ${slotIdx + 1}</div>`;
+    slot.title = `Empty slot ${slotIdx + 1} — tap to fill`;
+    slot.onclick = () => openSlotPicker(plotId, slotIdx);
+  }
+  return slot;
+}
+
+// Render the collection grid into a target element with the loadout sort
+// priority. Used by both the main loadout modal AND the slot picker.
+function _renderCollectionGrid(targetEl, plotId, plot, onCardClick, opts = {}) {
+  targetEl.innerHTML = '';
+  if (state.collection.length === 0) {
+    targetEl.innerHTML = '<div class="lm-empty">no boons yet — open a pack to start</div>';
+    return;
+  }
+  const currentCrop = plot.crop;
+  const filtered = state.collection.filter(b => passesLoadoutFilters(b, plotId, currentCrop));
+  if (filtered.length === 0) {
+    targetEl.innerHTML = '<div class="lm-empty">no boons match these filters</div>';
+    return;
+  }
+  const sorted = [...filtered].sort((a, b) => {
+    const ae = isEquippedOnPlot(a.id, plotId) ? 0 : 1;
+    const be = isEquippedOnPlot(b.id, plotId) ? 0 : 1;
+    if (ae !== be) return ae - be;
+    const aActive = !a.cropOnly || a.cropOnly === currentCrop ? 0 : 1;
+    const bActive = !b.cropOnly || b.cropOnly === currentCrop ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return br - ar;
+    return a.name.localeCompare(b.name);
+  });
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    const equipped = isEquippedOnPlot(buff.id, plotId);
+    const active = !buff.cropOnly || buff.cropOnly === currentCrop;
+    const otherPlot = findCurrentPlotForBuff(buff.id);
+    const onOtherPlot = otherPlot >= 0 && otherPlot !== plotId;
+    card.className = `lm-card ${buff.rarity} ${equipped ? 'equipped' : ''} ${!active ? 'inactive' : ''} ${onOtherPlot ? 'on-other-plot' : ''}`;
+    const cropTag = buff.cropOnly ? `${CROPS[buff.cropOnly].emoji} ${buff.cropOnly}` : 'general';
+    const stars = buff.stars || 1;
+    const prog = dupesTowardNextStar(buff.count, stars);
+    const progText = prog.isMax ? 'MAX' : `${prog.current}/${prog.needed} → ★${stars + 1}`;
+    const dynamicDesc = effectiveDesc(buff, stars) || buff.desc;
+    const tagSuffix = equipped ? ' · ✓ here'
+                    : onOtherPlot ? ` · on Plot ${otherPlot + 1} → tap to move`
+                    : '';
+    card.innerHTML = `
+      <div class="lc-rarity">${buff.rarity}</div>
+      <div class="lc-name">${buff.name}</div>
+      <div class="lc-stars">
+        <span class="lc-stars-glyphs">${renderStarGlyphs(stars)}</span>
+        <span class="lc-progress${prog.isMax ? ' max' : ''}">${progText}</span>
+      </div>
+      <div class="lc-desc">${dynamicDesc}</div>
+      <div class="lc-tag ${buff.cropOnly ? 'crop' : ''}">${cropTag}${tagSuffix}</div>
+    `;
+    card.onclick = () => onCardClick(buff, { equipped, onOtherPlot });
+    targetEl.appendChild(card);
+  });
+}
+
+function renderLoadoutModal() {
+  const plotId = state.loadoutModalPlotId;
+  const plot = state.plots[plotId];
+  const loadout = state.loadouts[plotId] || [];
+
+  // Clear-all button (now in the sticky header)
+  const clearBtn = document.getElementById('lmClearAllBtn');
+  if (clearBtn) {
+    clearBtn.hidden = loadout.length === 0;
+    clearBtn.onclick = () => clearAllSlotsOnPlot(plotId);
+  }
+
+  // Compact slots — tappable. Empty slots open slot picker; filled slots
+  // open slot picker so the player can replace that specific card.
+  const slotsEl = document.getElementById('lmSlots');
+  slotsEl.innerHTML = '';
+  for (let i = 0; i < MAX_PERMA_SLOTS; i++) {
+    slotsEl.appendChild(_buildLoadoutSlot(plotId, plot, i, loadout));
+  }
+
+  // Plot upgrades — collapsible accordion, summary shows owned count
+  const upBody = document.getElementById('lmUpgradesBody');
+  const upToggle = document.getElementById('lmUpgradesToggle');
+  const upSummary = document.getElementById('lmUpgradesSummary');
+  if (upToggle && upBody && upSummary) {
+    const upgradesOwned = Object.values(getPlotUpgrades(plotId)).filter(Boolean).length;
+    const upgradesTotal = Object.keys(PLOT_UPGRADES).length;
+    upSummary.textContent = `${upgradesOwned}/${upgradesTotal} owned`;
+    upToggle.onclick = () => {
+      const willOpen = upBody.hidden;
+      upBody.hidden = !willOpen;
+      upToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    };
+  }
+  // Populate the upgrades grid regardless of expanded state — first open is instant
+  const upEl = document.getElementById('lmUpgrades');
+  if (upEl) {
+    upEl.innerHTML = '';
+    for (const [key, def] of Object.entries(PLOT_UPGRADES)) {
+      const owned = plotHasUpgrade(plotId, key);
+      const cost = plotUpgradeCost(plotId, key);
+      const canAfford = state.money >= cost;
+      const card = document.createElement('div');
+      card.className = `lm-upgrade ${owned ? 'owned' : ''} ${(!owned && canAfford) ? 'affordable' : ''}`;
+      card.innerHTML = `
+        <div class="lu-name">${def.name}</div>
+        <div class="lu-desc">${def.desc}</div>
+        <div class="lu-flavor">${def.flavor}</div>
+        <button class="btn ${owned ? 'btn-ghost' : (canAfford ? 'btn-primary' : 'btn-secondary')} lu-btn" ${owned || !canAfford ? 'disabled' : ''}>
+          ${owned ? '✓ owned' : `<span class="coin-icon">◉</span> ${fmtMoney(cost)}`}
+        </button>
+      `;
+      if (!owned && canAfford) {
+        card.querySelector('.lu-btn').onclick = () => {
+          if (buyPlotUpgrade(plotId, key)) { renderLoadoutModal(); render(); }
+        };
+      }
+      upEl.appendChild(card);
+    }
+  }
+
+  // Collection grid removed from this view — accessed via slot tap → picker.
+  // Main loadout modal now shows only: header (clear all) + slots + upgrades.
+}
+
+// Slot picker — opens when player taps a slot. Shows their collection
+// filtered for relevance. Picking a card fills the targeted slot.
+let _slotPickerCtx = null;
+function openSlotPicker(plotId, slotIdx) {
+  state.loadoutModalPlotId = plotId;
+  _slotPickerCtx = { plotId, slotIdx };
+  document.getElementById('slotPickerTitle').textContent = `Slot ${slotIdx + 1}`;
+  const currentId = (state.loadouts[plotId] || [])[slotIdx];
+  const currentBuff = currentId ? PERMA_POOL.find(b => b.id === currentId) : null;
+  document.getElementById('slotPickerSub').textContent = currentBuff
+    ? `Replace "${currentBuff.name}" with…`
+    : `Tap a card from your collection`;
+  // Render filter chips into the slot picker (reuse the loadout filter logic)
+  _renderSlotPickerFilters();
+  _renderSlotPickerGrid();
+  document.getElementById('slotPickerModal').hidden = false;
+}
+function _renderSlotPickerFilters() {
+  const ctx = _slotPickerCtx; if (!ctx) return;
+  const plot = state.plots[ctx.plotId];
+  // Clean call now that renderLoadoutFilters takes target IDs + rerender fn.
+  renderLoadoutFilters(ctx.plotId, plot, 'slotPickerFilterState', 'slotPickerFilterRarity', () => {
+    _renderSlotPickerFilters();   // rebuild chips to reflect new active state
+    _renderSlotPickerGrid();      // and rerun the grid with new filters
+  });
+}
+function _renderSlotPickerGrid() {
+  const ctx = _slotPickerCtx; if (!ctx) return;
+  const plot = state.plots[ctx.plotId];
+  const grid = document.getElementById('slotPickerGrid');
+  _renderCollectionGrid(grid, ctx.plotId, plot, (buff) => {
+    // Place chosen card into the targeted slot — replace whatever's there
+    placeCardInSlot(ctx.plotId, ctx.slotIdx, buff.id);
+    document.getElementById('slotPickerModal').hidden = true;
+    _slotPickerCtx = null;
+    renderLoadoutModal();
+    render();
+  });
+}
+
+// Swap picker — shown when player taps a collection card while loadout
+// is full. Lets them choose WHICH of the 4 slots to replace.
+function openSwapPicker(plotId, incomingBuffId) {
+  const incoming = PERMA_POOL.find(b => b.id === incomingBuffId);
+  if (!incoming) return;
+  document.getElementById('swapPickerCardName').textContent = incoming.name;
+  const slotsEl = document.getElementById('swapPickerSlots');
+  slotsEl.innerHTML = '';
+  const loadout = state.loadouts[plotId] || [];
+  for (let i = 0; i < loadout.length; i++) {
+    const equippedBuff = PERMA_POOL.find(b => b.id === loadout[i]);
+    if (!equippedBuff) continue;
+    const card = document.createElement('button');
+    card.className = `swap-slot ${equippedBuff.rarity}`;
+    card.innerHTML = `
+      <div class="ss-pos">Slot ${i + 1}</div>
+      <div class="ss-name">${equippedBuff.name}</div>
+    `;
+    card.onclick = () => {
+      placeCardInSlot(plotId, i, incomingBuffId);
+      document.getElementById('swapPickerModal').hidden = true;
+      renderLoadoutModal();
+      render();
+    };
+    slotsEl.appendChild(card);
+  }
+  document.getElementById('swapPickerModal').hidden = false;
+}
+
+// Place a specific buff into a specific slot index, handling cross-plot moves.
+function placeCardInSlot(plotId, slotIdx, buffId) {
+  // First, take the card off whatever plot it might currently be on (one-card-per-plot rule)
+  const currentPlot = findCurrentPlotForBuff(buffId);
+  if (currentPlot >= 0 && currentPlot !== plotId) {
+    unequipFromPlot(currentPlot, buffId);
+  } else if (currentPlot === plotId) {
+    // Already on this plot — remove first so we can place it cleanly
+    unequipFromPlot(plotId, buffId);
+  }
+  // Now place. If slot was filled with another buff, that buff drops off.
+  if (!state.loadouts[plotId]) state.loadouts[plotId] = [];
+  // Pad array to slotIdx
+  while (state.loadouts[plotId].length <= slotIdx) state.loadouts[plotId].push(null);
+  state.loadouts[plotId][slotIdx] = buffId;
+  // Remove any leading nulls (compact representation kept consistent)
+  state.loadouts[plotId] = state.loadouts[plotId].filter(x => x);
+  saveGame();
+}
+
+function closeAllModals() {
+  // If the pack modal is closing with unclaimed cards (e.g., player tapped the
+  // close button or backdrop instead of "Add all to Collection"), auto-claim
+  // them so the pack isn't lost and packsOpened reflects reality.
+  const packModal = document.getElementById('packModal');
+  if (packModal && !packModal.hidden && state.currentPackCards && state.currentPackCards.length > 0) {
+    state.currentPackCards.forEach(b => addToCollection(b));
+    state.currentPackCards = [];
+    state.adUsedForCurrentPack = false;
+    state.packsOpened += 1;
+    checkAchievements();
+  }
+  document.getElementById('plantModal').hidden = true;
+  document.getElementById('buffModal').hidden = true;
+  packModal.hidden = true;
+  document.getElementById('loadoutModal').hidden = true;
+  document.getElementById('debugModal').hidden = true;
+  const slotPicker = document.getElementById('slotPickerModal');
+  if (slotPicker) slotPicker.hidden = true;
+  const swapPicker = document.getElementById('swapPickerModal');
+  if (swapPicker) swapPicker.hidden = true;
+  const gardenSheet = document.getElementById('gardenSheetModal');
+  if (gardenSheet) gardenSheet.hidden = true;
+  const peek = document.getElementById('plotPeekModal');
+  if (peek) peek.hidden = true;
+  state._peekPlotId = null;
+  _slotPickerCtx = null;
+  // Closing during a breathing exercise = no reward, but cancel cleanly so
+  // we don't leave timers running.
+  if (typeof cancelBreathingExercise === 'function') cancelBreathingExercise();
+  // Closing an active-game modal — clean up RAF/timers and count the moment
+  // if the player stayed long enough.
+  if (typeof _endActiveGame === 'function' && _activeGame) _endActiveGame();
+}
+
+// ============ DEBUG PANEL ============
+function openDebugModal() {
+  // populate plot selector
+  const sel = document.getElementById('dbgPlotSelect');
+  sel.innerHTML = '';
+  state.plots.forEach((p, i) => {
+    if (p.locked) return;
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `Plot ${i + 1}` + (p.crop ? ` · ${CROPS[p.crop].name}` : ' (empty)');
+    sel.appendChild(opt);
+  });
+
+  // populate buff grid
+  const grid = document.getElementById('debugBuffGrid');
+  grid.innerHTML = '';
+  const sorted = [...BUFF_POOL].sort((a, b) => {
+    const ar = RARITY_ORDER.indexOf(a.rarity);
+    const br = RARITY_ORDER.indexOf(b.rarity);
+    if (ar !== br) return ar - br;
+    return a.name.localeCompare(b.name);
+  });
+  sorted.forEach(buff => {
+    const card = document.createElement('div');
+    card.className = `debug-buff-card ${buff.rarity}`;
+    const cropTag = buff.cropOnly ? ` · ${CROPS[buff.cropOnly].emoji}${CROPS[buff.cropOnly].name}` : '';
+    card.innerHTML = `
+      <div class="dbg-rarity">${buff.rarity}${cropTag}</div>
+      <div class="dbg-name">${buff.name}</div>
+      <div class="dbg-desc">${buff.desc}</div>
+    `;
+    card.onclick = () => {
+      const plotId = parseInt(document.getElementById('dbgPlotSelect').value);
+      const plot = state.plots[plotId];
+      if (!plot || !plot.crop) {
+        alert('Select a plot with a crop planted.');
+        return;
+      }
+      // bypass picksAvailable; force-apply for testing
+      if (plot.picksTaken >= plot.totalPicks) plot.totalPicks = plot.picksTaken + 1;
+      applyBuff(plotId, buff);
+      // reopen debug panel since applyBuff closed all modals
+      document.getElementById('debugModal').hidden = false;
+    };
+    grid.appendChild(card);
+  });
+
+  document.getElementById('debugModal').hidden = false;
+}
+
+function syncSettingsLabels() {
+  const ss = document.getElementById('settingsSoundSlider');
+  const sl = document.getElementById('soundVolLabel');
+  if (ss && sl) { ss.value = state.soundVolume; sl.textContent = state.soundVolume + '%'; }
+  const as = document.getElementById('settingsAmbientSlider');
+  const al = document.getElementById('ambientVolLabel');
+  if (as && al) { as.value = state.ambientVolume; al.textContent = state.ambientVolume + '%'; }
+  const ts = document.getElementById('settingsThemeSelect');
+  if (ts) ts.value = state.themeMode || 'time';
+}
+
+// ============ THEME ============
+// Resolves themeMode to an active 'light' or 'dark' value and applies it via
+// the [data-theme] attribute on <html>. Light is the implicit default
+// (matches :root) so we only set the attribute for dark.
+function resolveActiveTheme() {
+  const mode = state.themeMode || 'time';
+  if (mode === 'light') return 'light';
+  if (mode === 'dark') return 'dark';
+  if (mode === 'time') {
+    const h = new Date().getHours();
+    // Dusk through morning: 19:00 (7pm) up to 06:59
+    return (h >= 19 || h < 7) ? 'dark' : 'light';
+  }
+  // 'system' — read the OS/browser preference
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+  return 'light';
+}
+function applyTheme() {
+  const active = resolveActiveTheme();
+  const root = document.documentElement;
+  if (active === 'dark') root.setAttribute('data-theme', 'dark');
+  else root.removeAttribute('data-theme');
+}
+// The yard's light follows the player's real clock — five dayparts, a sun or
+// moon that drifts across the sky band. Pure class/position swap, no animation.
+function updateDaypart() {
+  const yard = document.getElementById('farmYard');
+  const orb = document.getElementById('skyOrb');
+  if (!yard || !orb) return;
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  let part;
+  if (h >= 5 && h < 8) part = 'dawn';
+  else if (h >= 8 && h < 16) part = 'day';
+  else if (h >= 16 && h < 19) part = 'golden';
+  else if (h >= 19 && h < 21) part = 'dusk';
+  else part = 'night';
+  yard.dataset.daypart = part;
+  // The sun sets through dusk; the moon owns the true night (21h→5h).
+  const isNight = part === 'night';
+  const glyph = isNight ? '🌙' : '☀️';
+  let t;
+  if (!isNight) t = (h - 5) / 16;          // sun arcs 5h→21h
+  else t = ((h >= 21 ? h - 21 : h + 3) / 8); // moon arcs 21h→5h (wraps midnight)
+  const left = (8 + Math.max(0, Math.min(1, t)) * 84) + '%';
+  if (orb.textContent !== glyph || !orb.dataset.placed) {
+    // Sun↔moon handoff AND first placement: jump instantly — otherwise the
+    // orb glides across the whole sky for a minute like a glitch (on load it
+    // would crawl from the CSS default position).
+    orb.style.transition = 'none';
+    orb.textContent = glyph;
+    orb.style.left = left;
+    void orb.offsetWidth;
+    orb.style.transition = '';
+    orb.dataset.placed = '1';
+  } else {
+    orb.style.left = left;
+  }
+}
+// Once a minute: theme, the yard's light, market day rollover, and calm-state
+// expiry — all the time-driven surfaces that used to wait for a user action.
+let _wasCalm = null;
+setInterval(() => {
+  if (state.themeMode === 'time') applyTheme();
+  updateDaypart();
+  // Midnight rollover, even if the app just sits open on the yard: the stall
+  // face restocks (the old strip is retired) and the day's mood re-rolls.
+  const beforeMarketDay = state.marketDayKey;
+  rotateMarketIfNewDay();
+  if (state.marketDayKey !== beforeMarketDay) {
+    refreshGardenLane();
+    rollDailyFarmMoment();
+    renderDailyMomentStrip();
+  }
+  // Calm expiry: stop the ✦ badge / soft tint lying after the window closes
+  const calmNow = isCalmState();
+  if (_wasCalm !== null && calmNow !== _wasCalm) {
+    document.body.classList.toggle('calm-state', calmNow);
+    const hc = document.getElementById('harmonyCue');
+    if (hc) hc.classList.toggle('calm', calmNow);
+    renderTendFab();
+  }
+  _wasCalm = calmNow;
+}, 60 * 1000);
+// Mobile browsers throttle timers in background tabs — refresh the light the
+// moment the player returns, so "it changed while I was away" actually shows.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { updateDaypart(); if (state.themeMode === 'time') applyTheme(); }
+});
+// React to OS theme changes when in system mode.
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => { if (state.themeMode === 'system') applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener('change', handler);
+  else if (mq.addListener) mq.addListener(handler); // legacy Safari
+}
+
+// Slider event handlers — input fires continuously so the player gets live
+// feedback. Save throttled via debounce-on-change-end (input handler is fine
+// for the audio side because it just updates a state value).
+document.getElementById('settingsSoundSlider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) || 0;
+  state.soundVolume = v;
+  state.soundEnabled = v > 0; // back-compat mirror
+  document.getElementById('soundVolLabel').textContent = v + '%';
+  // Touch ambient too — if master sound is muted, ambient must also stop.
+  ensureAmbient();
+});
+document.getElementById('settingsSoundSlider').addEventListener('change', () => {
+  if (state.soundVolume > 0) sndUiClick();
+  saveGame();
+});
+document.getElementById('settingsAmbientSlider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) || 0;
+  state.ambientVolume = v;
+  state.ambientEnabled = v > 0; // back-compat mirror
+  document.getElementById('ambientVolLabel').textContent = v + '%';
+  ensureAmbient();
+});
+document.getElementById('settingsAmbientSlider').addEventListener('change', () => saveGame());
+document.getElementById('settingsDebugBtn').onclick = openDebugModal;
+document.getElementById('settingsThemeSelect').addEventListener('change', (e) => {
+  state.themeMode = e.target.value;
+  applyTheme();
+  saveGame();
+});
+document.getElementById('cardsOpenPackBtn').onclick = () => {
+  if (state.pendingPacks > 0) openPackModal();
+};
+document.getElementById('boonFab').onclick = () => {
+  const p = firstPlotWithPicks();
+  if (p) openBuffModal(p.id);
+};
+document.getElementById('tendFab').onclick = () => openBreathingExercise();
+
+// Optional anchor tap during a breathing exercise — tapping anywhere on
+// the stage spawns a soft ripple at the tap point. No reward effect; just
+// gives a casual player something to do with their hand without breaking
+// the practice. Curious players can ignore it.
+(function bindBreathAnchorTap() {
+  const stage = document.getElementById('breatheStage');
+  if (!stage) return;
+  stage.addEventListener('pointerdown', (e) => {
+    if (!_breath || !_breath.exerciseId) return;        // only during active exercise
+    if (e.target.closest('button')) return;             // never on the stop button
+    const rect = stage.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const ripple = document.createElement('div');
+    ripple.className = 'breathe-ripple';
+    ripple.style.left = x + 'px';
+    ripple.style.top = y + 'px';
+    stage.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 800);
+  });
+})();
+document.getElementById('achToggleBtn').onclick = () => {
+  _achShowAll = !_achShowAll;
+  renderAchievements();
+};
+document.getElementById('gardenRemembersAbout').onclick = () => openGardenSheet({
+  icon: '📖',
+  title: "Your garden's memory",
+  body: `
+    <p>Each line marks a real moment your care created — a first calm, a rare bloom, a season of tending.</p>
+    <p class="gs-reassure">It's a keepsake, not a task: it never resets, and nothing you do here is ever wasted. Tend however feels good — the good moments simply gather here.</p>`,
+});
+
+// ============ WELCOME-BACK BANNER ============
+function fmtAwayTime(ms) {
+  const m = ms / 60000;
+  if (m < 60) return `${Math.round(m)} min`;
+  const h = m / 60;
+  if (h < 24) return `${h.toFixed(1)} hr`;
+  return `${(h / 24).toFixed(1)} days`;
+}
+function showWelcomeBack(summary) {
+  if (!summary) return;
+  const headline = document.getElementById('wbHeadline');
+  const detail = document.getElementById('wbDetail');
+  const banner = document.getElementById('welcomeBack');
+  if (!banner || !headline || !detail) return;
+  const away = fmtAwayTime(summary.offlineMs);
+  const expired = summary.contractsExpiredDuringOffline || 0;
+
+  // Headline reflects the most actionable thing first. The eyebrow already
+  // says "Welcome back" — never repeat it as the headline or the banner
+  // shows the phrase twice.
+  if (summary.plotsReadyDuringOffline > 0) {
+    headline.textContent = summary.plotsReadyDuringOffline === 1
+      ? `A plot is ready to harvest`
+      : `${summary.plotsReadyDuringOffline} plots are ready to harvest`;
+  } else if (summary.anyGrowing) {
+    headline.textContent = 'Your crops kept growing';
+  } else {
+    headline.textContent = 'Quiet fields';
+  }
+
+  // Build the detail line: combine away-time, growth, and any expired contracts
+  const parts = [];
+  if (summary.plotsReadyDuringOffline > 0) {
+    parts.push(`Your farm grew quietly while you were away (${away}).`);
+  } else if (summary.anyGrowing) {
+    parts.push(`${away} of patient work — check on them.`);
+  } else {
+    parts.push(`Time to plant something new.`);
+  }
+  if (expired > 0) {
+    parts.push(expired === 1
+      ? `A contract expired while you were away.`
+      : `${expired} contracts expired while you were away.`);
+  }
+  // A gift on return: a well-tended garden may have produced a quiet moment.
+  if (summary.awayMoment) parts.push(summary.awayMoment);
+  detail.textContent = parts.join(' ');
+
+  banner.hidden = false;
+  const dismiss = () => { banner.hidden = true; };
+  document.getElementById('wbCta').onclick = dismiss;
+  banner.addEventListener('click', e => { if (e.target === banner) dismiss(); });
+}
+document.getElementById('dbgAddCoins').onclick = () => { state.money += 1000; render(); };
+document.getElementById('dbgGivePack').onclick = () => { state.pendingPacks += 1; render(); };
+document.getElementById('dbgMakeReady').onclick = () => {
+  state.plots.forEach(p => { if (!p.locked && p.crop) p.elapsedMs = p.totalMs; });
+  render();
+};
+document.getElementById('dbgPlantAll').onclick = () => {
+  // plant radish on every empty unlocked plot we can afford
+  state.plots.forEach((p, i) => {
+    if (p.locked || p.crop) return;
+    if (activeCropsGrowing().has('radish')) return; // game rule: one of each crop
+    if (state.money >= CROPS.radish.plantCost) plant(i, 'radish');
+  });
+};
+document.getElementById('dbgGiveAllPermas').onclick = () => {
+  PERMA_POOL.forEach(b => addToCollection(b));
+  render();
+};
+document.getElementById('dbgResetSave').onclick = resetSave;
+
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeAllModals);
+document.querySelectorAll('.modal').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) closeAllModals(); });
+});
+
+// ============ TABS ============
+function switchTab(name) {
+  if (anyModalOpen()) return; // tabs inert while modal is open
+  const wasOnDifferentTab = state.activeTab !== name;
+  document.querySelectorAll('.tab-content').forEach(el => {
+    el.classList.toggle('active', el.id === 'tab-' + name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const isReal = btn.dataset.tab === name;
+    // Visual "you are here": cottage/noticeboard pages light the Home button
+    // (their own tab buttons are hidden — the lane is how you got there).
+    const isVisual = isReal || (btn.dataset.tab === 'farm' && ['cards', 'contracts', 'journal'].includes(name));
+    btn.classList.toggle('active', isVisual);
+    btn.setAttribute('aria-selected', isReal ? 'true' : 'false');
+  });
+  state.activeTab = name;
+  if (name === 'cards' || name === 'journal') state._cottageRoom = name;
+  // catch-up: growth/flips that happened while the farm was hidden paint now
+  if (name === 'farm' && _farmSceneDirty) {
+    _farmSceneDirty = false;
+    restyleReadyPlots();
+    state.plots.forEach(p => { if (!p.locked && p.crop) updateBedScene(p); });
+  }
+  // scroll to top so player isn't dropped mid-page when switching
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  // Tend FAB is Farm-tab-only — refresh its visibility immediately on switch
+  // (otherwise it lingers on other tabs until the next full render).
+  if (typeof renderTendFab === 'function') renderTendFab();
+  // Soft click cue on actual tab change (not on the no-op when re-tapping current tab)
+  if (wasOnDifferentTab) sndUiClick();
+}
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => switchTab(btn.dataset.tab);
+});
+
+const TAB_ORDER = ['cards', 'contracts', 'farm', 'journal', 'settings'];
+function cycleTab(direction) {
+  const idx = TAB_ORDER.indexOf(state.activeTab || 'farm');
+  const next = (idx + direction + TAB_ORDER.length) % TAB_ORDER.length;
+  switchTab(TAB_ORDER[next]);
+}
+
+// Keyboard shortcuts (ignored when typing in inputs/selects, or when a modal is open)
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (anyModalOpen()) return;
+
+  switch (e.key) {
+    case '1': state.speed = 1; refreshSpeedButtons(); break;
+    case '2': state.speed = 60; refreshSpeedButtons(); break;
+    case '3': state.speed = 600; refreshSpeedButtons(); break;
+    case 'm': case 'M':
+      state.soundEnabled = !state.soundEnabled;
+      syncSettingsLabels();
+      if (state.soundEnabled) sndUiClick();
+      saveGame();
+      break;
+    case '[': cycleTab(-1); break;
+    case ']': cycleTab(1); break;
+    default: return;
+  }
+  e.preventDefault();
+});
+
+document.querySelectorAll('.speed-btn').forEach(b => {
+  b.onclick = () => {
+    state.speed = parseInt(b.dataset.speed);
+    document.querySelectorAll('.speed-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+  };
+});
+
+// ============ RENDER ============
+// Plant visual swells with yield multiplier so a big harvest looks big.
+// Curve: 1× → 1.0 scale, 3× → ~1.32, 5× → ~1.52, capped at 1.65 to keep
+// the sprite inside the card. Previous cap was 1.6× → only ~1.18 — too
+// subtle to feel rewarding. Now a fat harvest reads at a glance.
+function visualScale(yieldMult) {
+  return 1.0 + Math.min(0.65, (yieldMult - 1) * 0.28);
+}
+
+function renderContract() {
+  const el = document.getElementById('contractContent');
+  if (!el) return;
+
+  // Drop expired actives + refresh offer pool if it's a new day
+  checkContractExpiry();
+  ensureContractOffered();
+  rotateMarketIfNewDay();
+
+  const activeHTML = state.activeContracts.map(c => renderActiveContractHTML(c)).join('');
+  const slotsLeft = MAX_ACTIVE_CONTRACTS - state.activeContracts.length;
+  const offerableNow = state.offeredContracts.slice(0, slotsLeft);
+
+  // Today's market sub-header — gives contract pricing context without redundant panel
+  // Use the same farm-market-strip component as the Farm tab so the two
+  // pages render identically (mobile-aligned grid, consistent styling).
+  let marketLine = '';
+  if (state.marketFeaturedCrop) {
+    const f = CROPS[state.marketFeaturedCrop];
+    const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+    const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+    const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+    marketLine = `<div class="farm-market-strip"><span class="fm-label">Today's Market</span>` +
+      `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span><span class="fm-name">${f.name}</span><span class="fm-up">+${fPct}%</span></span>`;
+    if (s) marketLine += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span><span class="fm-name">${s.name}</span><span class="fm-down">−${sPct}%</span></span>`;
+    marketLine += '</div>';
+  }
+
+  let html = marketLine;
+  if (activeHTML) html += '<div class="contract-section-label">active</div>' + activeHTML;
+  if (state.offeredContracts.length > 0) {
+    html += '<div class="contract-section-label">today\'s offers</div>';
+    if (slotsLeft <= 0) {
+      html += '<div class="contract-pick-note">3 active — finish one to take more</div>';
+    }
+    html += state.offeredContracts.map(c => renderOfferedContractHTML(c, slotsLeft <= 0)).join('');
+  }
+  if (!html.includes('contract-section-label') && !marketLine) html = '<div class="contract-empty">no contracts right now · check back at midnight</div>';
+  else if (!html.includes('contract-section-label')) html += '<div class="contract-empty">no contracts right now · check back at midnight</div>';
+  el.innerHTML = html;
+
+  // Wire accept + reroll buttons
+  state.offeredContracts.forEach(c => {
+    const btn = document.getElementById('contractAcceptBtn_' + c.id);
+    if (btn && slotsLeft > 0) btn.onclick = () => acceptContract(c.id);
+    const rerollBtn = document.getElementById('contractRerollBtn_' + c.id);
+    if (rerollBtn) rerollBtn.onclick = () => rerollContractWithAd(c.id);
+  });
+}
+
+// Proper plural names ("3 Radishes", not "3 Radishs"; wheat/corn are mass nouns).
+const CROP_PLURALS = {
+  cress: 'Cress', radish: 'Radishes', carrot: 'Carrots', tomato: 'Tomatoes',
+  strawberry: 'Strawberries', wheat: 'Wheat', corn: 'Corn', pumpkin: 'Pumpkins',
+  sunflower: 'Sunflowers',
+};
+function cropPlural(cropKey, n) {
+  if (n === 1) return CROPS[cropKey].name;
+  return CROP_PLURALS[cropKey] || (CROPS[cropKey].name + 's');
+}
+
+function describeContract(c) {
+  if (c.template === 'deliver_n_of_x') {
+    const cd = CROPS[c.params.crop];
+    return `Deliver ${c.params.count} ${cd.emoji} ${cropPlural(c.params.crop, c.params.count)}`;
+  }
+  if (c.template === 'deliver_mixed') {
+    const parts = Object.entries(c.params.crops).map(([crop, n]) =>
+      `${n} ${CROPS[crop].emoji} ${cropPlural(crop, n)}`
+    );
+    return `Deliver ${parts.join(' + ')}`;
+  }
+  return '';
+}
+
+// Contract quality — per-tier variance-based label.
+//
+// Key insight: contract reward is BONUS on top of harvest income, not a
+// replacement. So absolute "coin/market-baseline" comparisons mislead —
+// every contract is technically profitable. The actually useful signal
+// for the player's "should I reroll?" question is "how did this contract
+// ROLL against its tier's expected reward?"
+//
+// Each tier has a deterministic expected coin formula. The actual coin
+// reward is that expected value with ±15% variance applied (silver/gold)
+// or no variance at all (bronze). Quality reflects where the rolled coin
+// sits relative to its tier's expected midpoint.
+//
+// Verified distribution (audit sim, 30k trials per tier × 3 progressions):
+//   bronze:                       100% good   (no variance, reliable)
+//   silver:  16% modest, 27% fair, 33% good, 24% great
+//   gold:                          77% good, 23% great   (pack alone = ≥good)
+//
+// Labels (modest/fair/good/great) deliberately avoid card-rarity words
+// to prevent semantic overload ("common card" = drop frequency, "common
+// contract" = bad offer — confusing). Color palette mirrors card
+// rarity (sage/moss/terracotta/gold) for visual consistency.
+function computeContractQuality(c) {
+  const coins = c.reward?.coins || 0;
+  const packs = c.reward?.packs || 0;
+
+  // Compute the tier's expected (no-variance) coin reward for this contract
+  // from the same formulas the generators use.
+  let expected = coins; // fallback if tier is unknown
+  if (c.tier === 'bronze') {
+    // Quick (12h deadline): 100 + count*35. Standard (24h): 150 + count*40.
+    const isQuick = c.params?.deadlineHours === 12;
+    expected = isQuick
+      ? 100 + (c.params?.count || 0) * 35
+      : 150 + (c.params?.count || 0) * 40;
+  } else if (c.tier === 'silver') {
+    if (c.template === 'deliver_mixed') {
+      const total = Object.values(c.params?.crops || {}).reduce((s, n) => s + n, 0);
+      expected = 460 + total * 70;
+    } else {
+      expected = 360 + (c.params?.count || 0) * 70;
+    }
+  } else if (c.tier === 'gold') {
+    expected = 1500 + (c.params?.count || 0) * 70;
+  }
+
+  const ratio = expected > 0 ? coins / expected : 1.0;
+
+  // Pack-bearing contracts (currently gold) — pack alone is the reason
+  // to accept. Coin variance roll bumps to "great" when high.
+  if (packs > 0) {
+    if (ratio >= 1.08) return { tier: 'legendary', label: 'great' };
+    return { tier: 'rare', label: 'good' };
+  }
+
+  // Coin-only — variance roll position within ±15% maps to label.
+  // 0.85 (worst possible) ↔ 1.15 (best possible). Bronze always rolls 1.0
+  // (no variance) → "good". Silver spans the full range.
+  if (ratio >= 1.08) return { tier: 'legendary', label: 'great' };
+  if (ratio >= 0.98) return { tier: 'rare',      label: 'good' };
+  if (ratio >= 0.90) return { tier: 'uncommon',  label: 'fair' };
+  return { tier: 'common', label: 'modest' };
+}
+
+function rewardLabel(reward) {
+  const parts = [`<span class="coin-icon">◉</span> +${reward.coins}`];
+  if (reward.packs > 0) parts.push(`+${reward.packs} pack`);
+  if (reward.packChance > 0 && reward.packs === 0) {
+    parts.push(`${Math.round(reward.packChance * 100)}% chance: +1 pack`);
+  }
+  return parts.join(' · ');
+}
+
+function renderActiveContractHTML(c) {
+  let progressBlock = '';
+  if (c.template === 'deliver_n_of_x') {
+    const pct = Math.min(100, Math.floor(c.progress / c.params.count * 100));
+    progressBlock = `
+      <div class="contract-progress">
+        <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
+        <div class="contract-progress-text">${c.progress}/${c.params.count}</div>
+      </div>`;
+  } else if (c.template === 'deliver_mixed') {
+    progressBlock = '<div class="contract-mixed">' + Object.entries(c.params.crops).map(([crop, target]) => {
+      const have = c.progress[crop] || 0;
+      const pct = Math.min(100, Math.floor(have / target * 100));
+      const done = have >= target;
+      return `
+        <div class="contract-mixed-row">
+          <span class="contract-mixed-icon">${CROPS[crop].emoji}</span>
+          <div class="contract-progress-bar"><div class="contract-progress-fill" style="width: ${pct}%"></div></div>
+          <span class="contract-mixed-count${done ? ' done' : ''}">${have}/${target}${done ? ' ✓' : ''}</span>
+        </div>`;
+    }).join('') + '</div>';
+  }
+  // Patient framing: no countdown, no quality-roll chip — just the request,
+  // your progress, and the reward. It waits as long as you need.
+  return `
+    <div class="contract-active ${c.tier}">
+      <div class="contract-task">${describeContract(c)}</div>
+      ${progressBlock}
+      <div class="contract-reward">${rewardLabel(c.reward)}</div>
+      <div class="contract-time">whenever you're ready</div>
+    </div>
+  `;
+}
+
+// (The old 1Hz contract-countdown ticker was removed with the deadlines —
+// patient contracts render "whenever you're ready" and never expire.)
+
+function renderOfferedContractHTML(c, locked) {
+  const rerollsLeft = MAX_DAILY_REROLLS - (state.contractRerollsUsedToday || 0);
+  const showReroll = rerollsLeft > 0;
+  return `
+    <div class="contract-offered ${c.tier}${locked ? ' locked' : ''}" data-reroll-slot="${c.id}">
+      <div class="contract-task">${describeContract(c)}</div>
+      <div class="contract-reward">${rewardLabel(c.reward)}</div>
+      <button class="btn btn-primary contract-accept-btn" id="contractAcceptBtn_${c.id}"${locked ? ' disabled' : ''}>${locked ? 'Slots full' : 'Accept'}</button>
+      ${showReroll ? `<button class="btn btn-ghost contract-reroll-btn" id="contractRerollBtn_${c.id}">↻ Ask for a different request · ${rerollsLeft} left today</button>` : ''}
+    </div>
+  `;
+}
+
+// Lifetime stats panel inside the Journal tab.
+// Renders the Achievements panel.
+// Compact by default: shows the 4 most-recently-unlocked + the 4 next-to-unlock
+// (locked-with-progress prioritized). Toggle button reveals the full list.
+let _achShowAll = false;
+function renderAchievements() {
+  const list = document.getElementById('achievementsList');
+  const counter = document.getElementById('achCounter');
+  const toggleBtn = document.getElementById('achToggleBtn');
+  if (!list) return;
+  const unlocked = state.achievements || {};
+  const total = ACHIEVEMENTS.length;
+  const owned = Object.keys(unlocked).filter(id => ACHIEVEMENTS.some(a => a.id === id)).length;
+  if (counter) counter.textContent = `${owned}/${total}`;
+
+  const annotated = ACHIEVEMENTS.map(a => {
+    const ts = unlocked[a.id];
+    const isUnlocked = !!ts;
+    let progressText = '';
+    if (!isUnlocked && a.progress) {
+      try { progressText = a.progress(state); } catch (e) { progressText = ''; }
+    }
+    return { a, isUnlocked, ts: ts || 0, progressText };
+  });
+  annotated.sort((x, y) => {
+    if (x.isUnlocked !== y.isUnlocked) return x.isUnlocked ? -1 : 1;
+    if (x.isUnlocked) return y.ts - x.ts; // recent unlock first
+    const xHas = x.progressText ? 1 : 0;
+    const yHas = y.progressText ? 1 : 0;
+    return yHas - xHas;
+  });
+
+  // Compact mode: pick a few from the front (recent unlocks) and a few from the
+  // locked-with-progress section so player sees both "what I just got" and "what's next."
+  let displayed = annotated;
+  let hiddenCount = 0;
+  if (!_achShowAll && annotated.length > 8) {
+    const unlockedRows = annotated.filter(x => x.isUnlocked).slice(0, 4);
+    const lockedRows = annotated.filter(x => !x.isUnlocked).slice(0, 4);
+    displayed = [...unlockedRows, ...lockedRows];
+    hiddenCount = annotated.length - displayed.length;
+  }
+
+  list.innerHTML = displayed.map(({ a, isUnlocked, progressText }) => `
+    <div class="ach-row ${isUnlocked ? 'unlocked' : 'locked'}">
+      <div class="ach-icon">${a.icon}</div>
+      <div class="ach-body">
+        <div class="ach-name">${a.name}</div>
+        <div class="ach-desc">${a.desc}</div>
+      </div>
+      ${isUnlocked
+        ? '<div class="ach-status unlocked">✓</div>'
+        : (progressText ? `<div class="ach-status progress">${progressText}</div>` : '<div class="ach-status">—</div>')}
+    </div>
+  `).join('');
+
+  if (toggleBtn) {
+    toggleBtn.textContent = _achShowAll ? 'Show less' : (hiddenCount > 0 ? `Show all (${hiddenCount} more)` : '');
+    toggleBtn.style.display = (hiddenCount > 0 || _achShowAll) ? '' : 'none';
+  }
+}
+
+// Lifetime stats — rich grid grouped by activity / collection / progression / meta.
+// Streak panel — current streak headline, best streak, and a row per milestone
+// showing whether it's been earned this run plus how many days remain.
+function renderStreakPanel() {
+  const el = document.getElementById('streakPanelBody');
+  if (!el) return;
+  const cur = state.daysVisited || 0;
+  const awarded = state.lastVisitedMilestone || 0;
+  const milestoneRows = STREAK_MILESTONES.map(m => {
+    const earned = awarded >= m.day;
+    const remain = Math.max(0, m.day - cur);
+    return `
+      <div class="streak-row ${earned ? 'earned' : ''}">
+        <div class="streak-row-day">Day ${m.day}</div>
+        <div class="streak-row-reward">${m.reward.rewardLabel}</div>
+        <div class="streak-row-status">${earned ? '✓ earned' : (cur >= m.day ? 'ready' : `${remain} day${remain === 1 ? '' : 's'} to go`)}</div>
+      </div>
+    `;
+  }).join('');
+  el.innerHTML = `
+    <div class="streak-headline">
+      <span class="streak-num">🌱 ${cur}</span>
+      <span class="streak-sub">${cur === 0 ? 'visit whenever you like — every day counts' : `day${cur === 1 ? '' : 's'} tended — and counting`}</span>
+    </div>
+    <div class="streak-milestones">${milestoneRows}</div>
+    <div class="streak-note">Visit whenever you like — every day you come by counts, and nothing is ever lost.</div>
+  `;
+}
+
+function renderLifetimeStats() {
+  const el = document.getElementById('lifetimeStats');
+  if (!el) return;
+  const totalCards = state.collection.reduce((s, c) => s + (c.count || 1), 0);
+  const star5 = state.collection.filter(c => (c.stars || 1) >= 5).length;
+  const legCount = state.collection.filter(c => c.rarity === 'legendary').length;
+  const mythCount = state.collection.filter(c => c.rarity === 'mythic').length;
+  const setsComplete = CARD_SETS.filter(s => s.cardIds.every(id => state.collection.some(c => c.id === id))).length;
+  const plotsUnlocked = state.plots.filter(p => !p.locked).length;
+  const upgradesOwned = (state.plotUpgrades || []).reduce((sum, ups) => sum + Object.values(ups || {}).filter(Boolean).length, 0);
+  // Aspirational max: 8 plots × 4 upgrade types = 32. Stays constant so the
+  // ratio doesn't visibly shrink/grow as the player buys plots.
+  const upgradesMax = PLOT_COSTS.length * Object.keys(PLOT_UPGRADES).length;
+  let timePlayed = '—';
+  if (state.firstPlayedAt) {
+    const ms = Date.now() - state.firstPlayedAt;
+    const days = ms / (1000 * 60 * 60 * 24);
+    timePlayed = days < 1 ? `${Math.floor(ms / (1000 * 60 * 60))}h` : `${days.toFixed(1)}d`;
+  }
+  const stats = [
+    { label: 'Days in the Garden', value: `🌱 ${state.daysVisited || 0}` },
+    { label: 'Total harvests',    value: (state.totalHarvests || 0).toLocaleString() },
+    { label: 'Tend sessions',     value: (state.tendSessionsCompleted || 0).toLocaleString() },
+    { label: 'Moments collected', value: (state.activePracticesCompleted || 0).toLocaleString() },
+    { label: 'Lifetime coins',    value: `<span class="coin-icon">◉</span> ${(state.lifetimeCoins || 0).toLocaleString()}` },
+    { label: 'Boon picks taken',  value: (state.totalPicksTaken || 0).toLocaleString() },
+    { label: 'Lucky harvests',    value: (state.luckyHarvests || 0).toLocaleString() },
+    { label: 'Time played',       value: timePlayed },
+    { label: 'Unique cards',      value: `${state.collection.length} / ${PERMA_POOL.length}` },
+    { label: 'Cards owned (any)', value: totalCards.toLocaleString() },
+    { label: 'Legendaries',       value: legCount },
+    { label: 'Mythics',           value: mythCount },
+    { label: '★5 cards',          value: star5 },
+    { label: 'Sets complete',     value: `${setsComplete} / ${CARD_SETS.length}` },
+    { label: 'Plots unlocked',    value: `${plotsUnlocked} / 8` },
+    { label: 'Plot upgrades',     value: `${upgradesOwned} / ${upgradesMax}` },
+    { label: 'Packs opened',      value: (state.packsOpened || 0).toLocaleString() },
+    { label: 'Contracts done',    value: (state.contractsCompleted || 0).toLocaleString() },
+  ];
+  el.innerHTML = stats.map(s =>
+    `<div class="lifetime-cell"><span class="lifetime-label">${s.label}</span><span class="lifetime-value">${s.value}</span></div>`
+  ).join('');
+}
+
+// "The Garden Remembers" — narrative continuity from the wellness redesign.
+// Reflective entries gathered from firsts (first calm, first Midnight Bloom)
+// and milestones (harmony thresholds, lifetime tending). Turns mindfulness
+// into memory instead of XP.
+function renderJournalEntries() {
+  const el = document.getElementById('journalEntriesList');
+  if (!el) return;
+  const entries = state.journalEntries || [];
+  if (entries.length === 0) {
+    el.innerHTML = `<div class="journal-empty">Tend the garden, harvest with care, and return often — its story will gather here.</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(e => `<div class="journal-entry">${e.text}</div>`).join('');
+}
+
+// The "Today" strip — the day's mood (pure ambiance). Tappable so its purpose
+// ("nothing to manage") is one tap away, never a mystery.
+function renderDailyMomentStrip() {
+  const weatherSheet = () => openGardenSheet({
+    icon: '🌤️',
+    title: "Today's weather",
+    body: `<p>Just the day's mood — the farm's weather, nothing to manage. Some days simply feel different.</p>`,
+  });
+  const el = document.getElementById('todayMomentStrip');
+  if (el) {
+    if (!state.dailyMomentText) { el.hidden = true; }
+    else {
+      el.hidden = false;
+      el.innerHTML = `<span class="tm-label">Today ·</span> <span class="tm-text">${state.dailyMomentText}</span>`;
+      el.style.cursor = 'pointer';
+      el.onclick = weatherSheet;
+    }
+  }
+  // The same mood line lives ON the yard, under the sky — the day's weather
+  // belongs in the world, not only in the journal.
+  const yardLine = document.getElementById('yardMomentLine');
+  if (yardLine) {
+    if (!state.dailyMomentText) { yardLine.hidden = true; }
+    else {
+      yardLine.hidden = false;
+      yardLine.textContent = state.dailyMomentText;
+      yardLine.onclick = weatherSheet;
+    }
+  }
+  // …and the weather PAINTS the scene: mist banks, rain in the air, golden
+  // light, the robin on the fence. (Old saves without a key just get a clear
+  // day until the next midnight roll.)
+  const yard = document.getElementById('farmYard');
+  if (yard) yard.dataset.weather = state.dailyMomentKey || '';
+}
+
+// Updates tab-bar badges based on what needs attention.
+function renderTabBadges() {
+  const cardsB = document.getElementById('tabBadgeCards');
+  if (cardsB) {
+    if (state.pendingPacks > 0) {
+      cardsB.hidden = false;
+      cardsB.textContent = state.pendingPacks;
+    } else {
+      cardsB.hidden = true;
+    }
+  }
+  const contractsB = document.getElementById('tabBadgeContracts');
+  if (contractsB) {
+    const offered = (state.offeredContracts || []).length;
+    if (offered > 0) {
+      contractsB.hidden = false;
+      contractsB.textContent = offered;
+    } else {
+      contractsB.hidden = true;
+    }
+  }
+  // Farm tab: two distinct badges so the player can tell at a glance whether
+  // they have crops to collect, boons to choose, or both.
+  //   - tabBadgeFarmReady (right side, terracotta) → plots ready to harvest
+  //   - tabBadgeFarmBoon  (left side, gold)        → boon picks pending
+  const farmReady = state.plots.filter(p => !p.locked && p.crop && p.elapsedMs >= p.totalMs).length;
+  const readyB = document.getElementById('tabBadgeFarmReady');
+  if (readyB) {
+    if (farmReady > 0) { readyB.hidden = false; readyB.textContent = farmReady; }
+    else readyB.hidden = true;
+  }
+  const farmBoons = totalAvailablePicks();
+  const boonB = document.getElementById('tabBadgeFarmBoon');
+  if (boonB) {
+    if (farmBoons > 0) { boonB.hidden = false; boonB.textContent = farmBoons; }
+    else boonB.hidden = true;
+  }
+}
+
+// Farm tab market strip — slim "Today's Market" line above the plot grid.
+// Hidden until the first market rotation has produced a featured crop.
+function renderFarmMarket() {
+  const el = document.getElementById('farmMarketStrip');
+  if (!el) return;
+  rotateMarketIfNewDay();
+  if (!state.marketFeaturedCrop) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const f = CROPS[state.marketFeaturedCrop];
+  const s = state.marketSaturatedCrop ? CROPS[state.marketSaturatedCrop] : null;
+  const fPct = Math.round((MARKET_FEATURED_BONUS - 1) * 100);
+  const sPct = Math.round((1 - MARKET_SATURATED_PENALTY) * 100);
+  let html = `<span class="fm-label">Today's Market</span>` +
+    `<span class="fm-pair"><span class="fm-emoji">${f.emoji}</span><span class="fm-name">${f.name}</span><span class="fm-up">+${fPct}%</span></span>`;
+  if (s) html += `<span class="fm-pair"><span class="fm-emoji">${s.emoji}</span><span class="fm-name">${s.name}</span><span class="fm-down">−${sPct}%</span></span>`;
+  el.innerHTML = html;
+  el.hidden = false;
+}
+
+// Boon FAB — pulses in bottom-right when there are pending picks.
+// Shared across all tabs; tap opens first plot with picks.
+function renderBoonFab() {
+  const fab = document.getElementById('boonFab');
+  if (!fab) return;
+  const totalPicks = totalAvailablePicks();
+  if (totalPicks > 0) {
+    document.getElementById('boonFabCount').textContent = totalPicks;
+    fab.hidden = false;
+    fab.setAttribute('aria-hidden', 'false');
+  } else {
+    fab.hidden = true;
+    fab.setAttribute('aria-hidden', 'true');
+  }
+}
+
+// Tend FAB — visible on the Farm tab. Breathing is always available (real
+// mindfulness doesn't gate itself) and always opens a Calm State. The little
+// badge now glows while a Calm State is active rather than counting down a cap.
+function renderTendFab() {
+  const fab = document.getElementById('tendFab');
+  const countEl = document.getElementById('tendFabCount');
+  if (!fab) return;
+  const onFarmTab = (state.activeTab || 'farm') === 'farm';
+  const show = onFarmTab;
+  if (show) {
+    // No daily cap anymore — the badge is a quiet "calm is active" glow, not a
+    // number. Shows a soft check while the post-breath window is open.
+    if (countEl) {
+      if (isCalmState()) {
+        countEl.textContent = '✦';
+        countEl.hidden = false;
+        countEl.style.cursor = 'pointer';
+        countEl.title = 'A calm is active — tap to learn';
+        countEl.onclick = (e) => { e.stopPropagation(); openCalmSheet(); };
+        // One-time soft pulse the first time a calm ever opens — teaches the tap.
+        if (!(state.journalSeen || {}).firstpulse_calm) {
+          if (!state.journalSeen) state.journalSeen = {};
+          state.journalSeen.firstpulse_calm = true;
+          countEl.classList.add('calm-first-pulse');
+        }
+      } else {
+        countEl.hidden = true;
+      }
+    }
+    fab.hidden = false;
+    fab.setAttribute('aria-hidden', 'false');
+    // When the Boon FAB is also showing, stack Tend above it (mobile CSS).
+    // When Boon FAB is hidden, drop Tend to the natural FAB position so it
+    // doesn't float oddly high on its own.
+    const boonFab = document.getElementById('boonFab');
+    const boonShowing = boonFab && !boonFab.hidden;
+    fab.classList.toggle('stacked', boonShowing);
+  } else {
+    fab.hidden = true;
+    fab.setAttribute('aria-hidden', 'true');
+  }
+}
+
+// Today panel (top of Journal tab) — harvests + coins earned today.
+function renderTodayPanel() {
+  const el = document.getElementById('todayPanelBody');
+  if (!el) return;
+  rotateTodayIfNewDay();
+  const tH = state.todayHarvests || 0;
+  const tC = state.todayCoins || 0;
+  if (tH === 0 && tC === 0) {
+    el.innerHTML = '<span class="today-empty">no harvests yet today</span>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="today-stat"><span class="today-num">${tH}</span><span class="today-label">harvest${tH === 1 ? '' : 's'}</span></div>
+    <div class="today-stat"><span class="today-num coin">${fmtMoney(tC)}</span><span class="today-label">earned</span></div>
+  `;
+}
+
+
+// Slow Ferment ticks every 5 real-seconds past ripeness, capped at 20 ticks (+160%)
+function getFermentBonusText(plot) {
+  if (!plot || !plot.flags || !plot.flags.skillFerment) return '';
+  if (!isReady(plot)) return '+0%';
+  const overripeMs = plot.elapsedMs - plot.totalMs;
+  const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+  const ticks = Math.max(0, Math.floor(overripeRealSec / 5));
+  if (ticks >= 20) return 'MAX +160%';
+  return `+${ticks * 8}%`;
+}
+
+// Format overripe time as "0:47 past ripe" / "1:23 past ripe" — used by
+// timing-sensitive buffs so the player can SEE the clock running.
+function fmtOverripeSec(realSec) {
+  const s = Math.max(0, Math.floor(realSec));
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
+}
+
+// The "ready" label on a plot. Default is "ready to harvest", but when a
+// time-sensitive buff is active we replace it with live ticker text so the
+// player can see the mechanic happen:
+//  - skillFerment: "ready · 0:47 past ripe" (rewards waiting)
+//  - skillWindow10: "ready · 7s window left" / "ready · window closed"
+function readyLabelForPlot(plot) {
+  if (!plot || !isReady(plot)) return 'ready to harvest';
+  const overripeMs = plot.elapsedMs - plot.totalMs;
+  const overripeRealSec = overripeMs / Math.max(1, state.speed) / 1000;
+  if (plot.flags && plot.flags.skillWindow10) {
+    const left = PEAK_RIPENESS_WINDOW_SEC - overripeRealSec;
+    if (left > 0) return `ready · ${Math.ceil(left)}s window left`;
+    return 'ready · window closed';
+  }
+  if (plot.flags && plot.flags.skillFerment) {
+    return `ready · ${fmtOverripeSec(overripeRealSec)} past ripe`;
+  }
+  return 'ready to harvest';
+}
+
+// Compact form for the 100px bed face — the full sentence belongs to the
+// peek sheet; the chip just needs "✓" plus the one live number that matters.
+function faceReadyLabel(plot) {
+  if (!plot || !isReady(plot)) return 'ready';
+  const overripeRealSec = (plot.elapsedMs - plot.totalMs) / Math.max(1, state.speed) / 1000;
+  if (plot.flags && plot.flags.skillWindow10) {
+    const left = PEAK_RIPENESS_WINDOW_SEC - overripeRealSec;
+    return left > 0 ? `✓ ${Math.ceil(left)}s window` : '✓ ready';
+  }
+  if (plot.flags && plot.flags.skillFerment) return `✓ ${getFermentBonusText(plot)}`;
+  return '✓ ready';
+}
+
+// ============ THE GARDEN SCENE (drawn 3/4-view SVG world) ============
+// One illustrated piece of land. Beds are dirt patches IN it, drawn in soft
+// perspective (front row big, back rows smaller and pulled toward center);
+// each crop is a CLUSTER of plants growing in furrow rows, with the crop's
+// emoji ripening on the plants near the end. Boons paint visible effects on
+// their bed; harmony lives in the grass/flowers; dayparts tint everything
+// through the same CSS variables as the yard.
+// Rebuilt on user-action render()s only; per-frame growth + structural flips
+// go through updateBedScene()/syncBedSceneStructural() — in-place, gotcha-safe.
+let _sceneRefs = {};
+// The old card grid is display:none but still BUILT on renders (cheap,
+// action-time). Its per-FRAME updates are pure waste now (~48 full-document
+// querySelector scans/frame against an invisible subtree, per the perf
+// audit) — this flag retires that path while keeping it resurrectable.
+const LEGACY_GRID_ACTIVE = false;
+
+// Three plant silhouettes so crops differ by SHAPE, not just hue: leafy bush
+// (roots & bushes), tall stalk (grains & sunflowers), low trailing vine
+// (pumpkins & strawberries). The fruit (crop emoji) fades in as it ripens.
+const CROP_PLANT_SHAPE = {
+  wheat: 'stalk', corn: 'stalk', sunflower: 'stalk',
+  pumpkin: 'vine', strawberry: 'vine',
+  // cress/radish/carrot/tomato → bush (default)
+};
+function _scenePlantHTML(px, py, k, shape) {
+  let inner;
+  if (shape === 'stalk') {
+    inner = `
+        <path class="stem" d="M 0 0 L 0 -13"/>
+        <ellipse class="leaf" cx="-2.6" cy="-7" rx="1.9" ry="6.2" transform="rotate(-24 -2.6 -7)"/>
+        <ellipse class="leaf leaf2" cx="2.6" cy="-7" rx="1.9" ry="6.2" transform="rotate(24 2.6 -7)"/>
+        <text class="fruit" y="-13" text-anchor="middle" font-size="10.5" opacity="0">🌿</text>`;
+  } else if (shape === 'vine') {
+    inner = `
+        <path class="vinestem" d="M -7 0 q 7 -5 14 0"/>
+        <ellipse class="leaf" cx="-5.2" cy="-2.4" rx="3.5" ry="2.9"/>
+        <ellipse class="leaf leaf2" cx="5.2" cy="-2.4" rx="3.5" ry="2.9"/>
+        <ellipse class="leaf leaf3" cx="0" cy="-4.4" rx="3" ry="2.5"/>
+        <text class="fruit" y="-1.5" text-anchor="middle" font-size="12" opacity="0">🌿</text>`;
+  } else {
+    inner = `
+        <ellipse class="leaf" cx="-3.4" cy="-4" rx="3.6" ry="7.4" transform="rotate(-30 -3.4 -4)"/>
+        <ellipse class="leaf leaf2" cx="3.4" cy="-4" rx="3.6" ry="7.4" transform="rotate(30 3.4 -4)"/>
+        <ellipse class="leaf leaf3" cx="0" cy="-6.4" rx="3.1" ry="8.2"/>
+        <text class="fruit" y="-9" text-anchor="middle" font-size="11" opacity="0">🌿</text>`;
+  }
+  return `
+    <g class="plant p${k}" data-px="${px}" data-py="${py}">
+      <g class="plant-inner">${inner}
+      </g>
+    </g>`;
+}
+
+function renderGardenScene() {
+  const wrap = document.getElementById('sceneWrap');
+  if (!wrap) return;
+  _sceneRefs = {};
+  const firstLockedIdx = state.plots.findIndex(p => p.locked);
+  const visible = state.plots.filter((p, i) => !p.locked || i === firstLockedIdx);
+  const rows = Math.max(1, Math.ceil(visible.length / 3));
+  const H = 64 + rows * 88 + 22;
+  const ROW_SCALE = [1, 0.88, 0.78];
+
+  let beds = '';
+  // tap targets live in their OWN layer, built in plot order — so keyboard
+  // tabbing walks bed 1→2→3 even though the art renders back-row-first
+  const hits = [];
+  // back rows first so the front row overlaps them (painter's order)
+  const ordered = visible.map((p, k) => ({ p, k })).sort((a, b) => Math.floor(b.k / 3) - Math.floor(a.k / 3));
+  for (const { p, k } of ordered) {
+    const i = p.id;
+    const r = Math.floor(k / 3), c = k % 3;
+    const sc = ROW_SCALE[Math.min(r, 2)];
+    const colX = [64, 180, 296][c];
+    const cx = 180 + (colX - 180) * (1 - r * 0.1);
+    const cy = H - 48 - r * 88;
+    // chips counter-scale so their text stays constant screen-size on back rows
+    const cs = (1 / sc).toFixed(3);
+    const quad = 'M -42 -28 L 42 -28 L 54 28 L -54 28 Z';
+    const furrows = [-12, 2, 16].map(y => `<path class="furrow" d="M -${44 - (y < 0 ? 6 : 0)} ${y} q ${44} 4 ${88 - (y < 0 ? 12 : 0)} 0"/>`).join('');
+
+    if (p.locked) {
+      const cost = PLOT_COSTS[i];
+      beds += `
+        <g class="bed locked" data-bedid="${i}" transform="translate(${cx} ${cy}) scale(${sc})">
+          <path class="grasspatch" d="${quad}"/>
+          <g class="sign">
+            <rect x="-2" y="-14" width="4" height="22" rx="1.5" class="sign-post"/>
+            <rect x="-30" y="-30" width="60" height="20" rx="4" class="sign-board"/>
+            <text y="-16" text-anchor="middle" font-size="11" class="sign-text">◉ ${fmtMoney(cost)}</text>
+          </g>
+        </g>`;
+      hits[k] = `<rect class="bed-hit" transform="translate(${cx} ${cy}) scale(${sc})" x="-58" y="-34" width="116" height="78" tabindex="0" role="button" data-plotid="${i}"
+        aria-label="unclaimed bed — costs ${fmtMoney(cost)} coins, press to open the soil"/>`;
+      continue;
+    }
+
+    const crop = p.crop ? CROPS[p.crop] : null;
+    const prog = crop ? progressOf(p) : 0;
+    const ready = crop ? isReady(p) : false;
+    const picks = crop ? picksAvailable(p) : 0;
+    const effYield = crop ? p.yieldMult * getPermaYieldMultForPlot(i) : 1;
+    // boon effects, visible on the bed
+    const buffs = p.activeBuffs || [];
+    const hasRain = buffs.some(b => b.timeMult && b.timeMult < 1);
+    const hasSun = buffs.some(b => b.yieldMult && b.yieldMult > 1);
+    const hasGamble = buffs.some(b => b.archetype === 'gamble');
+    const topRarity = buffs.some(b => b.rarity === 'mythic') ? 'mythic' : buffs.some(b => b.rarity === 'legendary') ? 'legendary' : '';
+    // plant cluster: 6 plants in two furrow rows (back row smaller), shaped
+    // by the crop (bush / tall stalk / trailing vine)
+    const shape = crop ? CROP_PLANT_SHAPE[p.crop] : null;
+    const spots = [[-28, -11, 0.86], [0, -11, 0.86], [28, -11, 0.86], [-33, 9, 1], [0, 9, 1], [33, 9, 1]];
+    const plants = crop ? `<g class="plants">${spots.map(([px, py, ps], n) => _scenePlantHTML(px, py, n, shape)).join('')}</g>` : '';
+    // boon weather must be SEEN from across the yard, not squinted at.
+    // (The staggered SECOND group renders on front-row beds only — back rows
+    // at 0.78-0.88 scale can't show the offset anyway, and it caps the
+    // worst-case animation count.)
+    const fxRain = hasRain ? `
+      <g class="fx-rain"><circle cx="-26" cy="-40" r="1.8"/><circle cx="-4" cy="-46" r="1.5"/><circle cx="18" cy="-39" r="1.8"/></g>
+      ${sc === 1 ? `<g class="fx-rain fx-rain-b"><circle cx="-14" cy="-44" r="1.5"/><circle cx="8" cy="-38" r="1.8"/><circle cx="28" cy="-45" r="1.4"/></g>` : ''}` : '';
+    // rays as well as the halo — gold-on-gold soil (dawn/golden) hid the halo alone
+    const fxSun = hasSun ? `<g class="fx-sun-g"><ellipse class="fx-sun" cx="0" cy="-4" rx="50" ry="26"/><path class="fx-sun-rays" d="M -56 -16 l -10 -5 M 56 -16 l 10 -5 M -42 -28 l -8 -10 M 42 -28 l 8 -10 M 0 -35 l 0 -11"/></g>` : '';
+    const fxGamble = hasGamble ? `<text class="fx-gamble" x="40" y="-20" font-size="10">✦</text>${sc === 1 ? `<text class="fx-gamble fx-gamble-b" x="-42" y="-14" font-size="8">✦</text>` : ''}` : '';
+    // dew beads live ON the plants (scene-level dots were invisible at 375px)
+    const bedDew = crop ? `<g class="bed-dew"><circle cx="-27" cy="-15" r="1.4"/><circle cx="1" cy="-17" r="1.2"/><circle cx="32" cy="4" r="1.4"/><circle cx="-12" cy="6" r="1.1"/></g>` : '';
+    const aura = topRarity ? `<ellipse class="aura" cx="0" cy="-2" rx="50" ry="27" fill="url(#${topRarity === 'mythic' ? 'auraMythic' : 'auraGold'})"/>` : '';
+
+    const isPerfect = ready && effYield >= 5.0;
+    beds += `
+      <g class="bed ${ready ? 'ready' : ''} ${crop ? 'growing' : 'empty'} ${topRarity} ${isPerfect ? 'perfect' : ''}" data-bedid="${i}" ${crop ? `data-crop="${p.crop}"` : ''} transform="translate(${cx} ${cy}) scale(${sc})">
+        <ellipse class="under-glow" cx="0" cy="6" rx="58" ry="32"/>
+        <path class="bed-shadow" d="${quad}" transform="translate(3 4)"/>
+        <path class="dirt" d="${quad}"/>
+        ${furrows}
+        <circle class="speck" cx="-30" cy="-18" r="1"/><circle class="speck" cx="24" cy="-4" r="1.2"/><circle class="speck" cx="-14" cy="22" r="1"/><circle class="speck" cx="40" cy="20" r="1.1"/>
+        ${crop ? '' : `<text class="plus" y="8" text-anchor="middle" font-size="22">＋</text>`}
+        ${aura}
+        ${fxSun}
+        ${plants}
+        ${bedDew}
+        ${fxRain}
+        ${fxGamble}
+        <text class="perfect-star" y="-28" text-anchor="middle" font-size="14">✨</text>
+        ${crop ? `
+        <g class="chip time-chip" transform="translate(0 ${40 * sc < 36 ? 36 : 40}) scale(${cs})">
+          <rect x="-36" y="-9" width="72" height="15" rx="7.5"/>
+          <text y="2.5" text-anchor="middle" font-size="9" class="chip-text"></text>
+        </g>` : ''}
+        ${crop && Math.abs(effYield - 1) > 0.005 ? `
+        <g class="chip yield-chip" transform="translate(34 -30) scale(${cs})">
+          <rect x="-19" y="-8" width="38" height="14" rx="7"/>
+          <text y="2.5" text-anchor="middle" font-size="8.5" class="chip-text">×${effYield.toFixed(2)}</text>
+        </g>` : ''}
+        <text class="pip pip-boon ${picks > 0 ? 'on' : ''}" x="-44" y="-30" font-size="12">⭐</text>
+        <text class="pip pip-contract ${crop && isCropWantedByContract(p.crop) ? 'on' : ''}" x="44" y="34" font-size="12">📜</text>
+      </g>`;
+    hits[k] = `<rect class="bed-hit" transform="translate(${cx} ${cy}) scale(${sc})" x="-58" y="-40" width="116" height="86" tabindex="0" role="button" data-plotid="${i}"
+      aria-label="${!crop ? `bed ${i + 1} — tilled and waiting, press to plant`
+        : ready ? `bed ${i + 1} — ${crop.name} ready, press to harvest`
+        : `bed ${i + 1} — ${crop.name} growing, press for details`}"/>`;
+  }
+
+  // the land itself: grass with a soft horizon curve, a worn path along the
+  // top (where the lane stands), grass tufts, harmony wildflowers + butterfly
+  wrap.innerHTML = `
+  <svg id="gardenScene" viewBox="0 0 360 ${H}" preserveAspectRatio="xMidYMid meet" aria-label="your garden">
+    <defs>
+      <radialGradient id="soilGrad" cx="50%" cy="30%" r="80%">
+        <stop offset="0%" style="stop-color: var(--soil-1)"/>
+        <stop offset="100%" style="stop-color: var(--soil-2)"/>
+      </radialGradient>
+      <linearGradient id="grassGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" style="stop-color: var(--yard-top)"/>
+        <stop offset="100%" style="stop-color: var(--yard-bot)"/>
+      </linearGradient>
+      <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.55)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
+      </radialGradient>
+      <radialGradient id="sunFxGrad" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.45)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
+      </radialGradient>
+      <linearGradient id="goldWash" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.35)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0.05)"/>
+      </linearGradient>
+      <linearGradient id="calmWash" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(232,168,124,0.06)"/>
+        <stop offset="100%" stop-color="rgba(232,168,124,0.40)"/>
+      </linearGradient>
+      <radialGradient id="auraGold" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(244,193,71,0.40)"/>
+        <stop offset="100%" stop-color="rgba(244,193,71,0)"/>
+      </radialGradient>
+      <radialGradient id="auraMythic" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(157,111,211,0.42)"/>
+        <stop offset="100%" stop-color="rgba(157,111,211,0)"/>
+      </radialGradient>
+    </defs>
+    <path class="land" d="M 0 26 Q 180 8 360 26 L 360 ${H} L 0 ${H} Z"/>
+    <path class="dirt-path" d="M 0 30 Q 180 14 360 30 L 360 44 Q 180 30 0 44 Z"/>
+    <g class="fence">
+      ${Array.from({ length: 14 }, (_, n) => { const x = 8 + n * 26.5; const y = 24 - Math.round(8 * Math.sin(Math.PI * (x / 360))); return `<rect x="${x}" y="${y - 13}" width="2.6" height="14" rx="1.2"/>`; }).join('')}
+      <path class="fence-rail" d="M 0 16 Q 180 0 360 16"/>
+      <path class="fence-rail" d="M 0 22 Q 180 6 360 22"/>
+    </g>
+    <g class="tufts">
+      <path class="tuft" d="M 24 ${H - 16} q 2 -8 4 0 q 2 -10 4 0 q 2 -7 4 0"/>
+      <path class="tuft" d="M 318 ${H - 22} q 2 -8 4 0 q 2 -10 4 0 q 2 -7 4 0"/>
+      <path class="tuft" d="M 176 ${H - 10} q 2 -7 4 0 q 2 -9 4 0"/>
+    </g>
+    <g class="wildflowers wf-a"><text x="36" y="60" font-size="9">🌼</text><text x="322" y="74" font-size="8">🌼</text></g>
+    <g class="wildflowers wf-b"><text x="300" y="${H - 14}" font-size="9">🌸</text><text x="58" y="${H - 30}" font-size="8">🌼</text><text x="190" y="56" font-size="8">🌸</text></g>
+    <text class="butterfly" x="120" y="64" font-size="10">🦋</text>
+    <text class="weather-robin" x="252" y="12" font-size="10">🐦</text>
+    ${beds}
+    ${hits.join('')}
+    <g class="weather-rain-sky">
+      <g class="rain-a">
+        ${Array.from({ length: 6 }, (_, n) => { const x = 20 + n * 60 + (n % 3) * 9; const y = 30 + (n % 3) * (H / 4); return `<line x1="${x}" y1="${y}" x2="${x - 2.5}" y2="${y + 10}"/>`; }).join('')}
+      </g>
+      <g class="rain-b">
+        ${Array.from({ length: 6 }, (_, n) => { const x = 48 + n * 58 + (n % 2) * 13; const y = 50 + (n % 3) * (H / 4.5); return `<line x1="${x}" y1="${y}" x2="${x - 2.5}" y2="${y + 10}"/>`; }).join('')}
+      </g>
+    </g>
+    <g class="weather-fog">
+      <ellipse class="fog1" cx="110" cy="${Math.round(H * 0.55)}" rx="130" ry="17"/>
+      <ellipse class="fog2" cx="265" cy="${Math.round(H * 0.72)}" rx="140" ry="19"/>
+    </g>
+    <rect class="weather-warm" x="0" y="0" width="360" height="${H}" fill="url(#goldWash)"/>
+    <rect class="calm-wash" x="0" y="0" width="360" height="${H}" fill="url(#calmWash)"/>
+    <g class="calm-motes">
+      <circle class="mote m1" cx="80" cy="${Math.round(H * 0.72)}" r="2.6"/>
+      <circle class="mote m2" cx="195" cy="${Math.round(H * 0.82)}" r="2.2"/>
+      <circle class="mote m3" cx="300" cy="${Math.round(H * 0.68)}" r="2.5"/>
+      <circle class="mote m4" cx="140" cy="${Math.round(H * 0.55)}" r="2"/>
+    </g>
+  </svg>`;
+
+  // capture refs + paint initial live values through the same updaters
+  wrap.querySelectorAll('.bed').forEach(g => {
+    const i = parseInt(g.getAttribute('data-bedid') ?? g.getAttribute('data-plotid'), 10);
+    if (isNaN(i)) return;
+    const plot = state.plots[i];
+    // cache everything the per-frame updater needs — no attribute reads or
+    // querySelectors inside the rAF path
+    _sceneRefs[i] = {
+      group: g,
+      hit: wrap.querySelector(`.bed-hit[data-plotid="${i}"]`), // hits live in their own plot-ordered layer now
+      plantsCached: Array.from(g.querySelectorAll('.plant')).map(el => ({
+        el, px: el.getAttribute('data-px'), py: el.getAttribute('data-py'),
+        back: parseFloat(el.getAttribute('data-py')) < 0,
+      })),
+      fruits: Array.from(g.querySelectorAll('.fruit')),
+      timeChip: g.querySelector('.time-chip .chip-text'),
+      pipBoon: g.querySelector('.pip-boon'),
+      // a fat harvest reads at a glance: yield gently inflates the plants
+      // (baked at render — yield only changes via user actions)
+      yBoost: plot && plot.crop ? 1 + Math.min(0.22, Math.max(0, plot.yieldMult * getPermaYieldMultForPlot(i) - 1) * 0.08) : 1,
+      _lastS: null, _lastFruit: null, _lastChip: null,
+    };
+    if (plot && !plot.locked && plot.crop) updateBedScene(plot);
+  });
+}
+
+// per-frame growth: plants scale with progress, fruits ripen in, chip ticks.
+// Every write is guarded by a last-value cache — the scale string quantizes
+// to 3 decimals and the chip changes ~1×/sec, so most frames write NOTHING
+// (the QA panel measured ~12k wasted DOM ops/sec without these guards).
+function updateBedScene(plot) {
+  const refs = _sceneRefs[plot.id];
+  if (!refs || !plot.crop) return;
+  const prog = progressOf(plot);
+  const ready = isReady(plot);
+  const s = (0.45 + Math.min(1, prog) * 0.65) * (refs.yBoost || 1);
+  const sKey = s.toFixed(3);
+  if (refs._lastS !== sKey) {
+    refs._lastS = sKey;
+    const sBack = (s * 0.86).toFixed(3);
+    for (const p of refs.plantsCached) {
+      p.el.setAttribute('transform', `translate(${p.px} ${p.py}) scale(${p.back ? sBack : sKey})`);
+    }
+  }
+  const fruitState = ready ? 2 : (prog >= 0.82 ? 1 : 0);
+  if (refs._lastFruit !== fruitState) {
+    refs._lastFruit = fruitState;
+    const emoji = CROPS[plot.crop].emoji;
+    refs.fruits.forEach(f => {
+      if (f.textContent !== emoji) f.textContent = emoji;
+      f.setAttribute('opacity', fruitState === 2 ? '1' : fruitState === 1 ? '0.85' : '0');
+    });
+  }
+  if (refs.timeChip) {
+    const t = ready ? faceReadyLabel(plot) : fmtTimeRemaining(plot.totalMs - plot.elapsedMs) + ' left';
+    if (refs._lastChip !== t) { refs._lastChip = t; refs.timeChip.textContent = t; }
+  }
+}
+
+// structural flips (ready / pick landed) — in place, never rebuilt by a timer
+function syncBedSceneStructural(plot, i, ready, picks) {
+  const refs = _sceneRefs[i];
+  if (!refs) return;
+  if (ready && !refs.group.classList.contains('ready')) {
+    refs.group.classList.add('ready');
+    // the top-decile celebration lives in the scene now, not the hidden cards
+    if (plot.yieldMult * getPermaYieldMultForPlot(i) >= 5.0) refs.group.classList.add('perfect');
+    if (refs.hit) refs.hit.setAttribute('aria-label', `bed ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`);
+  }
+  if (refs.pipBoon) refs.pipBoon.classList.toggle('on', picks > 0);
+  updateBedScene(plot);
+}
+
+// the bed anchor for floats/juice — scene only. (No hidden-card fallback: a
+// display:none node returns a zeroed rect and fires juice at the screen
+// corner — callers all guard against null.)
+function bedAnchorEl(i) {
+  return (_sceneRefs[i] && _sceneRefs[i].hit) || null;
+}
+
+// tap + keyboard routing on the scene (same three verbs as the grid)
+function _routeSceneTap(i, ev) {
+  const plot = state.plots[i];
+  if (!plot) return;
+  if (plot.locked) {
+    const cost = PLOT_COSTS[i];
+    if (state.money >= cost) buyPlot(i);
+    else showGardenToast('◉', 'Not enough coin yet', `this bed opens for ◉ ${fmtMoney(cost)}`);
+    return;
+  }
+  if (!plot.crop) { openPlantModal(i); return; }
+  if (isReady(plot)) { harvest(i, { target: bedAnchorEl(i) }); return; }
+  openPlotPeekSheet(i);
+}
+document.getElementById('sceneWrap').addEventListener('click', (e) => {
+  const hit = e.target.closest && e.target.closest('[data-plotid]');
+  if (!hit) return;
+  _routeSceneTap(parseInt(hit.getAttribute('data-plotid'), 10), e);
+});
+document.getElementById('sceneWrap').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const hit = e.target.closest && e.target.closest('[data-plotid]');
+  if (!hit) return;
+  e.preventDefault();
+  _routeSceneTap(parseInt(hit.getAttribute('data-plotid'), 10), e);
+});
+
+function render() {
+  document.getElementById('moneyValue').textContent = fmtMoney(state.money);
+
+  // Cards tab — pack-pending CTA, pack progress, lifetime totals
+  const harvestsThisCycle = state.totalHarvests % HARVESTS_PER_PACK;
+  const packCta = document.getElementById('cardsPackCtaPanel');
+  if (state.pendingPacks > 0) {
+    packCta.hidden = false;
+    document.getElementById('cardsPackCtaSub').textContent =
+      `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} waiting`;
+    document.getElementById('packProgress').textContent =
+      `${state.pendingPacks} pack${state.pendingPacks > 1 ? 's' : ''} ready · open above`;
+  } else {
+    packCta.hidden = true;
+    document.getElementById('packProgress').textContent =
+      `${harvestsThisCycle}/${HARVESTS_PER_PACK} harvests until next pack`;
+  }
+  document.getElementById('packBarFill').style.width = (harvestsThisCycle / HARVESTS_PER_PACK * 100) + '%';
+  document.getElementById('totalCollected').textContent = `${state.collection.length} boon${state.collection.length === 1 ? '' : 's'} collected`;
+  document.getElementById('totalHarvestsStat').textContent = `${state.totalHarvests} harvest${state.totalHarvests === 1 ? '' : 's'}`;
+  renderCardSets();
+  renderCardsCollection();
+  renderLifetimeStats();
+  renderStreakPanel();
+  renderAchievements();
+  renderTabBadges();
+  renderJournalEntries();
+  renderDailyMomentStrip();
+  // Subtle harmony surface — a pictorial cue (never a number) + the calm tint.
+  // Tappable: opens the plain-language explainer so the player never has to guess.
+  const hc = document.getElementById('harmonyCue');
+  if (hc) {
+    const st = harmonyStage();
+    hc.textContent = st.glyph;
+    hc.title = st.label + ' — tap to learn';
+    hc.style.cursor = 'pointer';
+    hc.onclick = openHarmonySheet;
+    hc.classList.toggle('calm', isCalmState());
+    // First-time, in-session only: a soft note the first time the garden visibly
+    // grows more alive. _lastStageIdx is seeded from the current stage on load
+    // (see init) so an existing player never gets a spurious toast on first render.
+    const idx = harmonyStageIndex();
+    if (state._lastStageIdx != null && idx > state._lastStageIdx && !(state.journalSeen || {}).first_stageup) {
+      if (!state.journalSeen) state.journalSeen = {};
+      state.journalSeen.first_stageup = true;
+      showGardenToast('🍃', 'Your garden feels a little more alive', 'tap the leaf up top to see how');
+    }
+    state._lastStageIdx = idx;
+  }
+  document.body.classList.toggle('calm-state', isCalmState());
+  // The yard reflects harmony as scenery (flowers along the fence at higher
+  // stages) — picture, never a number.
+  const yardEl = document.getElementById('farmYard');
+  if (yardEl) yardEl.dataset.harmony = harmonyStageIndex();
+
+  // Legacy card grid: display:none since the Garden Scene; building it cost
+  // roughly half of every action-render (per the perf audit). Skipped unless
+  // the legacy flag is re-enabled.
+  const grid = document.getElementById('plotsGrid');
+  grid.innerHTML = '';
+  if (LEGACY_GRID_ACTIVE) {
+  const firstLockedIdx = state.plots.findIndex(p => p.locked);
+  state.plots.forEach((plot, i) => {
+    if (plot.locked && i !== firstLockedIdx) return; // hide all locked plots except next-to-buy
+    const el = document.createElement('div');
+    el.className = 'plot';
+    el.setAttribute('data-plotid', i);
+
+    if (plot.locked) {
+      el.classList.add('locked');
+      const cost = PLOT_COSTS[i];
+      const canBuy = state.money >= cost;
+      el.innerHTML = `
+        <div class="plot-label"><span>plot ${i + 1}</span></div>
+        <div class="lock-icon">⌂ unclaimed</div>
+        <div class="lock-cost"><span class="coin-icon">◉</span> ${fmtMoney(cost)}</div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'btn ' + (canBuy ? 'btn-primary' : 'btn-secondary');
+      btn.textContent = canBuy ? 'Buy land' : 'not enough coin';
+      btn.disabled = !canBuy;
+      btn.onclick = () => canBuy && buyPlot(i);
+      el.appendChild(btn);
+    } else {
+      // Keyboard farming: the bed is the button now (face buttons are CSS-
+      // hidden), so it must be focusable and announce its verb.
+      el.tabIndex = 0;
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label', !plot.crop
+        ? `plot ${i + 1} — tilled and waiting, press to plant`
+        : isReady(plot)
+          ? `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`
+          : `plot ${i + 1} — ${CROPS[plot.crop].name} growing, press for details`);
+      // loadout strip — always shown for unlocked plots
+      const loadout = state.loadouts[i] || [];
+
+      // Build top label — includes contract symbol when this crop matches an active demand
+      const contractBadge = plot.crop && isCropWantedByContract(plot.crop)
+        ? `<span class="plot-contract-badge" role="img" aria-label="an active contract wants this crop" title="An active contract wants this crop">📜</span>`
+        : '';
+      const labelHtml = `
+        <div class="plot-label">
+          <span>${i + 1}</span>
+        </div>
+      `;
+
+      // Build loadout strip — shows crop emoji for crop-specific cards, 🌿 for general
+      const loadoutHtml = '<div class="loadout-strip" data-plotid="' + i + '" title="Click to edit loadout">' +
+        Array.from({length: MAX_PERMA_SLOTS}, (_, j) => {
+          const id = loadout[j];
+          const buff = id ? PERMA_POOL.find(b => b.id === id) : null;
+          if (!buff) return '<div class="loadout-strip-slot"><span class="slot-empty">+</span></div>';
+          const active = isBuffActiveOnPlot(buff, plot);
+          const icon = buff.cropOnly ? CROPS[buff.cropOnly].emoji : '⭐';
+          const label = buff.cropOnly ? CROPS[buff.cropOnly].name : 'general';
+          const stars = getStarsForBuff(buff.id);
+          const starBadge = stars > 1 ? `<span class="slot-stars">★${stars}</span>` : '';
+          return `<div class="loadout-strip-slot filled ${buff.rarity} ${active ? '' : 'inactive'}" title="${buff.name} · ${label} · ★${stars}${active ? '' : ' · inactive'}"><span class="slot-icon">${icon}</span>${starBadge}</div>`;
+        }).join('') +
+        '</div>';
+
+      if (!plot.crop) {
+        el.innerHTML = labelHtml + loadoutHtml + `
+          <div class="plot-empty">
+            <div class="soil-illustration"></div>
+            <div style="text-align:center; color: var(--moss); font-size: 13px;">tilled and waiting</div>
+          </div>
+        `;
+        const actions = document.createElement('div');
+        actions.className = 'plot-actions';
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-primary';
+        btn.textContent = 'Plant a Crop';
+        btn.onclick = () => openPlantModal(i);
+        actions.appendChild(btn);
+        el.appendChild(actions);
+      } else {
+        const crop = CROPS[plot.crop];
+        const prog = progressOf(plot);
+        const ready = isReady(plot);
+        const picks = picksAvailable(plot);
+        const remain = plot.totalMs - plot.elapsedMs;
+        el.classList.add('growing');
+        if (ready) el.classList.add('ready');
+        const hasMythic = plot.activeBuffs.some(b => b.rarity === 'mythic');
+        const hasLegendary = plot.activeBuffs.some(b => b.rarity === 'legendary');
+        if (hasMythic) el.classList.add('mythic-active');
+        else if (hasLegendary) el.classList.add('legendary-active');
+        // "Perfect harvest" sparkle: top-decile runs only. Optimal-AI mean is
+        // ~3.4×, so ≥5.0× actually feels rare and earned. Sparkle only fires
+        // when the player has built something genuinely standout.
+        const _perfectMult = plot.yieldMult * getPermaYieldMultForPlot(i);
+        if (ready && _perfectMult >= 5.0) el.classList.add('perfect-harvest');
+
+        const visual = (prog < 0.25) ? crop.seedling : crop.emoji;
+        const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+        const yScale = visualScale(effectiveYield);
+        // Continuous growth: the plant scales smoothly with progress (0.55 → 1.05)
+        // instead of snapping between four fixed sizes. updatePlotTick keeps this
+        // moving between renders, so growth is a quiet, visible thing.
+        const stageScale = 0.55 + Math.min(1, prog) * 0.5;
+        const finalScale = yScale * stageScale;
+        const glowAmount = Math.max(0, effectiveYield - 1.5) * 6;
+
+        el.innerHTML = labelHtml + loadoutHtml + `
+          ${contractBadge}
+          <span class="bed-pip pip-boon" role="img" aria-label="a boon pick is waiting" title="a boon pick is waiting"${picks > 0 ? '' : ' hidden'}>⭐</span>
+          <div class="crop-header">
+            <div class="crop-name">${crop.name}</div>
+            <div class="yield-mult" role="img" aria-label="yield multiplier ${effectiveYield.toFixed(2)} times">×${effectiveYield.toFixed(2)}</div>
+          </div>
+          <div class="growth-display">
+            <div class="crop-visual-wrap ${ready ? 'ready-tap' : ''}" data-plotid="${i}">
+              <div class="crop-visual" style="transform: translate(-50%, -50%) scale(${finalScale}); filter: drop-shadow(0 ${4 + glowAmount}px ${8 + glowAmount * 2}px rgba(244,193,71,${Math.min(0.6, (effectiveYield - 1) * 0.25)}));">${visual}</div>
+            </div>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" style="width: ${prog * 100}%"></div>
+          </div>
+          <div class="plot-info">
+            <span>${ready ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left'}</span>
+            <span>${plot.picksTaken}/${plot.totalPicks} picked</span>
+          </div>
+          ${(() => {
+            // Show "next boon in Xm" line ONLY when there's a future pick to wait for
+            // and there isn't already an available pick (in which case the FAB is the
+            // priority message).
+            if (ready || picks > 0) return '';
+            const ms = msUntilNextPick(plot);
+            if (ms == null) return '';
+            return `<div class="plot-next-boon">next boon in ${fmtTimeRemaining(ms)}</div>`;
+          })()}
+          <div class="active-buffs">
+            ${plot.activeBuffs.map(b => {
+              const extra = b.id === 'ferment' ? ` <span class="ferment-bonus" data-plotid="${i}">${getFermentBonusText(plot)}</span>` : '';
+              let outcome = '';
+              if (b._outcome) {
+                const isMiss = String(b._outcome).includes('miss') || String(b._outcome).startsWith('−');
+                const fresh = (Date.now() - (b._appliedAt || 0)) < 2000;
+                outcome = ` <span class="buff-outcome ${isMiss ? 'miss' : 'hit'}${fresh ? ' fresh' : ''}">${b._outcome}</span>`;
+              }
+              // Tooltip: tap-and-hold on mobile, hover on desktop. Strips
+              // HTML tags from desc since title= can't render them.
+              const tip = (b.desc || '').replace(/<[^>]+>/g, '');
+              return `<span class="buff-chip ${b.rarity}" title="${tip}">${b.name}${outcome}${extra}</span>`;
+            }).join('')}
+          </div>
+        `;
+
+        const actions = document.createElement('div');
+        actions.className = 'plot-actions';
+
+        if (picks > 0) {
+          const pickBtn = document.createElement('button');
+          pickBtn.className = 'btn btn-pick pulse';
+          pickBtn.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+          pickBtn.onclick = () => openBuffModal(i);
+          actions.appendChild(pickBtn);
+        }
+
+        if (ready) {
+          const hb = document.createElement('button');
+          hb.className = 'btn btn-harvest';
+          const expectedYield = Math.floor(crop.baseYield * effectiveYield);
+          hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expectedYield})`;
+          hb.onclick = (ev) => harvest(i, ev);
+          actions.appendChild(hb);
+        }
+
+        el.appendChild(actions);
+      }
+
+      // attach handler to loadout strip synchronously
+      const strip = el.querySelector('.loadout-strip');
+      if (strip) strip.onclick = () => openLoadoutModal(i);
+      // Tap the crop itself to harvest it — the core verb becomes "touch the
+      // vegetable," not "press a button." (The Harvest button stays for clarity.)
+      // Keyed off the .ready-tap class (only present when ripe) to stay in scope.
+      const readyCrop = el.querySelector('.crop-visual-wrap.ready-tap');
+      if (readyCrop) readyCrop.onclick = (ev) => harvest(i, ev);
+    }
+    grid.appendChild(el);
+  });
+  } // end LEGACY_GRID_ACTIVE
+
+  // the visible farm: the drawn garden scene
+  renderGardenScene();
+  // contextual surfaces (replaced the always-on Dashboard strip)
+  renderFarmMarket();
+  refreshGardenLane();
+  renderBoonFab();
+  renderTendFab();
+  renderTodayPanel();
+  renderContract();
+
+  // mastery — grow-hours invested per crop. Curve is +0.1% per N hours
+  // (N grows by tier), and named breakpoints (Seedling → Master) give the
+  // long-tail grow-hours a visible destination.
+  const mList = document.getElementById('masteryList');
+  mList.innerHTML = '';
+  const grownEntries = Object.entries(CROPS).filter(([key]) => state.mastery[key] > 0);
+  if (grownEntries.length === 0) {
+    mList.innerHTML = '<div class="harvest-empty">harvest a crop to begin mastery</div>';
+  } else {
+    for (const [key, c] of grownEntries) {
+      const hours = state.mastery[key];
+      const bonusPct = ((masteryBonusForHours(hours) - 1) * 100).toFixed(1);
+      const tier = masteryTierForHours(hours);
+      const next = nextMasteryBreakpoint(hours);
+      const nextLine = next
+        ? `${Math.ceil(next.hours - hours).toLocaleString()}h to ${next.name}`
+        : 'top tier reached';
+      const row = document.createElement('div');
+      row.className = 'mastery-row';
+      row.innerHTML = `
+        <span class="name">${c.emoji} ${c.name} <span class="mastery-tier">${tier.name}</span></span>
+        <span style="text-align:right;">
+          <div class="count">${Math.floor(hours).toLocaleString()}h · +${bonusPct}%</div>
+          <div class="next-unlock">${nextLine}</div>
+        </span>
+      `;
+      mList.appendChild(row);
+    }
+  }
+
+  // Persist state after every meaningful render
+  saveGame();
+
+  // log
+  const log = document.getElementById('harvestLog');
+  log.innerHTML = '';
+  if (state.harvestLog.length === 0) {
+    log.innerHTML = '<div class="harvest-empty">no harvests yet</div>';
+  } else {
+    state.harvestLog.forEach(h => {
+      const e = document.createElement('div');
+      const isRecent = (h.type === 'levelup' || h.type === 'contract_complete' || h.type === 'achievement') && (Date.now() - h.t) < 2500;
+      e.className = `harvest-entry${isRecent ? ' levelup-fanfare' : ''}`;
+      if (h.type === 'levelup') {
+        e.innerHTML = `<span class="what">★ ${h.name}</span><span class="amount levelup">→ ★${h.stars}</span>`;
+      } else if (h.type === 'achievement') {
+        const rewardChip = h.rewardLabel ? ` <span class="ach-row-reward">${h.rewardLabel}</span>` : '';
+        e.innerHTML = `<span class="what">${h.icon} ${h.name}${rewardChip}</span><span class="amount levelup">achievement</span>`;
+      } else if (h.type === 'contract_complete') {
+        // Player-facing copy never names the internal tier (bronze/silver/gold).
+        // The activity row's task label (h.label) is the contract content.
+        const packBit = h.packs ? ` +${h.packs} pack` : '';
+        e.innerHTML = `<span class="what">📜 ${h.label || 'Contract complete'}</span><span class="amount contract-good">+${h.coins}${packBit}</span>`;
+      } else if (h.type === 'contract_expired') {
+        e.innerHTML = `<span class="what">📜 ${h.label || 'Contract'} expired</span><span class="amount contract-fail">—</span>`;
+      } else if (h.type === 'info') {
+        e.innerHTML = `<span class="what">${h.text}</span><span class="amount"></span>`;
+      } else {
+        // Optional: small atmospheric flavor or a "lucky" celebration.
+        // Cozy attribution: short journal-margin note about WHY the harvest
+        // performed how it did. Above-avg → top contributor; below-avg →
+        // gentle observation. Wording pulled from rotating variants.
+        const flavor = h.flavor ? `<span class="harvest-flavor">· ${h.flavor}</span>` : '';
+        let attribLine = '';
+        if (h.attribution) {
+          const a = h.attribution;
+          const ctx = { name: a.name, rarity: a.rarity, crop: a.crop || h.crop };
+          const text = pickAttribVariant(a.tone, ctx);
+          if (text) {
+            const rarityChip = a.tone === 'boon' && a.rarity
+              ? `<span class="ha-rarity ${a.rarity}">${a.rarity}</span> `
+              : '';
+            attribLine = `<span class="harvest-attribution">${rarityChip}${text}</span>`;
+          }
+        }
+        // Lucky stays gold; market bonus no longer changes the amount color
+        // (icons in the activity row already differentiate the row type).
+        const amountClass = h.lucky ? 'amount lucky' : 'amount';
+        if (h.lucky) e.classList.add('lucky-harvest');
+        e.innerHTML = `<span class="what">${CROPS[h.crop].emoji} ${CROPS[h.crop].name}${flavor}${attribLine}</span><span class="${amountClass}">+${h.amount}</span>`;
+      }
+      log.appendChild(e);
+    });
+  }
+}
+
+// ============ TICK ============
+// In-place structural restyle — replaces the old "full render() on a timer"
+// reflex that rebuilt the whole grid via innerHTML the instant a crop ripened
+// or a pick landed, eating any in-flight tap (constant at 60×/600× test
+// speeds). This updates the EXISTING card nodes only: toggles classes, swaps
+// text, creates/removes the two action buttons inside the stable
+// .plot-actions container. Full render() still runs on every user action.
+function restyleReadyPlots() {
+  state.plots.forEach((plot, i) => {
+    if (plot.locked || !plot.crop) return;
+    const ready = isReady(plot);
+    const picks = picksAvailable(plot);
+    // Legacy grid retired: structural flips go straight to the drawn scene.
+    // CRITICAL ORDER: this gate must come BEFORE any card lookup — the grid
+    // is permanently empty now, and an early `if (!el) return` here silently
+    // severed ready/pick flips from the scene (QA regression catch).
+    if (!LEGACY_GRID_ACTIVE) { syncBedSceneStructural(plot, i, ready, picks); return; }
+    const el = document.querySelector(`.plot[data-plotid="${i}"]`);
+    if (!el || el.classList.contains('locked')) return;
+    const actions = el.querySelector('.plot-actions');
+    if (!actions) return;
+
+    // --- ready flip ---
+    if (ready && !el.classList.contains('ready')) {
+      el.classList.add('ready');
+      const effectiveYield = plot.yieldMult * getPermaYieldMultForPlot(i);
+      if (effectiveYield >= 5.0) el.classList.add('perfect-harvest');
+      // Finalize the plant itself: full-grown emoji at full scale. Without
+      // this, a plot that ripens in one big-dt frame (backgrounded tab, test
+      // speed) sits "ready" showing a tiny seedling until the next render.
+      const cv = el.querySelector('.crop-visual');
+      if (cv) {
+        cv.textContent = CROPS[plot.crop].emoji;
+        cv.style.transform = `translate(-50%, -50%) scale(${(visualScale(effectiveYield) * 1.05).toFixed(4)})`;
+      }
+      const wrap = el.querySelector('.crop-visual-wrap');
+      if (wrap && !wrap.classList.contains('ready-tap')) {
+        wrap.classList.add('ready-tap');
+        wrap.onclick = (ev) => harvest(i, ev);
+      }
+      el.setAttribute('aria-label', `plot ${i + 1} — ${CROPS[plot.crop].name} ready, press to harvest`);
+      const fill = el.querySelector('.progress-fill');
+      if (fill) fill.style.width = '100%';
+      const info = el.querySelector('.plot-info');
+      if (info && info.children.length >= 1) info.children[0].textContent = faceReadyLabel(plot);
+      if (!actions.querySelector('.btn-harvest')) {
+        const hb = document.createElement('button');
+        hb.className = 'btn btn-harvest';
+        const expected = Math.floor(CROPS[plot.crop].baseYield * effectiveYield);
+        hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${expected})`;
+        hb.onclick = (ev) => harvest(i, ev);
+        actions.appendChild(hb);
+      }
+    }
+
+    // --- pick landed (tick only ever increases picks; decreases are user
+    //     actions which trigger a full render) ---
+    const pip = el.querySelector('.pip-boon');
+    if (pip) pip.hidden = picks === 0;
+    const pickBtn = actions.querySelector('.btn-pick');
+    if (picks > 0) {
+      if (!pickBtn) {
+        const pb = document.createElement('button');
+        pb.className = 'btn btn-pick pulse';
+        pb.innerHTML = `Choose Boon <span class="pick-badge">${picks}</span>`;
+        pb.onclick = () => openBuffModal(i);
+        actions.insertBefore(pb, actions.firstChild);
+      } else {
+        const badge = pickBtn.querySelector('.pick-badge');
+        if (badge) badge.textContent = picks;
+      }
+      const info = el.querySelector('.plot-info');
+      if (info && info.children.length >= 2) info.children[1].textContent = `${plot.picksTaken}/${plot.totalPicks} picked`;
+    }
+
+    // The "next boon in Xm" whisper is moot once a pick is here or the crop is ripe
+    if (ready || picks > 0) {
+      const nb = el.querySelector('.plot-next-boon');
+      if (nb) nb.remove();
+    }
+    // the drawn scene mirrors the flip (glow on, pip on, fruits in, aria)
+    syncBedSceneStructural(plot, i, ready, picks);
+  });
+}
+
+function updatePlotTick(plot) {
+  // the drawn scene grows every frame (plants scale, fruits ripen, chip ticks)
+  updateBedScene(plot);
+  _syncPeekForPlot(plot);
+  // everything below writes into the display:none card grid — retired
+  if (!LEGACY_GRID_ACTIVE) return;
+  const plotEl = document.querySelector(`.plot[data-plotid="${plot.id}"]`);
+  if (!plotEl) return;
+  const fill = plotEl.querySelector('.progress-fill');
+  if (fill) fill.style.width = (progressOf(plot) * 100) + '%';
+  // Living growth: the plant visibly grows between full renders — smooth scale
+  // with progress, and the seedling becomes the crop at 25% without waiting
+  // for a structural re-render. In-place style writes only (gotcha-safe).
+  const cv = plotEl.querySelector('.crop-visual');
+  if (cv && plot.crop && !isReady(plot)) {
+    const prog = progressOf(plot);
+    const c = CROPS[plot.crop];
+    const want = (prog < 0.25) ? c.seedling : c.emoji;
+    if (cv.textContent !== want) cv.textContent = want;
+    const yScale = visualScale(plot.yieldMult * getPermaYieldMultForPlot(plot.id));
+    cv.style.transform = `translate(-50%, -50%) scale(${(yScale * (0.55 + Math.min(1, prog) * 0.5)).toFixed(4)})`;
+  }
+  const info = plotEl.querySelector('.plot-info');
+  if (info && info.children.length >= 2) {
+    const remain = plot.totalMs - plot.elapsedMs;
+    // Compact face chip ("✓ +56%" / "✓ 12s window") — it must fit a 100px
+    // bed; the peek sheet carries the full sentence.
+    info.children[0].textContent = isReady(plot) ? faceReadyLabel(plot) : fmtTimeRemaining(remain) + ' left';
+  }
+  // live "next boon in Xm" whisper — without this it freezes at whatever
+  // render() last wrote (full renders only happen on user actions now)
+  const nb = plotEl.querySelector('.plot-next-boon');
+  if (nb) {
+    const ms = msUntilNextPick(plot);
+    if (ms == null || isReady(plot) || picksAvailable(plot) > 0) nb.remove();
+    else nb.textContent = `next boon in ${fmtTimeRemaining(ms)}`;
+  }
+  // live ferment counter
+  if (plot.flags && plot.flags.skillFerment) {
+    const fermentEl = plotEl.querySelector('.ferment-bonus');
+    if (fermentEl) fermentEl.textContent = getFermentBonusText(plot);
+  }
+}
+
+// peek-sheet sync: if this plot's sheet is open, its countdown/ferment tick
+// too, and ripening swaps the CTA to Harvest — the sheet never goes stale.
+// (Runs from updatePlotTick regardless of the legacy-grid flag.)
+function _syncPeekForPlot(plot) {
+  if (state._peekPlotId === plot.id) {
+    const pm = document.getElementById('plotPeekModal');
+    if (pm && !pm.hidden) {
+      const pt = document.getElementById('peekTime');
+      if (pt) pt.textContent = isReady(plot) ? readyLabelForPlot(plot) : fmtTimeRemaining(plot.totalMs - plot.elapsedMs) + ' left';
+      const pf = pm.querySelector('.ferment-bonus');
+      if (pf) pf.textContent = getFermentBonusText(plot);
+      const pnb = document.getElementById('peekNextBoon');
+      if (pnb) {
+        const ms = msUntilNextPick(plot);
+        if (ms == null || isReady(plot) || picksAvailable(plot) > 0) pnb.remove();
+        else pnb.textContent = `next boon in ${fmtTimeRemaining(ms)}`;
+      }
+      const pa = document.getElementById('peekActions');
+      if (pa && isReady(plot) && !pa.querySelector('.btn-harvest')) {
+        const hb = document.createElement('button');
+        hb.className = 'btn btn-harvest';
+        hb.innerHTML = `Harvest (<span class="coin-icon">◉</span> ${Math.floor(CROPS[plot.crop].baseYield * plot.yieldMult * getPermaYieldMultForPlot(plot.id))})`;
+        hb.onclick = () => {
+          const bedEl = bedAnchorEl(plot.id);
+          closeAllModals();
+          harvest(plot.id, { target: bedEl });
+        };
+        pa.appendChild(hb);
+      }
+    }
+  }
+}
+
+let _lastContractTickRender = 0;
+let _farmSceneDirty = false; // growth/flips happened while off the farm tab
+function tick(now) {
+  const dt = now - state.lastTick;
+  state.lastTick = now;
+  let structuralChange = false;
+  for (const plot of state.plots) {
+    if (plot.locked || !plot.crop) continue;
+    const before = plot.elapsedMs;
+    const wasReady = plot.elapsedMs >= plot.totalMs;
+    const wasPicks = picksAvailable(plot);
+    // Time-sensitive boons (Slow Ferment, Peak Ripeness) need elapsedMs to
+    // keep advancing past totalMs so their windows actually count down.
+    // Default plots clamp at totalMs — going past ripe doesn't matter to them.
+    if (plot.flags.skillFerment || plot.flags.skillWindow10) {
+      plot.elapsedMs += dt * state.speed;
+    } else {
+      plot.elapsedMs = Math.min(plot.totalMs, plot.elapsedMs + dt * state.speed);
+    }
+    if (plot.elapsedMs === before) continue;
+    const isNowReady = plot.elapsedMs >= plot.totalMs;
+    const nowPicks = picksAvailable(plot);
+    if (wasReady !== isNowReady || wasPicks !== nowPicks) {
+      structuralChange = true;
+    }
+    // ALWAYS run the in-place updater on the farm — including on the flip
+    // frame (an open peek sheet would otherwise freeze at "0s left" with no
+    // Harvest CTA). Off the farm tab, skip the DOM work entirely (it paints
+    // an invisible subtree) and mark the scene dirty for a catch-up pass.
+    if (state.activeTab === 'farm') updatePlotTick(plot);
+    else _farmSceneDirty = true;
+  }
+  // GOTCHA FIX: a ready-flip or pick-landing used to trigger a full render()
+  // — an innerHTML rebuild of the whole grid that ate any in-flight tap, and
+  // at 60×/600× test speed those flips are constant. Now structural changes
+  // restyle the existing cards IN PLACE; full render() only ever runs on
+  // player actions (plant/harvest/pick/buy).
+  if (structuralChange) {
+    restyleReadyPlots();
+    renderBoonFab();
+    renderTendFab();
+    renderTabBadges();
+    refreshGardenLane();
+  }
+  // Contracts-tab freshness WITHOUT rebuilding a panel the player may be
+  // mid-tap on (patient contracts have no countdowns — the old 30s rebuild
+  // was the same tap-eater class Phase 0 removed). Run the day-rollover
+  // checks directly; only re-render if they actually changed something.
+  if (state.activeTab === 'contracts' && now - _lastContractTickRender > 30000) {
+    _lastContractTickRender = now;
+    const beforeSig = (state.offeredContracts || []).map(c => c.id).join() + '|' + state.marketDayKey;
+    ensureContractOffered();
+    rotateMarketIfNewDay();
+    const afterSig = (state.offeredContracts || []).map(c => c.id).join() + '|' + state.marketDayKey;
+    if (beforeSig !== afterSig) { renderContract(); refreshGardenLane(); }
+  }
+  requestAnimationFrame(tick);
+}
+
+// Load saved game (if any). If load returns false → totally fresh state.
+const isFreshStart = !loadGame();
+applyStarMigration();
+applyMasteryHoursMigration();
+applyOneCardPerPlotMigration();
+applySpeedDefaultMigration();
+refreshSpeedButtons();
+syncSettingsLabels();
+applyTheme();
+updateDaypart();
+// Generate today's contracts up front so the badge fires regardless of which tab
+// the player lands on. Without this, fresh saves see no notification until they
+// visit the Contracts tab — a bug, not the design intent.
+const _expiriesAtInit = (state.activeContracts || []).length;
+checkContractExpiry();
+const _expiredOffline = _expiriesAtInit - (state.activeContracts || []).length;
+if (_expiredOffline > 0 && state._offlineSummary) {
+  state._offlineSummary.contractsExpiredDuringOffline = _expiredOffline;
+}
+ensureContractOffered();
+
+// First-session starter scene: a fresh player lands with plot 1 already grown,
+// ready to harvest, and 1 pack pre-pending. Their first 60 seconds become an
+// interactive demo of the loop (harvest → pack → equip → plant) without any
+// tutorial text. The "show, don't tell" approach.
+if (isFreshStart) {
+  const starterPlot = state.plots[0];
+  const radish = CROPS.radish;
+  starterPlot.crop = 'radish';
+  starterPlot.totalMs = radish.growthMs;
+  starterPlot.elapsedMs = radish.growthMs;     // 100% grown — ready button shows immediately
+  starterPlot.totalPicks = radish.pickCount;
+  starterPlot.picksTaken = radish.pickCount;   // no pending picks — keeps the first action simple
+  state.pendingPacks = 1;
+  state.firstPlayedAt = Date.now();
+}
+
+// Retroactively credit achievements for state already loaded — silent (no toast/log spam).
+checkAchievements({ silent: true });
+// Seed the harmony stage from current state so the first render() never fires a
+// spurious "your garden feels more alive" toast for an already-progressed player.
+state._lastStageIdx = harmonyStageIndex();
+// Daily streak: increments on first session of a new day, with 1-day forgiveness.
+// Must run AFTER loadGame so we can compare today's key with the saved one.
+updateDailyStreak();
+// Ensure today has a weather moment even on a same-day reload (the streak
+// path only rolls on a NEW day; the pre-weather-save migration may have
+// cleared today's so it can re-roll with a key).
+rollDailyFarmMoment();
+// Restore last active tab (defaults to Farm for fresh sessions)
+if (state.activeTab && state.activeTab !== 'farm') switchTab(state.activeTab);
+// If returning from a meaningful absence, greet the player. Consume + clear the flag.
+if (state._offlineSummary) {
+  showWelcomeBack(state._offlineSummary);
+  delete state._offlineSummary;
+}
+
+// Save before tab close
+window.addEventListener('beforeunload', saveGame);
+
+render();
+requestAnimationFrame(tick);
