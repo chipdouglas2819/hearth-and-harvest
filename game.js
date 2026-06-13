@@ -4,15 +4,19 @@
 //  Vanilla JS, no build step, no dependencies. Plain <script src> — runs at
 //  end of <body>, so the DOM above exists when the init code at the bottom runs.
 //
-//  HOW IT'S ORGANIZED (search these banners to navigate):
-//    CONFIG            — CROPS, costs, pools, tunables
-//    SOUND             — Web Audio chimes
-//    GARDEN HARMONY    — the wellness "dial" (calm state, rare events)
-//    THE GARDEN SCENE  — the drawn 3/4-view SVG farm (renderGardenScene +
-//                        updateBedScene per-frame growth + the weather/wellness layers)
-//    ACTIONS           — plant / harvest / applyBuff / buyPlot
-//    TICK              — the rAF loop; updatePlotTick (in place) + restyleReadyPlots
-//    render()          — full rebuild on USER ACTIONS ONLY (never on a timer)
+//  HOW IT'S ORGANIZED (top-to-bottom; search the "==== NAME ====" banner to jump):
+//    CONFIG · PLOT UPGRADES · DAILY MARKET · DAY/NIGHT CYCLE · DAILY STREAK ·
+//    CONTRACTS · SOUND · AMBIENT WIND · ATMOSPHERE · GARDEN HARMONY ·
+//    PLOT PEEK SHEET · THE GARDEN LANE · PERMA-BUFF POOL · CARD SETS ·
+//    ACHIEVEMENTS · STATE · UTILITY · HARVEST JUICE · PERMA-BUFF EFFECTS ·
+//    CARD STAR-LEVELING · SAVE / LOAD · DRAFTING · ACTIONS · ACTIVE PRACTICES ·
+//    COLLECTION & LOADOUT · MODALS · LOADOUT MODAL · DEBUG PANEL · THEME ·
+//    WELCOME-BACK BANNER · TABS · RENDER · THE GARDEN SCENE · TICK
+//
+//  The farm you SEE is THE GARDEN SCENE (one drawn SVG; styles in game.css under
+//  the same banner). render() rebuilds panels on USER ACTIONS only; per-frame
+//  growth + ready/pick flips go to the scene via updateBedScene /
+//  syncBedSceneStructural (TICK section) — never render().
 //
 //  THE ONE ARCHITECTURE RULE (don't break it): the per-frame tick NEVER calls
 //  render(); anything tappable is built once and updated in place, so a tap

@@ -3,6 +3,11 @@
    Loaded by farm-prototype-v6.html. Pairs with game.js (logic) + the HTML
    (markup). Major sections are marked with banner comments below; search a
    banner (e.g. "THE GARDEN SCENE", "THE YARD", "garden lane") to jump.
+   Rough top-to-bottom order: :root tokens + reset, topbar, THE YARD (sky /
+   beds / market strip), contracts, packs, loadout & card modals, stats /
+   journal, YARD SURFACE + THE GARDEN SCENE (the drawn farm — the bed shapes
+   are built in game.js, the colors/daypart/weather/harmony live here), then
+   responsive + reduced-motion at the end.
    Theming is via CSS custom properties on :root and :root[data-theme="dark"];
    the garden scene's daypart/weather/harmony states are driven by data-*
    attributes on #farmYard (see updateDaypart / refreshGardenLane in game.js).
