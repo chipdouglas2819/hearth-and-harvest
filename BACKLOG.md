@@ -119,9 +119,18 @@ the misleading comments (one CSS banner literally claimed hidden card nodes stil
 accurate top-to-bottom section indexes to both files; confirmed the "tick never calls render" rule
 holds and every `getElementById` resolves.
 
+**Robustness / footguns found (worth a quick fix):**
+- `anyModalOpen()` does `ids.some(id => !document.getElementById(id).hidden)` with **no null guard**.
+  It works today (every id exists), but if a modal is ever removed from the HTML without also being
+  removed from this list, the function throws on *every* call and silently breaks modal-gating
+  game-wide. → *Fix:* `ids.some(id => { const m = document.getElementById(id); return m && !m.hidden; })`.
+  (Same pattern is safe in `closeAllModals` because it already null-guards each lookup — make this match.)
+
 **Small latent cleanups noticed (low priority):**
 - The in-yard market strip (`#farmYard .farm-market-strip`) is given a panel style and then
-  `display:none`'d (the stall face replaced it) — the panel rule is dead. Confirm intent, remove it.
+  `display:none`'d (the stall face replaced it) — the panel rule is dead *and* `renderFarmMarket()`
+  still computes + writes into a hidden element (wasted work). Confirm intent, remove the dead rule,
+  and consider skipping the render when it's hidden.
 - `.pip-boon { top; left }` positions a DOM pip that's now an SVG node — the rule is a harmless no-op;
   fold pip placement fully into the scene drawing if you touch it.
 
